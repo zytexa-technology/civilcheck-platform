@@ -2,10 +2,8 @@
   "name": "civilcheck",
   "private": true,
   "engines": {
-    "node": "20.x",
-    "pnpm": ">=11.7.0 <12.0.0"
+    "node": "20.x"
   },
-  "packageManager": "pnpm@11.7.0",
     "scripts": {
     "dev": "pnpm -r --parallel --if-present run dev",
     "dev:api": "pnpm --filter @civilcheck/api dev",
