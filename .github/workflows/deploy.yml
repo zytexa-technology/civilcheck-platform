@@ -1,0 +1,131 @@
+# name: CI/CD
+
+# # PDF 12/20 — build + lint + test on every push/PR, deploy the API to
+# # Railway.app and trigger the Vercel builds for the admin/seller panels on
+# # every push to main. The build/test job never needs secrets; the deploy job
+# # no-ops (with a notice) until RAILWAY_TOKEN / VERCEL_DEPLOY_HOOK_* are added
+# # as repo secrets — same "unconfigured = safe no-op, never a hard failure"
+# # shape as the Razorpay/Cloudinary adapters in the API itself.
+
+# on:
+#   push:
+#     branches: [main]
+#   pull_request:
+#     branches: [main]
+
+# env:
+#   NODE_VERSION: 24
+#   PNPM_VERSION: 11
+
+# jobs:
+#   build-and-test:
+#     name: Build + test API
+#     runs-on: ubuntu-latest
+#     steps:
+#       - uses: actions/checkout@v4
+
+#       - uses: pnpm/action-setup@v4
+#         with:
+#           version: ${{ env.PNPM_VERSION }}
+
+#       - uses: actions/setup-node@v4
+#         with:
+#           node-version: ${{ env.NODE_VERSION }}
+#           cache: pnpm
+
+#       - name: Install dependencies
+#         run: pnpm install --frozen-lockfile
+
+#       - name: Compile (shared + api)
+#         run: pnpm build:api
+
+#       # The integration suite runs against the Neon dev DB (see roadmap.md Day
+#       # 7 — no separate test DB is provisioned for this pilot). Skips with a
+#       # notice, rather than failing, until DATABASE_URL is added as a secret.
+#       - name: Apply pending migrations
+#         if: ${{ secrets.DATABASE_URL != '' }}
+#         working-directory: apps/api
+#         env:
+#           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+#         run: node ../../node_modules/prisma/build/index.js migrate deploy
+
+#       - name: Run integration tests
+#         if: ${{ secrets.DATABASE_URL != '' }}
+#         env:
+#           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+#           JWT_SECRET: ${{ secrets.JWT_SECRET || 'ci-test-secret-do-not-use-in-prod' }}
+#         run: pnpm --filter @civilcheck/api test
+
+#       - name: Tests skipped (no DATABASE_URL secret configured)
+#         if: ${{ secrets.DATABASE_URL == '' }}
+#         run: echo "::warning::Skipping integration tests — add a DATABASE_URL repo secret to enable them in CI."
+
+#   build-frontends:
+#     name: Build admin + seller + buyer-web
+#     runs-on: ubuntu-latest
+#     steps:
+#       - uses: actions/checkout@v4
+
+#       - uses: pnpm/action-setup@v4
+#         with:
+#           version: ${{ env.PNPM_VERSION }}
+
+#       - uses: actions/setup-node@v4
+#         with:
+#           node-version: ${{ env.NODE_VERSION }}
+#           cache: pnpm
+
+#       - name: Install dependencies
+#         run: pnpm install --frozen-lockfile
+
+#       # apps/buyer is the Expo/React Native app — no CI-appropriate "build"
+#       # script (native builds go through EAS, out of scope here).
+#       - name: Build admin panel
+#         run: pnpm --filter @civilcheck/admin build
+
+#       - name: Build seller panel
+#         run: pnpm --filter @civilcheck/seller build
+
+#       - name: Build buyer-web
+#         run: pnpm build:buyer-web
+
+#   deploy:
+#     name: Deploy (main only)
+#     needs: [build-and-test, build-frontends]
+#     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+#     runs-on: ubuntu-latest
+#     steps:
+#       - uses: actions/checkout@v4
+
+#       # Railway.app — backend. Requires RAILWAY_TOKEN + RAILWAY_SERVICE_ID repo
+#       # secrets (see Day 6/7 carry-overs in roadmap.md; not configured yet).
+#       - name: Deploy API to Railway
+#         if: ${{ secrets.RAILWAY_TOKEN != '' && secrets.RAILWAY_SERVICE_ID != '' }}
+#         env:
+#           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+#         run: |
+#           npm install -g @railway/cli
+#           railway up --service "${{ secrets.RAILWAY_SERVICE_ID }}" --detach
+
+#       - name: Railway deploy skipped (no RAILWAY_TOKEN/RAILWAY_SERVICE_ID)
+#         if: ${{ secrets.RAILWAY_TOKEN == '' || secrets.RAILWAY_SERVICE_ID == '' }}
+#         run: echo "::warning::Skipping Railway deploy — add RAILWAY_TOKEN and RAILWAY_SERVICE_ID repo secrets to enable it."
+
+#       # Vercel — admin/seller/buyer-web. Vercel's own GitHub integration
+#       # normally deploys on push directly; these deploy hooks are a fallback
+#       # for when that integration isn't connected. One hook URL per app.
+#       - name: Trigger Vercel build — admin panel
+#         if: ${{ secrets.VERCEL_DEPLOY_HOOK_ADMIN != '' }}
+#         run: curl -fsS -X POST "${{ secrets.VERCEL_DEPLOY_HOOK_ADMIN }}"
+
+#       - name: Trigger Vercel build — seller panel
+#         if: ${{ secrets.VERCEL_DEPLOY_HOOK_SELLER != '' }}
+#         run: curl -fsS -X POST "${{ secrets.VERCEL_DEPLOY_HOOK_SELLER }}"
+
+#       - name: Trigger Vercel build — buyer-web
+#         if: ${{ secrets.VERCEL_DEPLOY_HOOK_BUYER_WEB != '' }}
+#         run: curl -fsS -X POST "${{ secrets.VERCEL_DEPLOY_HOOK_BUYER_WEB }}"
+
+#       - name: Vercel triggers skipped (no deploy hook secrets)
+#         if: ${{ secrets.VERCEL_DEPLOY_HOOK_ADMIN == '' && secrets.VERCEL_DEPLOY_HOOK_SELLER == '' && secrets.VERCEL_DEPLOY_HOOK_BUYER_WEB == '' }}
+#         run: echo "::warning::Skipping Vercel deploy hooks — add VERCEL_DEPLOY_HOOK_ADMIN/VERCEL_DEPLOY_HOOK_SELLER/VERCEL_DEPLOY_HOOK_BUYER_WEB repo secrets, or rely on Vercel's own GitHub integration instead."

@@ -1,0 +1,110 @@
+# Dependencies
+**/node_modules
+
+# Build Output
+**/dist
+.next
+.expo
+**/src/generated/
+**/generated/prisma
+**/*.tsbuildinfo
+
+# Environment Variables (keep .env.sample tracked)
+.env
+apps/*/.env
+.env.local
+.env.*.local
+
+# Firebase service-account credentials (never commit these) — matches the
+# filename patterns Firebase Console actually generates, scoped narrowly so
+# this doesn't catch unrelated JSON files elsewhere in the repo.
+*firebase-adminsdk*.json
+serviceAccountKey.json
+service-account*.json
+
+# The actual local secrets directory referenced by apps/api/.env's
+# FIREBASE_SERVICE_ACCOUNT_PATH — belt-and-suspenders alongside the filename
+# patterns above, in case the file is ever renamed within this directory.
+apps/api/secrets/
+
+# Firebase CLIENT config (not a service-account secret, but still not meant
+# to be committed — regenerate per-environment from the Firebase console).
+apps/buyer/google-services.json
+apps/buyer/GoogleService-Info.plist
+
+# Database files (SQLite)
+*.db
+*.db-journal
+
+# Winston log files
+**/logs
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+
+# Claude Code project state (local session/tooling data, not source)
+.claude/
+
+# IDEs and Editor Settings
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Package Manager Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# OS-Specific Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Prevent compiled JS/type-declaration files from ever sitting inside TS src/
+# (scoped: apps/admin & apps/seller have real .js source files)
+apps/api/src/**/*.js
+apps/api/src/**/*.js.map
+apps/api/src/**/*.d.ts
+apps/api/src/**/*.d.ts.map
+packages/*/src/**/*.js
+packages/*/src/**/*.js.map
+packages/*/src/**/*.d.ts
+packages/*/src/**/*.d.ts.map
+
+# MISCLELLANEOUS FILES AT THE TIME OF DEVELOPMENT
+# admin creds
+Admin_rows.csv
+
+# for taking notes
+notes.txt
+
+# backend plan
+backendPlan7Days.md
+
+# ts_refactoring plan
+ts_refactoring_plan.md
+
+seed.ts
+.vercel
+.env*
+# .env* above is a broad catch-all for real secret files — these templates
+# have no real values (blank `KEY=` placeholders) and exist specifically to
+# be committed, so they're carved back out. Restores the intent already
+# stated in the "Environment Variables" section above, which this broader
+# rule was silently overriding.
+!.env.sample
+!.env.example
+!apps/*/.env.sample
+!apps/*/.env.example

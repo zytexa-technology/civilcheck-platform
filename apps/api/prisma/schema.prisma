@@ -1,0 +1,1862 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── BUYERS ───────────────────────────────
+model User {
+  id           String   @id @default(uuid(7))
+  phone        String   @unique
+  name         String?
+  email        String?  @unique
+  // Email + password auth (replaces phone-OTP login — MSG91 removed).
+  // Nullable so legacy/seed rows created before this migration still load;
+  // new registrations always set it.
+  passwordHash String?
+  // Firebase phone-OTP login (additive — email+password above stays the
+  // primary/default path). Set the first time a Firebase ID token resolves
+  // to this row, by phone match; null for every buyer who has never used
+  // phone-OTP login. Never trusted as a role/permission source — only used
+  // to look the row back up.
+  firebaseUid  String?  @unique
+  // Basic Profile (Partner Module item 1.6) — City/State are mandatory at the
+  // first-login profile step (enforced by the buyer app); photo is optional.
+  city         String?
+  state        String?
+  photoUrl     String?
+  // Buyer push (PDF 12/20) — FCM device token + opt-out flag. When push is
+  // disabled or no token is on record, alert delivery falls back to SMS.
+  fcmToken     String?
+  pushEnabled  Boolean  @default(true)
+  // Production hardening — same reasoning as Admin.blocked/Seller.deletedAt:
+  // a buyer JWT is valid for 7 days regardless of DB state, so authMiddleware
+  // re-checks this on every request rather than only at login. Admin-managed
+  // (no self-service block); default false so every existing buyer keeps
+  // working with zero migration-time action needed.
+  blocked      Boolean  @default(false)
+  // SuperAdmin-only permanent account removal (soft delete — mirrors
+  // Seller.deletedAt exactly). Distinct from `blocked`: blocked is a
+  // reversible suspension, deletedAt is not meant to be undone. Every
+  // buyer-facing/auth read path that resolves a User by id/phone/email must
+  // exclude deletedAt != null rows, same as Seller already does.
+  deletedAt    DateTime?
+  createdAt    DateTime @default(now())
+
+  purchases            Purchase[]
+  alerts               Alert[]
+  specialRequests      SpecialRequest[]
+  refunds              Refund[]
+  searchQueries        SearchQuery[]
+  reportFlags          ReportFlag[]
+  paymentOrders        PaymentOrder[]
+  subscriptions        Subscription[]
+  reviews              Review[]
+  verificationRequests VerificationRequest[]
+  claims               Claim[]
+  // Financial Ledger (Phase 4B) — GROSS_PAYMENT/REFUND rows reference the buyer.
+  financialLedgerEntries FinancialLedgerEntry[]
+  // In-app inbox (Phase 4C) + AI/human support tickets.
+  notifications        Notification[]
+  supportTickets        SupportTicket[]
+  // Buyer Web social feed (Home redesign) — like/save/comment on any of the
+  // three feed sources (Listing/Property/ReporterPost), see FeedTargetType.
+  propertyLikes    PropertyLike[]
+  propertySaves    PropertySave[]
+  propertyComments PropertyComment[]
+
+  passwordResetOtps PasswordResetOtp[]
+}
+
+// ─── ADMIN ────────────────────────────────
+model Admin {
+  id        String    @id @default(uuid(7))
+  email     String    @unique
+  password  String
+  name      String
+  phone     String
+  role      AdminRole @default(SUB_ADMIN)
+  createdAt DateTime  @default(now())
+
+  // 30-min inactivity timeout (PDF 5.1). Set on login, refreshed while active,
+  // cleared on logout/expiry — null means "no active session".
+  lastActivityAt DateTime?
+
+  // Google Authenticator TOTP (PDF 5.1). Secret is written at /2fa/setup but
+  // stays inert until the admin proves possession at /2fa/enable — so a
+  // half-finished enrollment can never lock anyone out.
+  twoFactorSecret  String?
+  twoFactorEnabled Boolean @default(false)
+
+  // Admin management (Super Admin CRUD). `active` is an on/off switch a
+  // Super Admin can flip without losing the account; `blocked` is a harder
+  // stop (e.g. suspected compromise) — both are checked on every request in
+  // adminMiddleware, not just at login, so a live 7-day JWT can't outlive
+  // either state change.
+  active  Boolean @default(true)
+  blocked Boolean @default(false)
+
+  // Last accepted TOTP 30-second step — closes the replay window (a code stays
+  // valid for its ±30s tolerance). A code whose step is <= this has already
+  // been used and is refused. Enforced in adminLogin / 2fa enable / 2fa disable
+  // via otplib's `afterTimeStep`; the accepted `timeStep` is stored back here.
+  lastTotpStep Int?
+
+  // Firebase phone-OTP login — Admin-only (SUB_ADMIN/VIEWER), never SUPER_ADMIN.
+  // Unlike User/Seller this is never set by a cold-start phone login: `phone`
+  // above is not unique and admins are provisioned by a Super Admin, not
+  // self-registered, so an admin must already be authenticated via the
+  // existing email/password(+TOTP) login to link this once. Role is always
+  // read from `role` above, never inferred from Firebase.
+  firebaseUid String? @unique
+
+  passwordResetOtps PasswordResetOtp[]
+}
+
+// ─── SELLERS ──────────────────────────────
+model Seller {
+  id               String       @id @default(uuid(7))
+  phone            String       @unique
+  email            String?      @unique // login identifier (email + password auth) + KYC decision emails
+  // Email + password auth (replaces phone-OTP login — MSG91 removed).
+  passwordHash     String?
+  // Firebase phone-OTP login (additive — email+password above stays primary).
+  // Set the first time a Firebase ID token resolves to this row by phone
+  // match; null for every seller who has never used phone-OTP login. Never
+  // auto-created a Seller row on its own — registration still requires the
+  // full seller-registration form (profession, bank details, T&C).
+  firebaseUid      String?      @unique
+  name             String
+  city             String? // service area shown on the seller dashboard
+  state            String?
+  profession       Profession
+  // Professional evidence collected for EXPERT applications (Property Expert
+  // KYC hardening). Nullable/additive — Owner/Reporter never set these, and
+  // existing sellers are unaffected. licenseNumber is free text since not
+  // every profession has a formal registration number (e.g. Tehsil Expert).
+  licenseNumber     String?
+  yearsOfExperience Int?
+  // Legacy — was set automatically by the DigiLocker OAuth callback on a
+  // name match (see git history of src/lib/digilocker.ts). DigiLocker has
+  // been replaced by manual identity-document review (identityVerification*
+  // fields below); nothing writes to this column anymore. Left in place,
+  // unused, rather than dropped — existing values are historical record, not
+  // a live indicator, and removing a column from a table with real
+  // production rows is avoided by default in this codebase.
+  aadhaarVerified  Boolean      @default(false)
+  barCouncilDoc    String? // Cloudinary URL — Bar Council / CE registration certificate
+  selfieUrl        String? // Cloudinary URL — KYC selfie (PDF 6.1)
+  tcAccepted       Boolean      @default(false) // T&C checkbox (PDF 6.1 compliance)
+  digitalSignature String? // typed/drawn signature payload (PDF 6.1)
+  // Identity document verification (manual admin review — replaces
+  // DigiLocker). Independent of kycStatus above: a seller can be fully
+  // KYC-APPROVED (professional credentials, bank details, T&C) while their
+  // identity document sits PENDING or was never submitted (null status).
+  // This is a human reviewing an uploaded document, never a government/API
+  // verification claim.
+  identityDocumentUrl               String? // Cloudinary URL — the uploaded ID document
+  identityVerificationStatus        IdentityVerificationStatus? // null = not yet submitted
+  identityDocumentRejectionReason   String?
+  identityDocumentUploadedAt        DateTime?
+  identityDocumentReviewedAt        DateTime?
+  identityDocumentReviewedByAdminId String? // admin snapshot, no FK — same reasoning as AuditLog.adminId
+  bankAccount      String?
+  ifsc             String?
+  pan              String?
+  badge            Badge        @default(BRONZE)
+  kycStatus        KycStatus    @default(PENDING)
+  // Latest reason an admin gave for a REJECTED kycStatus decision — mirrors
+  // identityDocumentRejectionReason's existing pattern above. Full decision
+  // history always stays in AuditLog regardless of this field; this is only
+  // the seller-facing "why" shown on their own dashboard/KYC page. Cleared on
+  // approval; overwritten (not appended) by a new rejection.
+  kycRejectionReason String?
+  accuracyScore    Float        @default(100.0)
+  totalEarnings    Float        @default(0)
+  // Partner subtype (registration me chuna hua). Real enum, not a free
+  // string — Reporter is a valid identity value even though the Reporter
+  // feature module (content uploads, reward ledger) doesn't exist yet; the
+  // signup UI deliberately doesn't offer it until that module ships, so it
+  // can't be selected today, only set by a future admin/migration action.
+  partnerRole      PartnerRole?
+  // False Information Penalty System (PDF 10.4) — cumulative count of
+  // spot-check FAILs, never reset by unsuspend. At strikeCount >= 3 the
+  // handler suspends the seller, fines Rs. 500, and auto-refunds buyers of
+  // the listing that triggered the strike. See admin.controller.ts.
+  strikeCount      Int          @default(0)
+  // Buyer rating (PDF 7.8/16) — recalculated from Review on every new review
+  // and drives an automatic Badge recalculation (thresholds in review.service.ts).
+  // null until the seller has at least one review.
+  avgRating        Float?
+  reviewCount      Int          @default(0)
+  createdAt        DateTime     @default(now())
+
+  // Partner account deletion (Phase 4A) — a Seller row cannot be hard-deleted
+  // like Admin: Listing/Property/Review/etc. all carry a required FK to it, so
+  // a raw DELETE would violate referential integrity the moment any data
+  // exists. Soft delete instead: sellerMiddleware refuses a deletedAt account
+  // (same check as SUSPENDED kycStatus) and getAllSellers excludes it by
+  // default — but every historical row the partner ever created stays intact
+  // and attributable. No prior "account-deletion rule" existed for Seller
+  // before this; this is the one this phase establishes.
+  deletedAt        DateTime?
+
+  // Professional payout foundation (Phase 4B). Bank details for payout stay
+  // exactly where they already were (bankAccount/ifsc/pan above, unchanged) —
+  // these two are the only genuinely new fields: a future Razorpay Route
+  // Linked Account id (null until Route is actually configured — see
+  // lib/razorpayRoute.ts) and an admin-controlled payout readiness flag,
+  // independent of kycStatus (identity/professional-license KYC) since
+  // "cleared to receive money" is a different question from "cleared to do
+  // verification work."
+  razorpayLinkedAccountId String?
+  payoutEligibilityStatus PayoutEligibilityStatus @default(PENDING_ONBOARDING)
+
+  listings              Listing[]
+  specialRequests       SpecialRequest[]
+  properties            Property[]
+  notifications         Notification[]
+  subscriptions         Subscription[]
+  reviews               Review[]
+  specialRequestPayouts SpecialRequestPayout[]
+  // Verification Marketplace (Phase 3) — quotes this seller (an EXPERT) has
+  // submitted, and requests where one of those quotes won.
+  verificationQuotes    VerificationQuote[]
+  verificationRequests  VerificationRequest[]
+  // Reporter Reward Ledger (Phase 4A)
+  rewardTransactions    RewardTransaction[]
+  redeemRequests        RedeemRequest[]
+  // Reporter content posts (Reporter/Owner architecture split) — informational
+  // property-news posts, structurally separate from Property. See ReporterPost.
+  reporterPosts          ReporterPost[]
+  // Financial Ledger + Professional Payouts (Phase 4B)
+  financialLedgerEntries FinancialLedgerEntry[]
+  professionalEarnings   ProfessionalEarning[]
+  payoutRecords          ProfessionalPayoutRecord[]
+  // AI/human support tickets (Phase 4C)
+  supportTickets         SupportTicket[]
+
+  passwordResetOtps PasswordResetOtp[]
+}
+
+// ─── PROPERTY LISTINGS ────────────────────
+model Listing {
+  id                  String        @id @default(uuid(7))
+  sellerId            String
+  seller              Seller        @relation(fields: [sellerId], references: [id])
+  address             String
+  surveyNumber        String?
+  khasraNumber        String?
+  propertyType        PropertyType
+  city                String
+  tehsil              String
+  caseExists          Boolean
+  caseNumber          String?
+  caseType            CaseType?
+  caseStatus          CaseStatus?
+  courtName           String?
+  partiesInvolved     String?
+  loanDefault         Boolean       @default(false)
+  lenderName          String?
+  latitude            Float? // geospatial pin (PDF 7.3)
+  longitude           Float? // geospatial pin (PDF 7.3)
+  // Property System foundation (Phase 2) — snapshot of the creating seller's
+  // partnerRole at submission time, so "Uploaded by: Owner/Reporter/Expert"
+  // never silently changes if a seller's role were ever reassigned later.
+  // Listing creation is EXPERT-only at the route level (requireSellerRole),
+  // so this is always EXPERT today — kept as a real column rather than
+  // derived from Seller so the attribution is stable and query-cheap.
+  uploaderRole        PartnerRole
+  riskBadge           RiskBadge // Expert-only — set at creation, never buyer/owner-editable
+  price               Float
+  sellerNotes         String?
+  documents           String[] // non-media supporting documents (PDFs etc.)
+  images              String[]      @default([])
+  videos              String[]      @default([])
+  researchDate        DateTime
+  status              ListingStatus @default(PENDING_REVIEW)
+  views               Int           @default(0)
+  // Featured listing (PDF 3.3) — seller ₹499/mo subscription. `featured` is the
+  // live flag used by search ordering; `featuredUntil` is the paid-through date.
+  // The subscription lifecycle sets/clears `featured`; an expiry sweep to clear
+  // it after `featuredUntil` is a Day 6 cron follow-up.
+  featured            Boolean       @default(false)
+  featuredUntil       DateTime?
+  // 10% Spot-Check Auto-Flagging (PDF 5.3) — rolled once at creation
+  // (Math.random() < 0.1) and routed into the admin QC queue via the
+  // `flaggedForSpotCheck` filter on GET /api/admin/listings. Not shown to the
+  // seller — surfacing it would let a flagged seller behave differently.
+  flaggedForSpotCheck Boolean       @default(false)
+  createdAt           DateTime      @default(now())
+
+  // Full-text search vector (PDF 13) — a Postgres STORED generated column over
+  // address/city/tehsil/khasra/survey, maintained by the DB itself. Declared
+  // Unsupported because Prisma has no syntax for GENERATED ALWAYS AS; the column
+  // and its GIN index are created in migration 20260724000000_day4_listing_fts.
+  searchVector Unsupported("tsvector")?
+
+  purchases            Purchase[]
+  alerts               Alert[]
+  spotChecks           SpotCheck[]
+  reportFlags          ReportFlag[]
+  paymentOrders        PaymentOrder[]
+  subscriptions        Subscription[]
+  reviews              Review[]
+  verificationRequests VerificationRequest[]
+
+  @@index([searchVector], type: Gin)
+  // Production QA pass — every buyer-facing read (feed/trending/search/free
+  // check) filters `status: 'APPROVED'` first, and every seller dashboard
+  // filters by `sellerId`; neither had an index, so both were full table
+  // scans once this table has real volume. Postgres does not auto-index a
+  // Prisma relation's foreign key column, so sellerId needed an explicit one.
+  @@index([status])
+  @@index([sellerId])
+}
+
+// ─── SEARCH HISTORY (PDF 7.3) ─────────────
+model SearchQuery {
+  id        String   @id @default(uuid(7))
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  query     String
+  createdAt DateTime @default(now())
+}
+
+// ─── BUYER "REPORT OUTDATED" FLAGS (PDF 7.8) ─────────────
+model ReportFlag {
+  id        String     @id @default(uuid(7))
+  userId    String
+  user      User       @relation(fields: [userId], references: [id])
+  listingId String
+  listing   Listing    @relation(fields: [listingId], references: [id])
+  reason    String
+  status    FlagStatus @default(PENDING)
+  adminNote String?
+  createdAt DateTime   @default(now())
+}
+
+// ─── PURCHASES ────────────────────────────
+model Purchase {
+  id          String    @id @default(uuid(7))
+  userId      String
+  user        User      @relation(fields: [userId], references: [id])
+  listingId   String
+  listing     Listing   @relation(fields: [listingId], references: [id])
+  amountPaid  Float
+  platformCut Float
+  sellerCut   Float
+  razorpayId  String    @unique
+  settled     Boolean   @default(false)
+  // Set when the weekly settlement run actually pays this out — getSettlements
+  // groups by this (falling back to createdAt for pre-Day-6 settled rows that
+  // predate this column), not createdAt, so settlement history reflects when
+  // money moved rather than when the report was unlocked.
+  settledAt   DateTime?
+  createdAt   DateTime  @default(now())
+  refunds     Refund[]
+  review      Review?
+
+  // Production hardening (QA pass) — the report-unlock entitlement check
+  // (`where: { userId, listingId }` in payment.service.ts, run on every
+  // purchase attempt and every already-purchased lookup) and the weekly
+  // settlement cron (`where: { settled: false }` in settlement.service.ts)
+  // were both full table scans with zero index beyond the primary key.
+  @@index([userId, listingId])
+  @@index([settled])
+}
+
+// ─── REVIEWS (PDF 7.8 / 16) ────────────────
+// One review per purchase (unique purchaseId) — only a buyer who actually
+// unlocked the report can rate it. Every insert recalculates the seller's
+// avgRating/reviewCount and auto-writes Badge from fixed thresholds (see
+// review.service.ts); the admin PATCH /badge endpoint stays available as a
+// manual override but the next review recalculates over it.
+model Review {
+  id         String   @id @default(uuid(7))
+  purchaseId String   @unique
+  purchase   Purchase @relation(fields: [purchaseId], references: [id])
+  userId     String
+  user       User     @relation(fields: [userId], references: [id])
+  sellerId   String
+  seller     Seller   @relation(fields: [sellerId], references: [id])
+  listingId  String
+  listing    Listing  @relation(fields: [listingId], references: [id])
+  rating     Int // 1-5, enforced by a DB CHECK constraint (see migration) and Zod at the edge
+  comment    String?
+  createdAt  DateTime @default(now())
+
+  @@index([sellerId])
+}
+
+// ─── PAYMENT ORDERS (PDF 6.2 / 8.2) ───────
+//
+// The pending-order ledger that sits in front of a Purchase. A row is written
+// when a Razorpay order is created (status CREATED) and flipped to PAID by the
+// webhook or the checkout-verify handshake, which then writes the Purchase.
+//
+// Why a separate model rather than a `status` on Purchase: a Purchase means "a
+// paid, unlocked report" — the read paths gate on its mere existence. Keeping
+// unpaid orders out of that table leaves buyer-facing unlock logic untouched.
+//
+// The order → listing → buyer binding and the commission split are computed
+// server-side at order time and stored HERE, so neither the checkout-verify
+// call nor the webhook has to trust a client-supplied listing/amount. `id` is
+// the Razorpay order id, so the webhook correlates by it directly.
+model PaymentOrder {
+  id                    String               @id // Razorpay order id (order_… / order_mock_…)
+  userId                String
+  user                  User                 @relation(fields: [userId], references: [id])
+  kind                  PaymentKind
+  listingId             String? // null for kinds without a listing (subscriptions, etc.)
+  listing               Listing?             @relation(fields: [listingId], references: [id])
+  specialRequestId      String? // set for SPECIAL_REQUEST_ADVANCE orders
+  specialRequest        SpecialRequest?      @relation(fields: [specialRequestId], references: [id])
+  // set for VERIFICATION_ADVANCE / VERIFICATION_FINAL orders (Phase 3)
+  verificationRequestId String?
+  verificationRequest   VerificationRequest? @relation(fields: [verificationRequestId], references: [id])
+  sellerId              String? // payout attribution snapshot — no FK, like AuditLog
+  amount                Int // paise, the authoritative charged amount
+  currency              String               @default("INR")
+  platformCut           Float // rupees, split frozen at order time
+  sellerCut             Float
+  status                PaymentOrderStatus   @default(CREATED)
+  paymentId             String?              @unique // Razorpay payment id once captured
+  purchaseId            String?              @unique // the Purchase written on capture
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+
+  // Financial Ledger + Professional Payouts (Phase 4B)
+  ledgerEntries       FinancialLedgerEntry[]
+  professionalEarning ProfessionalEarning?
+
+  @@index([userId])
+  @@index([status])
+}
+
+// ─── ALERTS ───────────────────────────────
+model Alert {
+  id          String    @id @default(uuid(7))
+  userId      String
+  user        User      @relation(fields: [userId], references: [id])
+  listingId   String
+  listing     Listing   @relation(fields: [listingId], references: [id])
+  active      Boolean   @default(true)
+  // Set when the watch is cancelled — powers subscriberChurnRate (PDF 5.6),
+  // which Day 2 deferred for lack of a cancellation timestamp. Cleared on
+  // reactivation.
+  cancelledAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  // Production hardening (QA pass) — covers the buyer's own watch-list /
+  // duplicate-watch check (userId, userId+listingId), the case-update
+  // fan-out to subscribers (listingId+active), and the admin
+  // dashboard/analytics `active` counts (alert.controller.ts,
+  // admin.controller.ts, analytics.service.ts) — all previously unindexed.
+  @@index([userId, listingId])
+  @@index([listingId, active])
+  @@index([active])
+}
+
+// ─── SUBSCRIPTIONS (PDF 7.7 / 3.3) ────────
+// Recurring Razorpay subscriptions, 100% platform commission. Two kinds:
+//   ALERT_SUBSCRIPTION — buyer, ₹49/mo, account-wide case-update alerts
+//   FEATURED_LISTING   — seller, ₹499/mo, one featured listing surfaced in search
+// The Razorpay subscription id is the primary key (like PaymentOrder), so the
+// webhook can resolve an event to its ledger row directly. `kind` reuses
+// PaymentKind so the commission engine needs no second vocabulary; only the two
+// subscription kinds are ever created here (guarded in the service).
+model Subscription {
+  id          String             @id // Razorpay subscription id (sub_… / sub_mock_…)
+  kind        PaymentKind
+  userId      String? // buyer — ALERT_SUBSCRIPTION
+  user        User?              @relation(fields: [userId], references: [id])
+  sellerId    String? // seller — FEATURED_LISTING
+  seller      Seller?            @relation(fields: [sellerId], references: [id])
+  listingId   String? // FEATURED_LISTING — which listing is featured
+  listing     Listing?           @relation(fields: [listingId], references: [id])
+  planId      String
+  amount      Int // paise per billing cycle
+  status      SubscriptionStatus @default(CREATED)
+  currentEnd  DateTime? // access/paid-through date, set on each charge
+  cancelledAt DateTime?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  @@index([userId])
+  @@index([sellerId])
+  @@index([status])
+}
+
+// ─── SPOT CHECKS ──────────────────────────
+model SpotCheck {
+  id        String          @id @default(uuid(7))
+  listingId String
+  listing   Listing         @relation(fields: [listingId], references: [id])
+  adminNote String?
+  result    SpotCheckResult
+  checkedAt DateTime        @default(now())
+}
+
+// ─── SPECIAL REQUESTS ─────────────────────
+model SpecialRequest {
+  id                 String                @id @default(uuid(7))
+  userId             String
+  user               User                  @relation(fields: [userId], references: [id])
+  sellerId           String?
+  seller             Seller?               @relation(fields: [sellerId], references: [id])
+  address            String
+  city               String
+  tehsil             String
+  propertyType       PropertyType
+  questions          String
+  documents          String[]
+  advanceAmount      Float
+  // Flips true once the Razorpay advance is captured (checkout-verify or
+  // webhook) — admin assignment is gated on this so a request can't get
+  // worked before it's paid for.
+  advancePaid        Boolean               @default(false)
+  status             SpecialRequestStatus  @default(PENDING)
+  adminNote          String?
+  completedListingId String?
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+  paymentOrders      PaymentOrder[]
+  refunds            Refund[]
+  payout             SpecialRequestPayout?
+
+  // Production hardening (QA pass) — covers the buyer's own request list
+  // (userId), the seller's assigned/all-requests views (sellerId), and the
+  // SLA sweep cron + admin list, both of which filter by status
+  // (specialRequestSla.service.ts, specialRequest.controller.ts) — all
+  // previously unindexed.
+  @@index([userId])
+  @@index([sellerId])
+  @@index([status])
+}
+
+// Seller's 70/30 commission cut on an APPROVED special request (PDF 6.2 —
+// the same split computeCommission() already applies to report unlocks, just
+// never wired here before). One row per request, created the moment
+// approveSpecialRequest succeeds; picked up by the weekly settlement cron
+// exactly like Purchase.sellerCut, via the same settled/settledAt shape.
+model SpecialRequestPayout {
+  id               String         @id @default(uuid(7))
+  specialRequestId String         @unique
+  specialRequest   SpecialRequest @relation(fields: [specialRequestId], references: [id])
+  sellerId         String
+  seller           Seller         @relation(fields: [sellerId], references: [id])
+  amount           Float // seller's 70% cut
+  platformCut      Float // platform's 30% cut
+  settled          Boolean        @default(false)
+  settledAt        DateTime?
+  createdAt        DateTime       @default(now())
+
+  @@index([sellerId])
+  @@index([settled])
+}
+
+// ─── Model refund model add karo ────────────────────────────────
+
+// purchaseId, specialRequestId and verificationRequestId are all optional but
+// exactly one must be set — a refund reverses a report-unlock purchase, a
+// special-request advance, or a verification-marketplace payment (Phase 3),
+// never more than one and never none. Enforced with a DB CHECK constraint
+// added by raw SQL in the migration (Prisma has no declarative
+// XOR-across-columns).
+//
+// Also has a partial unique index — one PENDING/PROCESSED refund per
+// purchaseId at a time — added the same way (see migration
+// 20260804070000_refund_active_unique_per_purchase; Prisma has no
+// declarative filtered/partial unique index syntax either).
+model Refund {
+  id                    String               @id @default(uuid(7))
+  purchaseId            String?
+  purchase              Purchase?            @relation(fields: [purchaseId], references: [id])
+  specialRequestId      String?
+  specialRequest        SpecialRequest?      @relation(fields: [specialRequestId], references: [id])
+  verificationRequestId String?
+  verificationRequest   VerificationRequest? @relation(fields: [verificationRequestId], references: [id])
+  userId                String
+  user                  User                 @relation(fields: [userId], references: [id])
+  amount                Float
+  reason                String
+  status                RefundStatus         @default(PENDING)
+  adminNote             String?
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+
+  // Financial Ledger (Phase 4B) — REVERSAL_COMMISSION/REVERSAL_EARNING rows
+  // created when this refund is processed, if it reverses a verification payment.
+  ledgerEntries FinancialLedgerEntry[]
+
+  // Production hardening (QA pass) — covers the admin refund-queue counts
+  // (status alone), and the refund-eligibility checks keyed off the source
+  // payment (purchaseId+status, specialRequestId+status in
+  // admin.controller.ts / specialRequest.controller.ts) — all previously
+  // unindexed on this financial/compliance-sensitive table.
+  @@index([status])
+  @@index([purchaseId])
+  @@index([specialRequestId])
+}
+
+// ─── Model AuditLog ────────────────────────────────
+
+// Deliberately NO relation to Admin: an audit row must outlive the admin it
+// describes. A FK would either block admin deletion or cascade the evidence
+// away — both wrong for a compliance trail. Identity is resolved at read time
+// in getAuditLogs() with a batch lookup, and the row stands alone if the
+// admin is gone.
+model AuditLog {
+  id        String   @id @default(uuid(7))
+  adminId   String
+  action    String
+  target    String?
+  details   String?
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([adminId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+//  CONTENT CONTROL (PDF 5.4)
+//
+//  Four admin-managed models sharing one shape so the CRUD layer, the audit
+//  wiring and the public read endpoints stay uniform:
+//    · a stable business key    — slug / city+tehsil / key
+//    · `active` for soft-disable — rows are never hard-deleted, so audit-log
+//      targets and historical references always resolve
+//    · updatedAt for change tracking
+// ─────────────────────────────────────────────────────────────────────────
+
+// Admin-editable presentation layer over the fixed PropertyType enum.
+// `propertyType` is nullable so a category can be published ahead of a schema
+// change (e.g. "Industrial") without a migration.
+model PropertyCategory {
+  id           String        @id @default(uuid(7))
+  slug         String        @unique
+  label        String
+  description  String?
+  propertyType PropertyType?
+  sortOrder    Int           @default(0)
+  active       Boolean       @default(true)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  @@index([active, sortOrder])
+}
+
+// Cities/tehsils database — the coverage map buyers and sellers pick from.
+model ServiceArea {
+  id        String   @id @default(uuid(7))
+  state     String   @default("Rajasthan")
+  city      String
+  tehsil    String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([city, tehsil])
+  @@index([active, city])
+}
+
+// Global disclaimer text, keyed by surface ("report", "listing", …).
+// `version` bumps on every body change so a purchased report can pin the
+// wording that was live at purchase time.
+model Disclaimer {
+  id        String   @id @default(uuid(7))
+  key       String   @unique
+  title     String
+  body      String
+  version   Int      @default(1)
+  active    Boolean  @default(true)
+  updatedBy String? // adminId snapshot — no FK, same reasoning as AuditLog
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// In-app banner announcements. A banner is live when active AND inside its
+// optional [startsAt, endsAt] window — so campaigns can be scheduled ahead.
+model BannerAnnouncement {
+  id        String         @id @default(uuid(7))
+  title     String
+  body      String
+  audience  BannerAudience @default(ALL)
+  severity  BannerSeverity @default(INFO)
+  active    Boolean        @default(true)
+  startsAt  DateTime?
+  endsAt    DateTime?
+  createdBy String? // adminId snapshot — no FK, same reasoning as AuditLog
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  @@index([active, audience])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+//  OWNER PROPERTY  —  Property Owner apni property list/verify karta hai
+//  (Listing se alag: yeh owner ki apni property hai, report-listing nahi)
+// ─────────────────────────────────────────────────────────────────────────
+model Property {
+  id           String         @id @default(uuid(7))
+  sellerId     String
+  seller       Seller         @relation(fields: [sellerId], references: [id])
+  title        String
+  area         String
+  age          String?
+  city         String?
+  // Property System foundation (Phase 2) — location/address fields, brought
+  // to parity with Listing's existing lat/long. `tehsil` mirrors Listing so
+  // both models filter/search the same way.
+  address      String?
+  tehsil       String?
+  latitude     Float?
+  longitude    Float?
+  propertyType PropertyType   @default(RESIDENTIAL)
+  // Snapshot of the creating seller's partnerRole at submission time — same
+  // reasoning as Listing.uploaderRole. Property creation is OWNER-only at
+  // the route level, so this is always OWNER — Reporter creates ReporterPost
+  // rows instead (see below), never Property, and Expert never has either.
+  uploaderRole PartnerRole
+  // Audit 2026-09-01 (Admin Document Type Visibility): non-media supporting
+  // documents, stored as { type, url }[] so Admin can show the real document
+  // name instead of "Document N" — see propertyDocumentSchema in
+  // packages/shared. Rows created before this migration hold plain URL
+  // strings (no type info ever existed for them); readers must handle both
+  // shapes — see Admin Properties.jsx's legacy fallback.
+  documents    Json           @default("[]")
+  images       String[]       @default([])
+  videos       String[]       @default([])
+  health       Int            @default(30) // 0-100 document/verification score
+  views        Int            @default(0)
+  status       PropertyStatus @default(PENDING)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  verificationRequests VerificationRequest[]
+
+  // Production QA pass — same reasoning as Listing's status/sellerId
+  // indexes: every buyer-facing read filters status:'APPROVED' first, every
+  // seller dashboard filters by sellerId, and this table had no index at all
+  // beyond the primary key.
+  @@index([status])
+  @@index([sellerId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+//  REPORTER POST (Reporter/Owner architecture split)
+//
+//  A Reporter is a property-information/news contributor, not a listing
+//  creator — they photograph a newspaper property-ad cutting, a public
+//  notice, or similar publicly-sourced material and post it for buyers to
+//  browse. This is deliberately NOT a Property row: it has no ownership
+//  claim, no moderation gate, no document-health score and must never be
+//  eligible for a "Verified" badge — mixing it into Property (as an earlier
+//  iteration of this module did) made all four of those true by accident.
+//
+//  No admin approval step exists anywhere in this model's lifecycle — a
+//  post is PUBLISHED the instant it is created (see reporterPost.controller.ts).
+//  Only a SuperAdmin can take one down after the fact (status → REMOVED),
+//  same soft-delete convention as Property.status/Listing.status elsewhere
+//  in this schema — never a hard delete.
+// ─────────────────────────────────────────────────────────────────────────
+enum ReporterPostStatus {
+  PUBLISHED
+  REMOVED
+}
+
+model ReporterPost {
+  id       String @id @default(uuid(7))
+  sellerId String
+  seller   Seller @relation(fields: [sellerId], references: [id])
+
+  title       String?
+  description String?
+  images      String[] @default([])
+
+  // Optional attribution to where the Reporter sourced this from (a
+  // newspaper name, a public notice board, etc.) — display-only context,
+  // never validated against a real publication.
+  sourceName String?
+  sourceDate DateTime?
+
+  // Display/filter fields only — mirrors Property/Listing's city+tehsil
+  // convention so the buyer feed can filter the same way. No address,
+  // lat/long, or propertyType: a Reporter post is not a property listing
+  // and does not carry ownership-grade location detail.
+  city   String?
+  tehsil String?
+
+  status ReporterPostStatus @default(PUBLISHED)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([sellerId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+//  REPORTER REWARD LEDGER (Phase 4A)
+//
+//  Historically a Reporter earned points automatically when a Property they
+//  uploaded was Admin-approved. Reporter no longer creates Property rows at
+//  all (see ReporterPost above) and publishing a ReporterPost is explicitly
+//  NOT an automatic reward trigger — inventing a new automatic trigger was
+//  out of scope for that change. The only way a Reporter earns points today
+//  is a SuperAdmin-issued ADMIN_ADJUSTMENT (createAdjustment below), which
+//  already serves as the "manually mark reward-eligible" mechanism. The
+//  point value is never hardcoded at the call site — the automatic-approval
+//  path (creditEarnedPoints), if ever reconnected to a real event, reads it
+//  from PlatformSetting.reporterRewardPointsPerApprovedProperty and freezes
+//  it onto the row, same reasoning as VerificationRequest.minFee.
+//
+//  Every ledger row carries its own status so the four wallet categories the
+//  Reporter/Admin UIs need (pending / approved / rejected / redeemed) are
+//  plain aggregate queries over this one table, never a second source of
+//  truth to keep in sync:
+//    EARNED rows            start PENDING — an Admin/Super Admin must
+//                            separately approve or reject them (reward.service.ts).
+//    ADMIN_ADJUSTMENT rows  are created already APPROVED — an admin typing
+//                            an adjustment IS the approval, by construction.
+//    REDEMPTION rows        are negative-point rows created only when a
+//                            RedeemRequest is approved (see below); already
+//                            APPROVED for the same reason as an adjustment.
+//
+//  No currency conversion anywhere in this model or its service — points are
+//  an abstract unit. Redemption is fulfilled off-platform by an Admin
+//  (voucher, discount code, etc.); this ledger only ever records point
+//  movement, never money. ("Do not create fake money payouts.")
+// ─────────────────────────────────────────────────────────────────────────
+
+enum RewardTransactionType {
+  EARNED // Reporter property approval
+  ADMIN_ADJUSTMENT // manual admin credit/debit, with a reason
+  REDEMPTION // deduction from an approved RedeemRequest
+}
+
+enum RewardTransactionStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model RewardTransaction {
+  id       String @id @default(uuid(7))
+  sellerId String
+  seller   Seller @relation(fields: [sellerId], references: [id])
+
+  type   RewardTransactionType
+  // Positive for EARNED / a credit ADMIN_ADJUSTMENT, negative for REDEMPTION
+  // and a debit ADMIN_ADJUSTMENT. Only APPROVED rows count toward spendable
+  // balance — see reward.service.ts's getRewardSummary.
+  points Int
+  status RewardTransactionStatus @default(PENDING)
+
+  // Set for EARNED rows — which Property triggered it. No FK: a Property can
+  // be hard-deleted... it can't (soft-delete only), but this stays a
+  // snapshot id rather than a relation so the ledger row is never blocked by
+  // or cascaded from Property lifecycle changes.
+  propertyId String?
+  reason     String? // required context for ADMIN_ADJUSTMENT / rejection
+
+  decidedByAdminId String? // admin snapshot, no FK — same reasoning as AuditLog
+  decidedAt        DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([sellerId])
+  @@index([status])
+  @@index([type])
+}
+
+enum RedeemRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+// A Reporter's request to redeem N points from their approved balance.
+// Approval debits the balance via a linked REDEMPTION RewardTransaction,
+// created transactionally with the status flip (reward.service.ts) so a
+// request can never be APPROVED without its matching ledger deduction.
+model RedeemRequest {
+  id       String @id @default(uuid(7))
+  sellerId String
+  seller   Seller @relation(fields: [sellerId], references: [id])
+
+  points Int // amount requested — must be <= available balance at request time
+  note   String? // what the Reporter wants it redeemed for
+
+  status    RedeemRequestStatus @default(PENDING)
+  adminNote String?
+  resolvedByAdminId String? // admin snapshot, no FK — same reasoning as AuditLog
+  resolvedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([sellerId])
+  @@index([status])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+//  VERIFICATION MARKETPLACE (Phase 3)
+//
+//  A buyer asks for a paid professional verification of a property that is
+//  already listed (either as a Listing or a Property — see `source`).
+//  Deliberately NOT modeled as a new field on Listing/Property, and NOT
+//  reusing SpecialRequest: SpecialRequest is a different product ("research
+//  a property that isn't in our system yet", buyer sets a fixed ₹999–4999
+//  advance, admin hand-picks one seller). This is "get a paid professional
+//  opinion on a property that's already here", multiple professionals
+//  compete with quotes, first acceptance wins, and payment is a 50/50 split
+//  gated on an explicit state machine. Sharing a table would conflate two
+//  genuinely different workflows.
+// ─────────────────────────────────────────────────────────────────────────
+
+// Singleton platform-wide configuration for the verification marketplace —
+// never hardcode these numbers in code. Read via a small service that
+// upserts a fixed-id row on first read, so there is always exactly one.
+// updatedBy is an adminId snapshot, no FK — same reasoning as AuditLog.
+model PlatformSetting {
+  id String @id @default("default")
+
+  // Minimum a professional's proposed fee may be. Frozen onto each
+  // VerificationRequest.minFee at creation time, so lowering/raising this
+  // later never changes what an in-flight request already promised buyers.
+  minVerificationFee Float @default(10000)
+
+  // Platform's share of the agreed verification fee (0–1). Frozen onto
+  // VerificationRequest.platformCommissionRate the moment a quote is
+  // accepted, for the same reason.
+  verificationPlatformCommissionRate Float @default(0.30)
+
+  // Cancellation charge, as a fraction (0–1) of the amount already paid,
+  // applied only when the buyer cancels AFTER a professional has accepted.
+  // Cancelling before acceptance is always free — see
+  // verification.service.ts's cancelVerificationRequest.
+  cancellationFeeRateAfterAcceptance Float @default(0.20)
+
+  // Reporter Reward Ledger (Phase 4A) — points credited to a Reporter when
+  // their submitted Property is Admin-approved. Frozen onto each
+  // RewardTransaction.points at credit time (see reward.service.ts), same
+  // "never hardcode business numbers" reasoning as the fields above — never
+  // read PLATFORM points values as a literal anywhere else in the code.
+  reporterRewardPointsPerApprovedProperty Int @default(10)
+
+  updatedBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+enum VerificationSource {
+  LISTING
+  PROPERTY
+}
+
+enum VerificationRequestStatus {
+  OPEN // visible to eligible Admins/Experts, accepting quotes
+  ACCEPTED // one quote accepted, professional assigned, advance not yet requested
+  ADVANCE_PAYMENT_PENDING // Razorpay order created for the 50% advance
+  ADVANCE_PAID
+  IN_PROGRESS // professional is actively verifying
+  COMPLETED // professional submitted findings (VerificationReport exists)
+  FINAL_PAYMENT_PENDING // Razorpay order created for the remaining 50%
+  FULLY_PAID
+  REPORT_UNLOCKED // buyer has full access to the report
+  CANCELLED
+}
+
+// A buyer's request for a paid professional verification of an existing
+// Listing or Property. Exactly one of listingId/propertyId is set — CHECK
+// constraint added by raw SQL (see Refund's purchase/specialRequest XOR for
+// the same pattern; Prisma has no declarative XOR-across-columns).
+model VerificationRequest {
+  id     String @id @default(uuid(7))
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  source     VerificationSource
+  listingId  String?
+  listing    Listing?           @relation(fields: [listingId], references: [id])
+  propertyId String?
+  property   Property?          @relation(fields: [propertyId], references: [id])
+
+  // Snapshot of the target property's uploader — display only ("this
+  // property was uploaded by an Owner/Reporter/Expert"), not who is doing
+  // the verifying (that's assignedAdminId/assignedSellerId below).
+  uploaderRole PartnerRole
+
+  // Frozen from PlatformSetting.minVerificationFee at creation — the floor
+  // buyerInitialOfferAmount had to meet, NOT a floor on provider quotes (see
+  // VerificationQuote.proposedFee's comment). Kept distinct from
+  // buyerInitialOfferAmount per the Buyer Experience redesign correction
+  // (2026-09-05): this field predates that correction and used to be
+  // (incorrectly) treated as a fixed per-request "minimum quote" — it never
+  // reflected anything the buyer actually chose.
+  minFee Float
+
+  // The buyer's own initial offer/budget, entered at request creation —
+  // e.g. "I'm willing to pay ₹10,000." This is NEVER a payment and never
+  // feeds a Razorpay order directly. A provider may accept it unchanged or
+  // counter with any other amount (VerificationQuote.proposedFee); only the
+  // ACCEPTED quote's amount (agreedFee below) becomes the real verification
+  // price and payment basis.
+  buyerInitialOfferAmount Float
+
+  status VerificationRequestStatus @default(OPEN)
+
+  // The winning quote, once one is accepted. acceptedQuoteId is unique so a
+  // request can have at most one accepted quote — the DB itself enforces
+  // "first acceptance wins" together with the atomic claim in
+  // verification.service.ts's acceptVerificationQuote.
+  acceptedQuoteId  String?            @unique
+  acceptedQuote    VerificationQuote? @relation("AcceptedQuote", fields: [acceptedQuoteId], references: [id])
+  assignedAdminId  String? // admin snapshot, no FK — same reasoning as AuditLog
+  assignedSellerId String?
+  assignedSeller   Seller?            @relation(fields: [assignedSellerId], references: [id])
+  agreedFee        Float? // frozen from acceptedQuote.proposedFee
+
+  // Split of agreedFee, frozen at acceptance from PlatformSetting —
+  // changing the platform rate later never reprices an in-flight request.
+  platformCommissionRate Float?
+  advanceAmount          Float? // 50% of agreedFee
+  finalAmount            Float? // remaining 50%
+
+  // Cancellation (buyer-initiated) — see verification.service.ts. Populated
+  // only when status becomes CANCELLED.
+  cancelledAt        DateTime?
+  cancellationReason String?
+  cancellationFee    Float? // charged only if cancelled after acceptance
+  cancellationRefund Float? // what was actually returned to the buyer
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  quotes        VerificationQuote[]
+  report        VerificationReport?
+  claims        Claim[]
+  paymentOrders PaymentOrder[]
+  refunds       Refund[]
+  // Financial Ledger + Professional Payouts (Phase 4B)
+  ledgerEntries        FinancialLedgerEntry[]
+  professionalEarnings ProfessionalEarning[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([assignedSellerId])
+  @@index([listingId])
+  @@index([propertyId])
+}
+
+// A professional's (Admin or verified Expert) proposed fee for a
+// VerificationRequest. Exactly one of quotedByAdminId/quotedBySellerId is
+// set — same XOR-by-raw-SQL-CHECK pattern as VerificationRequest's
+// listing/property XOR.
+model VerificationQuote {
+  id        String              @id @default(uuid(7))
+  requestId String
+  request   VerificationRequest @relation(fields: [requestId], references: [id])
+
+  quotedByAdminId  String? // admin snapshot, no FK — same reasoning as AuditLog
+  quotedBySellerId String?
+  quotedBySeller   Seller? @relation(fields: [quotedBySellerId], references: [id])
+
+  proposedFee Float // must be >= request.minFee, enforced server-side at submission
+  message     String?
+  status      VerificationQuoteStatus @default(PENDING)
+  createdAt   DateTime                @default(now())
+
+  acceptedFor VerificationRequest? @relation("AcceptedQuote")
+
+  @@index([requestId])
+  @@index([quotedBySellerId])
+  @@index([status])
+}
+
+enum VerificationQuoteStatus {
+  PENDING
+  ACCEPTED
+  CLOSED // lost to another quote, or the request was cancelled while still OPEN
+}
+
+// The assigned professional's findings. One per request (1:1) — content
+// stays gated behind VerificationRequest.status at the API layer (never
+// fully returned until REPORT_UNLOCKED), same pattern as
+// formatFreePreview/formatPaidReport in property.controller.ts.
+//
+// Property identity/location fields are a SNAPSHOT, not a live join to
+// Listing/Property — this report is evidence of what was verified at the
+// time, and must not silently change if the source listing is edited later.
+model VerificationReport {
+  id        String              @id @default(uuid(7))
+  requestId String              @unique
+  request   VerificationRequest @relation(fields: [requestId], references: [id])
+
+  propertyAddress String
+  propertyCity    String?
+  propertyTehsil  String?
+  latitude        Float?
+  longitude       Float?
+
+  findings       String
+  riskAssessment RiskBadge? // professional's own assessment — independent of any riskBadge on the source Listing
+  documents      String[]   @default([])
+  images         String[]   @default([])
+  videos         String[]   @default([])
+
+  submittedAt DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+enum ClaimStatus {
+  OPEN
+  UNDER_REVIEW
+  RESOLVED
+  REJECTED
+  REFUND_APPROVED
+  REFUND_PROCESSED
+}
+
+// Buyer-raised dispute after report delivery. Deliberately no automatic
+// refund path — every claim is reviewed by an Admin/Super Admin, who moves
+// it through the status machine by hand (admin.controller.ts). A partial
+// unique index (one OPEN/UNDER_REVIEW claim per request at a time) is added
+// by raw SQL in the migration, same pattern as Refund's active-refund index.
+model Claim {
+  id                    String              @id @default(uuid(7))
+  verificationRequestId String
+  verificationRequest   VerificationRequest @relation(fields: [verificationRequestId], references: [id])
+  userId                String
+  user                  User                @relation(fields: [userId], references: [id])
+
+  reason      String // short category/title
+  description String // full complaint
+  evidence    String[]    @default([])
+  status      ClaimStatus @default(OPEN)
+
+  assignedAdminId String? // admin snapshot, no FK — same reasoning as AuditLog
+  resolutionNote  String?
+  resolvedAt      DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([verificationRequestId])
+  @@index([userId])
+  @@index([status])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+//  FINANCIAL LEDGER + PROFESSIONAL PAYOUTS (Phase 4B)
+//
+//  Extends the Verification Marketplace (Phase 3) payment flow with an
+//  append-only financial ledger and a professional payout state machine.
+//  Deliberately NOT a rewrite of PaymentOrder/Purchase/Refund — those stay
+//  exactly as Phase 1-3 left them (still Float rupees, still the
+//  authoritative "did money move" record via their own CREATED/PAID/
+//  PENDING/PROCESSED states). This ledger is a new, additional layer that
+//  answers "what happened to every rupee, and can I prove it wasn't
+//  hardcoded or silently corrected."
+//
+//  Money here is integer paise, always — the one deliberate departure from
+//  the existing Float-rupee convention elsewhere in this schema, per this
+//  phase's explicit "never use floating-point arithmetic for INR financial
+//  amounts" instruction. Every paise value here is derived by
+//  Math.round(rupees * 100) from the existing frozen Float field it
+//  corresponds to (VerificationRequest.agreedFee/advanceAmount/finalAmount,
+//  PaymentOrder.platformCut/sellerCut) — never recomputed independently, so
+//  the ledger can never disagree with the existing payment state machine
+//  about what was actually charged.
+// ─────────────────────────────────────────────────────────────────────────
+
+enum LedgerEntryType {
+  GROSS_PAYMENT // the buyer's captured payment (advance or final leg)
+  PLATFORM_COMMISSION // platform's share of a GROSS_PAYMENT
+  PROFESSIONAL_EARNING // professional's share of a GROSS_PAYMENT
+  PROCESSING_FEE // Razorpay's fee/tax on the payment, when the webhook payload reports one
+  CANCELLATION_FEE // fee retained by the platform on a buyer cancellation
+  REFUND // amount actually returned to the buyer
+  REVERSAL_COMMISSION // a PLATFORM_COMMISSION entry reversed by a refund/cancellation
+  REVERSAL_EARNING // a PROFESSIONAL_EARNING entry reversed by a refund/cancellation
+}
+
+enum LedgerEntryStatus {
+  RECORDED // normal, final state for an append-only entry
+  REVERSED // a later entry (referenced by other rows' reversesEntryId) has reversed this one
+  REQUIRES_RECONCILIATION // an automatic reversal could not safely apply (e.g. the earning was already PAID) — needs a Super Admin decision, never auto-fixed
+}
+
+// One row per money movement/attribution — never updated in place (other
+// than the status flip to REVERSED/REQUIRES_RECONCILIATION), never deleted.
+// A correction is always a NEW row with `reversesEntryId` pointing at the
+// original, so the full history stays reconstructable from this table alone.
+model FinancialLedgerEntry {
+  id String @id @default(uuid(7))
+
+  verificationRequestId String?
+  verificationRequest   VerificationRequest? @relation(fields: [verificationRequestId], references: [id])
+  paymentOrderId        String?
+  paymentOrder          PaymentOrder?        @relation(fields: [paymentOrderId], references: [id])
+  refundId              String?
+  refund                Refund?              @relation(fields: [refundId], references: [id])
+
+  userId   String? // buyer
+  user     User?   @relation(fields: [userId], references: [id])
+  sellerId String? // professional
+  seller   Seller? @relation(fields: [sellerId], references: [id])
+
+  type        LedgerEntryType
+  amountPaise Int // always a positive magnitude — direction/meaning comes from `type`
+  currency    String            @default("INR")
+  status      LedgerEntryStatus @default(RECORDED)
+
+  // Immutable snapshot of the commission rate applied (0-1) — set on
+  // GROSS_PAYMENT/PLATFORM_COMMISSION/PROFESSIONAL_EARNING/CANCELLATION_FEE
+  // rows so a later PlatformSetting change can never be mistaken for having
+  // affected a historical transaction.
+  commissionRateSnapshot Float?
+
+  // Snapshot id of the entry this one reverses — no FK (same reasoning as
+  // AuditLog.adminId / RewardTransaction.propertyId: this must stay
+  // resolvable even if the schema around it changes, and a self-relation
+  // would complicate the append-only guarantee for no real benefit).
+  reversesEntryId String?
+
+  // Prevents a webhook/refund replay from ever inserting the same economic
+  // event twice — e.g. `${paymentOrderId}:GROSS_PAYMENT`,
+  // `${refundId}:REVERSAL_EARNING`. Enforced at the DB level, not just in
+  // application logic.
+  idempotencyKey String @unique
+
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([verificationRequestId])
+  @@index([paymentOrderId])
+  @@index([sellerId])
+  @@index([userId])
+  @@index([type])
+  @@index([status])
+}
+
+enum ProfessionalEarningStatus {
+  EARNED // PROFESSIONAL_EARNING ledger entry just recorded — payment captured, job not yet fully delivered
+  PENDING_SETTLEMENT // full request lifecycle not yet complete (waiting on the other payment leg / report unlock)
+  AVAILABLE_FOR_PAYOUT // request REPORT_UNLOCKED, no open Claim — spendable
+  PAYOUT_REQUESTED // claimed into a ProfessionalPayoutRecord, not yet sent to the payout provider
+  PROCESSING // payout provider accepted the transfer, not yet confirmed
+  PAID // payout provider confirmed the transfer (webhook-confirmed, never just the sync response)
+  FAILED // payout provider rejected/failed the transfer
+  RETRYABLE // a FAILED payout eligible for another attempt
+  MANUAL_REVIEW // a FAILED payout that exhausted retries, or a mismatch found during reconciliation
+  REVERSED // the underlying ledger entry was reversed (refund/cancellation) after being earned/paid
+}
+
+// The professional's entitlement to one captured payment's worth of
+// earning, tracked separately from the immutable FinancialLedgerEntry it
+// mirrors so its `status` can walk forward through the payout state
+// machine without ever mutating the ledger row itself — same "mutable
+// status flag next to an immutable created record" pattern this codebase
+// already uses for Purchase.settled/settledAt and SpecialRequestPayout.
+model ProfessionalEarning {
+  id String @id @default(uuid(7))
+
+  sellerId String
+  seller   Seller @relation(fields: [sellerId], references: [id])
+
+  verificationRequestId String
+  verificationRequest   VerificationRequest @relation(fields: [verificationRequestId], references: [id])
+
+  // Which capture (advance or final) this earning came from — unique, so a
+  // webhook replay can never create a second earning for the same payment.
+  paymentOrderId String       @unique
+  paymentOrder   PaymentOrder @relation(fields: [paymentOrderId], references: [id])
+
+  // The PROFESSIONAL_EARNING ledger entry this row tracks — 1:1, no FK
+  // (same reasoning as FinancialLedgerEntry.reversesEntryId).
+  ledgerEntryId String @unique
+
+  grossEarningPaise Int // frozen at creation — never recomputed
+
+  status ProfessionalEarningStatus @default(EARNED)
+
+  payoutRecordId String?
+  payoutRecord   ProfessionalPayoutRecord? @relation(fields: [payoutRecordId], references: [id])
+
+  reversalReason String? // set only when status becomes REVERSED
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([sellerId])
+  @@index([status])
+  @@index([payoutRecordId])
+}
+
+enum PayoutRecordStatus {
+  PAYOUT_REQUESTED
+  PROCESSING
+  PAID
+  FAILED
+  RETRYABLE
+  MANUAL_REVIEW
+  REVERSED
+}
+
+// Which Razorpay product actually moved (or will move) the money for this
+// payout. RAZORPAYX_PAYOUT is real and already integrated (lib/razorpayPayouts.ts,
+// used by the existing weekly settlement); RAZORPAY_ROUTE is a foundation-only
+// value — see lib/razorpayRoute.ts's header comment for why it is not usable yet.
+enum PayoutMechanism {
+  RAZORPAYX_PAYOUT
+  RAZORPAY_ROUTE
+}
+
+// A batch payout attempt — one or more AVAILABLE_FOR_PAYOUT ProfessionalEarning
+// rows claimed atomically (see payout.service.ts's requestPayout) into a single
+// transfer. Never flips to PAID on the synchronous provider response — only a
+// webhook-confirmed payout.processed event does that (see webhook.controller.ts).
+model ProfessionalPayoutRecord {
+  id String @id @default(uuid(7))
+
+  sellerId String
+  seller   Seller @relation(fields: [sellerId], references: [id])
+
+  totalAmountPaise Int // sum of the claimed ProfessionalEarning rows at request time
+
+  status    PayoutRecordStatus @default(PAYOUT_REQUESTED)
+  mechanism PayoutMechanism?
+
+  razorpayPayoutId String? @unique // RazorpayX payout id (pout_… / pout_mock_…) once attempted
+  failureReason    String?
+  retryCount       Int     @default(0)
+
+  requestedAt DateTime  @default(now())
+  processedAt DateTime? // provider accepted the transfer (PROCESSING)
+  paidAt      DateTime? // webhook-confirmed PAID
+  reversedAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  earnings ProfessionalEarning[]
+
+  @@index([sellerId])
+  @@index([status])
+}
+
+enum ReconciliationIssueType {
+  AMOUNT_MISMATCH
+  COMMISSION_MISMATCH
+  PAYOUT_MISMATCH
+  REFUND_MISMATCH
+  TRANSFER_FAILURE
+  MISSING_INTERNAL_RECORD // a Razorpay-side payment/payout has no matching internal row
+  MISSING_REMOTE_RECORD // an internal row has no confirmable Razorpay-side counterpart
+}
+
+enum ReconciliationIssueStatus {
+  OPEN
+  RESOLVED
+}
+
+// A flagged mismatch — created by reconciliation.service.ts, never
+// auto-corrected. A Super Admin reviews and resolves it by hand; resolving
+// this row never itself changes any financial data, only records that a
+// human looked at it (see admin.controller.ts's resolveReconciliationIssue).
+model ReconciliationIssue {
+  id String @id @default(uuid(7))
+
+  type ReconciliationIssueType
+  // Free-form reference to what's affected — "PaymentOrder:order_…",
+  // "ProfessionalPayoutRecord:…" — same "readable after the referenced row
+  // changes" reasoning as AuditLog.target.
+  reference String
+  details   String
+  status    ReconciliationIssueStatus @default(OPEN)
+
+  resolvedByAdminId String? // admin snapshot, no FK — same reasoning as AuditLog
+  resolutionNote    String?
+  resolvedAt        DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([type])
+}
+
+// Phase 4C — extended to also carry a buyer's in-app inbox, not just a
+// seller/partner one. Exactly one of sellerId/userId is set (CHECK
+// constraint, raw SQL in the migration — same XOR-by-CHECK pattern this
+// codebase already uses for Refund/VerificationRequest's source columns).
+// `sellerId` went from required to optional here — a purely additive,
+// constraint-loosening change; every existing row already has it set.
+//
+// onDelete: Restrict on both FKs (explicit — Prisma's implicit default for
+// an optional relation is SetNull, which briefly regressed in here and
+// conflicts with the XOR CHECK constraint above: nulling sellerId on a
+// seller-owned row while userId is also null violates the CHECK, so a
+// Seller/User hard-delete would crash mid-transaction instead of failing
+// cleanly. Restrict matches every other Seller/User relation in this schema
+// (none declare an explicit onDelete, so they all take the required-relation
+// default of Restrict) and this codebase's soft-delete convention — Seller/
+// User rows are never hard-deleted by the app (see admin.controller.ts's
+// deleteSeller), so Restrict never fires in practice; it only guarantees
+// that IF a hard delete is ever attempted, it fails with a clear FK error
+// instead of corrupting a Notification row into an invalid state.
+model Notification {
+  id        String   @id @default(uuid(7))
+  sellerId  String?
+  seller    Seller?  @relation(fields: [sellerId], references: [id], onDelete: Restrict)
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: Restrict)
+  type      String // sale | request | review | approval | settlement | badge | platform | verification | payment | cancellation | claim | support
+  title     String
+  body      String
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([sellerId])
+  @@index([userId])
+}
+
+// Password-reset OTP (email-delivered via Resend). Exactly one of
+// adminId/sellerId/userId is set — same XOR-by-CHECK pattern as Notification
+// above. Admin rows here only ever belong to the SUPER_ADMIN account: the
+// service layer (passwordReset.service.ts) refuses to create one for a
+// SUB_ADMIN/VIEWER, since only SuperAdmin gets self-service password reset —
+// SUB_ADMIN/VIEWER credentials stay SuperAdmin-managed, per the existing
+// Admin-management convention (see admin.routes.ts's superOnly admin CRUD).
+//
+// The OTP itself is never stored in plaintext — only its bcrypt hash
+// (otpHash), same discipline as Admin.password/Seller.passwordHash/
+// User.passwordHash. onDelete: Restrict on all three FKs for the same reason
+// as Notification's — Admin/Seller/User rows are never hard-deleted by the
+// app, so this never fires in practice; it only prevents a silent XOR-CHECK
+// violation if a hard delete were ever attempted.
+model PasswordResetOtp {
+  id       String  @id @default(uuid(7))
+  adminId  String?
+  admin    Admin?  @relation(fields: [adminId], references: [id], onDelete: Restrict)
+  sellerId String?
+  seller   Seller? @relation(fields: [sellerId], references: [id], onDelete: Restrict)
+  userId   String?
+  user     User?   @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  otpHash String
+  // 10-minute expiry from creation (passwordReset.service.ts's OTP_TTL_MS).
+  expiresAt DateTime
+  // Incremented on every failed verify — the request is refused once this
+  // reaches MAX_ATTEMPTS, closing the online-guessing window well before the
+  // 10-minute expiry would.
+  attempts Int @default(0)
+  // Set the moment this OTP is successfully consumed by an actual password
+  // reset — null means still usable (subject to expiresAt/attempts). A used
+  // OTP is refused even if it hasn't expired yet, closing the replay window.
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([adminId])
+  @@index([sellerId])
+  @@index([userId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+//  AI / HUMAN CUSTOMER SUPPORT (Phase 4C)
+//
+//  A ticket is raised by either a buyer (User) or a partner (Seller) —
+//  exactly one of userId/sellerId is set, CHECK constraint added by raw SQL
+//  in the migration, same XOR-by-CHECK pattern as Refund/VerificationRequest.
+//
+//  AI never mutates anything outside this model: it only ever creates its
+//  own SupportMessage rows and advances SupportTicket.status/aiSummary. It
+//  has no code path to a payment, refund, verification-result, or any other
+//  privileged write — see services/aiSupport.service.ts. Once a ticket
+//  reaches ASSIGNED/IN_PROGRESS (a human has taken it), the AI responder is
+//  structurally never invoked again for that ticket until it's explicitly
+//  returned to AI_ASSISTED/OPEN by an admin.
+// ─────────────────────────────────────────────────────────────────────────
+
+enum SupportTicketStatus {
+  OPEN // just created, AI has not replied yet
+  AI_ASSISTED // AI is actively answering
+  ESCALATED // AI (or the buyer) asked for a human; not yet picked up
+  ASSIGNED // an admin has claimed it — AI must not reply from here on
+  IN_PROGRESS // admin is actively working it
+  RESOLVED
+  CLOSED
+}
+
+enum SupportTicketPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum SupportTicketCategory {
+  ACCOUNT
+  PROPERTY
+  VERIFICATION
+  PAYMENT
+  CANCELLATION
+  CLAIM
+  PLATFORM
+  OTHER
+}
+
+enum SupportMessageSender {
+  USER // the buyer/partner who owns the ticket
+  AI
+  ADMIN
+  SYSTEM // status-change/handover notices, not a real reply
+}
+
+model SupportTicket {
+  id String @id @default(uuid(7))
+
+  userId   String?
+  user     User?   @relation(fields: [userId], references: [id])
+  sellerId String?
+  seller   Seller? @relation(fields: [sellerId], references: [id])
+
+  category SupportTicketCategory  @default(OTHER)
+  priority SupportTicketPriority  @default(NORMAL)
+  status   SupportTicketStatus    @default(OPEN)
+
+  subject String
+
+  // A short, AI-maintained summary of the conversation so far, so a human
+  // agent can skim instead of re-reading the whole thread on takeover. Never
+  // shown to the buyer/partner — admin-only, surfaced in the support dashboard.
+  aiSummary String?
+
+  // How many AI-authored replies this ticket has received without being
+  // resolved — the "repeated unresolved question" escalation trigger reads
+  // this rather than re-scanning the message history on every turn.
+  aiReplyCount Int @default(0)
+
+  assignedAdminId String? // admin snapshot, no FK — same reasoning as AuditLog
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  resolvedAt DateTime?
+
+  messages SupportMessage[]
+
+  @@index([userId])
+  @@index([sellerId])
+  @@index([status])
+  @@index([assignedAdminId])
+}
+
+model SupportMessage {
+  id       String        @id @default(uuid(7))
+  ticketId String
+  ticket   SupportTicket @relation(fields: [ticketId], references: [id])
+
+  sender         SupportMessageSender
+  senderAdminId  String? // set only when sender = ADMIN — admin snapshot, no FK
+
+  body        String
+  attachments String[] @default([]) // Cloudinary URLs — evidence, same pattern as Claim.evidence
+
+  createdAt DateTime @default(now())
+
+  @@index([ticketId])
+}
+
+// Approved knowledge the AI is allowed to ground answers in — same
+// key/active/updatedBy shape as the existing Content Control cluster
+// (PropertyCategory/ServiceArea/Disclaimer/BannerAnnouncement) for the same
+// reason: one uniform CRUD layer, one uniform audit/read pattern. The AI
+// must never answer from anything outside these active rows — see
+// aiSupport.service.ts's buildKnowledgeContext().
+model SupportKnowledgeEntry {
+  id       String  @id @default(uuid(7))
+  key      String  @unique
+  topic    String // display grouping: "Verification" | "Cancellation" | "Payment" | "General" | …
+  question String // the canonical question this entry answers
+  answer   String // the approved answer text fed to the AI as grounding
+
+  active    Boolean  @default(true)
+  updatedBy String? // adminId snapshot — no FK, same reasoning as AuditLog
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([active, topic])
+}
+
+// Msg91 SMS delivery-report webhook log (PDF 12/20 — Day 2 carry-over #3).
+// MSG91 was removed platform-wide (auth cutover to email+password — see
+// lib/otp.ts removal and notification.service.ts). This table is kept
+// in-schema, unused, rather than dropped: it was empty at removal time, but
+// dropping a live production table is treated as a destructive action this
+// codebase avoids by default. Safe to drop in a later, deliberate migration.
+model SmsDeliveryLog {
+  id            String    @id @default(uuid(7))
+  requestId     String    @unique
+  phone         String
+  status        String
+  failureReason String?
+  deliveredAt   DateTime?
+  receivedAt    DateTime  @default(now())
+}
+
+// Phone-OTP login codes. Unused since the auth cutover to email+password
+// (MSG91 removed) — kept in-schema rather than dropped, same reasoning as
+// SmsDeliveryLog above.
+model OtpCode {
+  id        String   @id @default(uuid(7))
+  phone     String
+  role      OtpRole
+  otpHash   String
+  expiresAt DateTime
+  consumed  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([phone, role, consumed])
+}
+
+// ─── ENUMS ────────────────────────────────
+enum AdminRole {
+  SUPER_ADMIN
+  SUB_ADMIN
+  VIEWER
+}
+
+enum OtpRole {
+  BUYER
+  SELLER
+}
+
+enum PartnerRole {
+  OWNER
+  REPORTER
+  EXPERT
+}
+
+enum Profession {
+  LAWYER
+  CIVIL_ENGINEER
+  TEHSIL_EXPERT
+  PROPERTY_CONSULTANT
+}
+
+enum Badge {
+  BRONZE
+  SILVER
+  GOLD
+  PLATINUM
+}
+
+enum KycStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SUSPENDED
+}
+
+// Manual identity-document review (replaces DigiLocker OAuth). Independent
+// of KycStatus above — see Seller.identityVerificationStatus's comment.
+enum IdentityVerificationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+// Payout readiness (Phase 4B) — a different question from KycStatus (which
+// gates professional/identity work): whether this partner is currently
+// cleared to receive a payout. Admin-controlled only; never set by a
+// seller/professional action.
+enum PayoutEligibilityStatus {
+  PENDING_ONBOARDING
+  ELIGIBLE
+  INELIGIBLE
+  SUSPENDED
+}
+
+enum PropertyType {
+  RESIDENTIAL
+  COMMERCIAL
+  AGRICULTURAL
+  PLOT
+}
+
+enum CaseType {
+  PARTITION
+  TITLE_DISPUTE
+  LOAN_DEFAULT
+  OTHER
+}
+
+enum CaseStatus {
+  ACTIVE
+  DISPOSED
+  STAYED
+}
+
+enum RiskBadge {
+  GREEN
+  AMBER
+  RED
+}
+
+enum ListingStatus {
+  PENDING_REVIEW
+  APPROVED
+  REJECTED
+  UNPUBLISHED
+  // SuperAdmin-only permanent removal (admin.controller.ts's deleteListing) —
+  // same soft-delete convention as PropertyStatus.DELETED. Distinct from
+  // UNPUBLISHED, which is a reversible seller-KYC-suspension side effect
+  // (kyc.service.ts), not a deletion.
+  DELETED
+}
+
+enum SpotCheckResult {
+  PASS
+  FAIL
+}
+
+enum SpecialRequestStatus {
+  PENDING
+  ASSIGNED
+  IN_PROGRESS
+  COMPLETED
+  APPROVED
+  REJECTED
+  REFUNDED
+}
+
+enum RefundStatus {
+  PENDING
+  PROCESSED
+  REJECTED
+}
+
+// What a PaymentOrder is paying for — drives the commission split and how the
+// webhook finalizes it. REPORT_UNLOCK is wired in Day 3; the rest are carried
+// by the commission engine and webhook router for Day 4 (subscriptions) and
+// Day 6 (special-request advances).
+enum PaymentKind {
+  REPORT_UNLOCK
+  SPECIAL_REQUEST_ADVANCE
+  ALERT_SUBSCRIPTION
+  FEATURED_LISTING
+  // Verification Marketplace (Phase 3) — the 50/50 split payment on an
+  // accepted VerificationRequest.
+  VERIFICATION_ADVANCE
+  VERIFICATION_FINAL
+}
+
+enum PaymentOrderStatus {
+  CREATED
+  PAID
+  FAILED
+}
+
+enum SubscriptionStatus {
+  CREATED // recorded; awaiting first authorization/charge
+  ACTIVE // authorized + charged, access live
+  CANCELLED // cancelled by the subscriber or admin
+  HALTED // Razorpay halted it after repeated charge failures
+  COMPLETED // ran its full billing term
+}
+
+enum PropertyStatus {
+  DRAFT
+  PENDING
+  APPROVED
+  REJECTED
+  DELETED
+  // An Admin/Super Admin can pull a previously-APPROVED Owner property back
+  // out of public view without it reverting to PENDING (which would imply
+  // it's awaiting first review) or REJECTED (implies it was never good).
+  // Gated the same as REJECTED in every buyer-facing read path
+  // (property.controller.ts's feed, ownerProperty.controller.ts) —
+  // status !== 'APPROVED' already excludes it, no read-path change needed.
+  SUSPENDED
+}
+
+enum FlagStatus {
+  PENDING
+  RESOLVED
+  DISMISSED
+}
+
+enum BannerAudience {
+  ALL
+  BUYERS
+  SELLERS
+  ADMINS
+}
+
+enum BannerSeverity {
+  INFO
+  WARNING
+  CRITICAL
+}
+
+// ─── BUYER WEB SOCIAL FEED (Buyer Experience redesign) ─────────────────────
+// Home becomes a merged scroll feed over three pre-existing, structurally
+// separate content tables (Listing = Expert, Property = Owner, ReporterPost
+// = Reporter — see their own model comments). None of those three share a
+// base table, so Like/Save/Comment are deliberately polymorphic
+// (targetType + targetId as a plain string, not a Prisma relation) rather
+// than three near-duplicate models — the feed/detail read paths already
+// resolve targetId against the right table via targetType, so no FK is lost
+// in practice; a stale like/save row simply stops resolving if its target
+// property is later hard-deleted, same tradeoff ReportFlag/SearchQuery's
+// loose references already accept elsewhere in this schema.
+enum FeedTargetType {
+  LISTING
+  PROPERTY
+  REPORTER_POST
+}
+
+model PropertyLike {
+  id         String         @id @default(uuid(7))
+  userId     String
+  user       User           @relation(fields: [userId], references: [id])
+  targetType FeedTargetType
+  targetId   String
+  createdAt  DateTime       @default(now())
+
+  // One like per buyer per target — toggle, not accumulate.
+  @@unique([userId, targetType, targetId])
+  @@index([targetType, targetId])
+}
+
+model PropertySave {
+  id         String         @id @default(uuid(7))
+  userId     String
+  user       User           @relation(fields: [userId], references: [id])
+  targetType FeedTargetType
+  targetId   String
+  createdAt  DateTime       @default(now())
+
+  @@unique([userId, targetType, targetId])
+  @@index([targetType, targetId])
+}
+
+model PropertyComment {
+  id         String         @id @default(uuid(7))
+  userId     String
+  user       User           @relation(fields: [userId], references: [id])
+  targetType FeedTargetType
+  targetId   String
+  body       String
+  createdAt  DateTime       @default(now())
+
+  @@index([targetType, targetId, createdAt])
+}
