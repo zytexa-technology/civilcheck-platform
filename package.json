@@ -2,7 +2,7 @@
   "name": "civilcheck",
   "private": true,
   "engines": {
-    "node": "20.x"
+    "node": "22.20.0"
   },
     "scripts": {
     "dev": "pnpm -r --parallel --if-present run dev",
