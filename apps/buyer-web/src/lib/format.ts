@@ -178,6 +178,30 @@ export function supportTicketTone(status: SupportTicketStatus): Tone {
   }
 }
 
+// ─── LOCATION ────────────────────────────────────────────────────────────────
+
+/**
+ * Google Maps search deep link — the free `maps/search` URL API, no API key
+ * or paid SDK involved. Prefers exact coordinates when the property has them
+ * (most accurate pin); otherwise falls back to the fullest text location on
+ * record, since a property's own address/city/tehsil is always specific to
+ * that property (never hardcoded here).
+ */
+export function buildGoogleMapsUrl(location: {
+  latitude?: number | null
+  longitude?: number | null
+  address?: string | null
+  city?: string | null
+  tehsil?: string | null
+}): string | null {
+  const query =
+    location.latitude != null && location.longitude != null
+      ? `${location.latitude},${location.longitude}`
+      : location.address || [location.tehsil, location.city].filter(Boolean).join(', ') || null
+  if (!query) return null
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`
+}
+
 // ─── PRIMITIVES ──────────────────────────────────────────────────────────────
 
 export function formatDate(value: string | null | undefined): string {

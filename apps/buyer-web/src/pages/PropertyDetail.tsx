@@ -14,7 +14,7 @@ import { Textarea } from '../components/Field'
 import { VerifyPropertyCTA } from '../components/VerifyPropertyCTA'
 import { errorMessage } from '../lib/errors'
 import { downloadAuthenticatedPdf } from '../lib/pdf'
-import { formatDate, formatRupees, humanize, riskBanner, sellerBadgeLong } from '../lib/format'
+import { buildGoogleMapsUrl, formatDate, formatRupees, humanize, riskBanner, sellerBadgeLong } from '../lib/format'
 import type { CheckoutOrder, PaidReportProperty, ReportProperty } from '../types/api'
 
 // Content Control key — admin-editable via the same Disclaimer system
@@ -117,6 +117,7 @@ export default function PropertyDetail() {
   const banner = riskBanner(property.riskBadge)
   const location = property.tehsil ? `${property.tehsil}, ${property.city}` : property.city
   const paid = hasPurchased && property.isPaid ? (property as PaidReportProperty) : null
+  const mapsUrl = buildGoogleMapsUrl(property)
 
   const handleUnlock = async () => {
     setStartingUnlock(true)
@@ -175,18 +176,51 @@ export default function PropertyDetail() {
               {property.caseExists && !paid ? <Badge tone={{ label: 'Case on record', color: banner.color, bg: banner.bg, border: banner.border }} /> : null}
             </div>
             <h1 className="h2">{property.address}</h1>
-            <p className="muted" style={{ marginTop: 6 }}>
-              📍 {location}
-              {property.mapUrl ? (
-                <>
-                  {' · '}
-                  <a href={property.mapUrl} target="_blank" rel="noreferrer" className="gold-text">
-                    View on map ↗
-                  </a>
-                </>
-              ) : null}
-            </p>
+            <p className="muted" style={{ marginTop: 6 }}>📍 {location}</p>
           </div>
+
+          <SectionCard icon="🗺️" title="Location Map">
+            {mapsUrl ? (
+              <>
+                <a
+                  href={mapsUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label={`Open ${location} in Google Maps`}
+                  className="stack"
+                  style={{ textDecoration: 'none', color: 'inherit', cursor: 'pointer' }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      height: 140,
+                      borderRadius: 10,
+                      background: 'var(--cc-surface-2)',
+                      border: '1px solid var(--cc-border-2)',
+                      fontSize: 34,
+                    }}
+                    aria-hidden="true"
+                  >
+                    📍
+                  </div>
+                  <p className="muted" style={{ fontSize: 12.5, marginTop: 8 }}>{property.address}</p>
+                </a>
+                <a
+                  href={mapsUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn btn--secondary"
+                  style={{ marginTop: 10, display: 'inline-flex', textDecoration: 'none' }}
+                >
+                  📍 Open in Google Maps
+                </a>
+              </>
+            ) : (
+              <p className="muted" style={{ fontSize: 12.5 }}>No location data available for this property.</p>
+            )}
+          </SectionCard>
 
           <div className="card" style={{ background: banner.bg, borderColor: banner.border }}>
             <div className="row">
