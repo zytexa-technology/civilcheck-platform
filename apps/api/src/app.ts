@@ -48,12 +48,20 @@ const localOrigins = [
   'http://localhost:5175', // buyer-web (vite)
 ]
 
+// Known-stable production origins hardcoded here (not FRONTEND_URLS-dependent)
+// so they can't be lost to an env var that's out of sync with what's actually
+// deployed — see docs/deployment.md's CORS section for the incident this
+// guards against.
+const productionOrigins = [
+  'https://civilcheck-partner.vercel.app', // Seller/Partner Portal (Vercel)
+]
+
 const envOrigins = (process.env.FRONTEND_URLS || '')
   .split(',')
   .map((o) => o.trim().replace(/\/$/, '')) // trailing slash hata do
   .filter(Boolean)
 
-const allowedOrigins = [...localOrigins, ...envOrigins]
+const allowedOrigins = [...localOrigins, ...productionOrigins, ...envOrigins]
 
 const app = express()
 
