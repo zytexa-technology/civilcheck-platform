@@ -7,7 +7,7 @@ import { Button } from '../../components/Button'
 import { Input } from '../../components/Field'
 import { InlineNotice } from '../../components/States'
 import { PhoneOtpForm } from '../../components/PhoneOtpForm'
-import { errorMessage, errorStatus } from '../../lib/errors'
+import { errorCode, errorMessage, errorStatus } from '../../lib/errors'
 
 export default function Login() {
   const navigate = useNavigate()
@@ -66,6 +66,13 @@ export default function Login() {
       signIn(res.token, res.user)
       goToNext()
     } catch (err) {
+      // Signup Email Verification — send an unverified account straight to
+      // the OTP screen instead of showing a dead-end error.
+      if (errorCode(err) === 'EMAIL_NOT_VERIFIED') {
+        const next = params.get('next')
+        navigate(`/verify-email?email=${encodeURIComponent(parsed.data.email)}${next ? `&next=${encodeURIComponent(next)}` : ''}`)
+        return
+      }
       if (errorStatus(err) === 401) {
         setFormError('Incorrect email or password.')
       } else {

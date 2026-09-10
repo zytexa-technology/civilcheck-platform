@@ -8,6 +8,7 @@ import { Tag } from '../components/Badge'
 import { VerifyPropertyCTA } from '../components/VerifyPropertyCTA'
 import { errorMessage } from '../lib/errors'
 import { formatDate, humanize } from '../lib/format'
+import { LocationMapSection } from '../components/LocationMapSection'
 import type { OwnerProperty } from '../types/api'
 
 export default function OwnerPropertyDetail() {
@@ -61,18 +62,17 @@ export default function OwnerPropertyDetail() {
               <Tag>{humanize(property.uploadedBy)}</Tag>
             </div>
             <h1 className="h2">{property.title}</h1>
-            <p className="muted" style={{ marginTop: 6 }}>
-              📍 {location}
-              {property.mapUrl ? (
-                <>
-                  {' · '}
-                  <a href={property.mapUrl} target="_blank" rel="noreferrer" className="gold-text">
-                    View on map ↗
-                  </a>
-                </>
-              ) : null}
-            </p>
+            <p className="muted" style={{ marginTop: 6 }}>📍 {location}</p>
           </div>
+
+          <LocationMapSection
+            latitude={property.latitude}
+            longitude={property.longitude}
+            address={property.address}
+            city={property.city}
+            tehsil={property.tehsil}
+            locationLabel={location}
+          />
 
           <Card>
             <div className="spread" style={{ marginBottom: 8 }}>

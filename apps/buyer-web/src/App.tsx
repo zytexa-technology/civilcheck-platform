@@ -17,6 +17,7 @@ import NotFound from './pages/NotFound'
 import Login from './pages/auth/Login'
 import ForgotPassword from './pages/auth/ForgotPassword'
 import Register from './pages/auth/Register'
+import VerifyEmail from './pages/auth/VerifyEmail'
 import CompleteProfile from './pages/auth/CompleteProfile'
 
 import SupportHome from './pages/support/SupportHome'
@@ -34,6 +35,9 @@ import VerificationRequestDetail from './pages/account/VerificationRequestDetail
 import MyRequests from './pages/account/MyRequests'
 import NewSpecialRequest from './pages/account/NewSpecialRequest'
 import SpecialRequestDetail from './pages/account/SpecialRequestDetail'
+// Property Discovery flow (Step 4E) — new VerificationRequest(source=
+// DISCOVERY) creation, distinct from the legacy SpecialRequest flow above.
+import NewDiscoveryRequest from './pages/account/NewDiscoveryRequest'
 import Alerts from './pages/account/Alerts'
 
 export default function App() {
@@ -57,6 +61,10 @@ export default function App() {
           <Route path="login" element={<Login />} />
           <Route path="forgot-password" element={<ForgotPassword />} />
           <Route path="register" element={<Register />} />
+          {/* Signup Email Verification — Register.tsx redirects here right
+              after signup; loginBuyer's EMAIL_NOT_VERIFIED response redirects
+              here too, for someone who abandoned verification and came back. */}
+          <Route path="verify-email" element={<VerifyEmail />} />
         </Route>
 
         <Route element={<ProtectedRoute />}>
@@ -73,6 +81,7 @@ export default function App() {
             <Route path="requests" element={<MyRequests />} />
             <Route path="requests/new" element={<NewSpecialRequest />} />
             <Route path="requests/:id" element={<SpecialRequestDetail />} />
+            <Route path="discovery-request/new" element={<NewDiscoveryRequest />} />
             <Route path="alerts" element={<Alerts />} />
             <Route path="support" element={<SupportTickets />} />
             <Route path="support/:id" element={<SupportTicketDetail />} />

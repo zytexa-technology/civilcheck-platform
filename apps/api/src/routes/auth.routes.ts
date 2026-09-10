@@ -5,6 +5,8 @@ import {
   buyerLoginSchema,
   buyerProfileSchema,
   buyerRegisterSchema,
+  emailVerificationRequestSchema,
+  emailVerificationVerifySchema,
   firebaseIdTokenSchema,
   passwordResetRequestSchema,
   passwordResetSchema,
@@ -13,6 +15,7 @@ import {
 } from '@civilcheck/shared'
 import * as authController from '../controllers/auth.controller.js'
 import * as passwordResetController from '../controllers/passwordReset.controller.js'
+import * as emailVerificationController from '../controllers/emailVerification.controller.js'
 import * as rateLimiter from '../middleware/rateLimiter.js'
 import { validateBody } from '../middleware/validation.middleware.js'
 import { authMiddleware } from '../middleware/auth.middleware.js'
@@ -143,6 +146,40 @@ router.post(
   rateLimiter.adminPasswordResetVerifyLimiter,
   validateBody(passwordResetSchema),
   passwordResetController.resetAdminPassword
+)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SIGNUP EMAIL VERIFICATION (email OTP via Resend, same PasswordResetOtp
+// table/security model as password reset above) — Buyer and Partner/Seller.
+// registerBuyer / seller.controller.ts's sellerRegister send the first code
+// inline at signup; these two endpoints per actor are resend + verify.
+// verify-email issues the actual session (see emailVerification.controller.ts)
+// — there is no separate login call needed right after it succeeds.
+// ─────────────────────────────────────────────────────────────────────────────
+router.post(
+  '/resend-verification-email',
+  rateLimiter.buyerEmailVerificationRequestLimiter,
+  validateBody(emailVerificationRequestSchema),
+  emailVerificationController.requestBuyerEmailVerification
+)
+router.post(
+  '/verify-email',
+  rateLimiter.buyerEmailVerificationVerifyLimiter,
+  validateBody(emailVerificationVerifySchema),
+  emailVerificationController.verifyBuyerEmailVerification
+)
+
+router.post(
+  '/seller/resend-verification-email',
+  rateLimiter.sellerEmailVerificationRequestLimiter,
+  validateBody(emailVerificationRequestSchema),
+  emailVerificationController.requestSellerEmailVerification
+)
+router.post(
+  '/seller/verify-email',
+  rateLimiter.sellerEmailVerificationVerifyLimiter,
+  validateBody(emailVerificationVerifySchema),
+  emailVerificationController.verifySellerEmailVerification
 )
 
 // Common

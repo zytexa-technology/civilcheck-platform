@@ -38,7 +38,7 @@ export default function LocationCapture({ latitude, longitude, onCapture }) {
   return (
     <div style={{ marginBottom: 16 }}>
       <label style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginBottom: 7, fontWeight: 600 }}>
-        Property Location (optional)
+        Property Location *
       </label>
       <button
         type="button"
@@ -49,6 +49,11 @@ export default function LocationCapture({ latitude, longitude, onCapture }) {
       >
         {busy ? 'Capturing…' : hasLocation ? '📍 Update Location' : '📍 Use My Current Location'}
       </button>
+      {!hasLocation && !error && (
+        <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>
+          Required — this pin is what buyers see on the map, so submission is blocked until it's captured.
+        </div>
+      )}
       {hasLocation && (
         <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>
           Pinned: {latitude.toFixed(5)}, {longitude.toFixed(5)}{' '}

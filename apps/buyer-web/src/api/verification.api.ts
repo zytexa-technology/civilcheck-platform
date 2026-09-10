@@ -32,11 +32,18 @@ export async function getVerificationConfig(): Promise<VerificationMarketplaceCo
 }
 
 export async function createVerificationRequest(input: {
-  source: 'LISTING' | 'PROPERTY'
+  source: 'LISTING' | 'PROPERTY' | 'DISCOVERY'
   listingId?: string
   propertyId?: string
   /** The buyer's own initial offer/budget — never a payment; nothing is charged here. */
   initialOfferAmount: number
+  // Property Discovery flow (Step 4E) — only meaningful when source is
+  // DISCOVERY; the backend rejects them if listingId/propertyId is also set.
+  desiredAddress?: string
+  desiredCity?: string
+  desiredTehsil?: string
+  desiredPropertyType?: string
+  desiredKhasraOrSurvey?: string
 }): Promise<CreateVerificationRequestResponse> {
   const { data } = await client.post<CreateVerificationRequestResponse>(
     '/verification-requests',

@@ -24,6 +24,7 @@ const TIERS = [
 interface BrowsePropertyHandoff {
   address?: string
   city?: string
+  tehsil?: string
   khasraNumber?: string
   propertyType?: string
 }
@@ -36,7 +37,7 @@ export default function NewSpecialRequest() {
 
   const [address, setAddress] = useState(handoff?.address ?? '')
   const [city, setCity] = useState(handoff?.city ?? '')
-  const [tehsil, setTehsil] = useState('')
+  const [tehsil, setTehsil] = useState(handoff?.tehsil ?? '')
   const [propertyType, setPropertyType] = useState<string>(handoff?.propertyType || PropertyType.RESIDENTIAL)
   const [questions, setQuestions] = useState(
     handoff?.khasraNumber ? `Khasra/Survey number: ${handoff.khasraNumber}` : '',

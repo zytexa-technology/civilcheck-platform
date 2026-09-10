@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { PartnerRole } from '@prisma/client'
 import {
   claimCreateSchema,
+  linkDiscoveredListingSchema,
   purchaseVerifySchema,
   verificationCancelSchema,
   verificationQuoteCreateSchema,
@@ -121,6 +122,18 @@ expertVerificationRouter.post(
   authMiddleware.sellerMiddleware,
   expertOnly,
   verificationController.start
+)
+
+// Property Discovery flow (Step 4B) — Expert-only, deliberately not mirrored
+// on adminMarketplaceRouter: linking a discovered property requires the
+// Listing to have been created by the calling Expert themselves via the
+// normal New Listing flow, which an Admin account never does.
+expertVerificationRouter.post(
+  '/:id/discovered-listing',
+  authMiddleware.sellerMiddleware,
+  expertOnly,
+  validateBody(linkDiscoveredListingSchema),
+  verificationController.linkListing
 )
 
 expertVerificationRouter.post(

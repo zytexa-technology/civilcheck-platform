@@ -135,6 +135,36 @@ export const registerLimiter = rateLimit({
   message: { success: false, message: 'Too many registration attempts. Please try again later.' },
 })
 
+// Signup Email Verification — resend / verify. Same shape and reasoning as
+// the password-reset request/verify limiters above (this reuses the same
+// PasswordResetOtp table and MAX_ATTEMPTS discipline); one instance per
+// actor so a buyer and a partner behind the same IP don't share one budget.
+function makeEmailVerificationRequestLimiter() {
+  return rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 5,
+    standardHeaders: true,
+    legacyHeaders: false,
+    skip: isTestEnv,
+    message: { success: false, message: 'Too many requests. Please try again later.' },
+  })
+}
+export const buyerEmailVerificationRequestLimiter = makeEmailVerificationRequestLimiter()
+export const sellerEmailVerificationRequestLimiter = makeEmailVerificationRequestLimiter()
+
+function makeEmailVerificationVerifyLimiter() {
+  return rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 20,
+    standardHeaders: true,
+    legacyHeaders: false,
+    skip: isTestEnv,
+    message: { success: false, message: 'Too many attempts. Please try again later.' },
+  })
+}
+export const buyerEmailVerificationVerifyLimiter = makeEmailVerificationVerifyLimiter()
+export const sellerEmailVerificationVerifyLimiter = makeEmailVerificationVerifyLimiter()
+
 // Payment / order-creation endpoints (report unlock, special-request advance)
 // Guards against order-flooding and duplicate-charge probing. Keyed per
 // authenticated user when available, else per IP.

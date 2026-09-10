@@ -62,8 +62,10 @@ export interface ApiEnvelope {
 export interface ApiErrorBody {
   success: false
   message: string
-  /** Present on a few auth paths — e.g. 'SESSION_EXPIRED', 'TOTP_REQUIRED'. */
+  /** Present on a few auth paths — e.g. 'SESSION_EXPIRED', 'TOTP_REQUIRED', 'EMAIL_NOT_VERIFIED'. */
   code?: string
+  /** Only on EMAIL_NOT_VERIFIED (loginBuyer) — lets the caller route to Verify Email without re-typing. */
+  email?: string
 }
 
 // ─── AUTH ────────────────────────────────────────────────────────────────────
@@ -91,7 +93,16 @@ export interface MeResponse extends ApiEnvelope {
 
 /** POST /api/auth/register — email + password + mandatory phone. Logs the
  *  buyer straight in, same shape as LoginResponse. */
+// Signup Email Verification — registration no longer logs the buyer straight
+// in; POST /api/auth/verify-email (EmailVerifyResponse below, same shape as
+// LoginResponse) is what actually issues a session, once the emailed OTP is
+// confirmed.
 export interface RegisterResponse extends ApiEnvelope {
+  requiresVerification: true
+  email: string
+}
+
+export interface EmailVerifyResponse extends ApiEnvelope {
   token: string
   user: AuthUser
 }

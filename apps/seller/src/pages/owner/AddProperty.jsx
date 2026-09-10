@@ -38,11 +38,22 @@ const REQ_DOCS = [
 // against anything, they're just extra evidence attached to the submission.
 const OPT_DOCS = ['NOC', 'Builder Documents', 'Encumbrance Certificate']
 
+// Same canonical values as Prisma's PropertyType enum / seller/NewListing.jsx
+// PROPERTY_FIELDS keys — apps/seller has no dependency on @civilcheck/shared,
+// so this mirrors NewListing.jsx's existing pattern of a local, in-sync list
+// rather than adding that dependency just for one enum.
+const PROPERTY_TYPES = [
+  { value: 'RESIDENTIAL', label: 'Residential' },
+  { value: 'COMMERCIAL', label: 'Commercial' },
+  { value: 'AGRICULTURAL', label: 'Agricultural' },
+  { value: 'PLOT', label: 'Plot' },
+]
+
 export default function OwnerAddProperty({ go }) {
   const { seller } = useAuth()
   const [form, setForm] = useState({
     title: '', area: '', age: '', city: seller?.city || '',
-    tehsil: '', address: '', images: [], videos: [], latitude: null, longitude: null,
+    tehsil: '', address: '', propertyType: '', images: [], videos: [], latitude: null, longitude: null,
   })
   // name → { url, mock, name } once uploaded to Cloudinary; nothing here
   // reports "uploaded" until a real URL comes back.
@@ -71,6 +82,11 @@ export default function OwnerAddProperty({ go }) {
   const submit = async () => {
     if (!form.title.trim()) { toast('Title daaliye'); return }
     if (!form.area.trim())  { toast('Area daaliye'); return }
+    if (!form.propertyType) { toast('Property type chuniye'); return }
+    if (form.latitude == null || form.longitude == null) {
+      toast('Property Location zaroori hai — "Use My Current Location" par click karein')
+      return
+    }
     // REQ_DOCS were shown as mandatory ("*", red chip) but never actually
     // blocked submission — the backend now enforces the full type
     // composition too, but this stops the wasted round-trip and matches
@@ -92,6 +108,7 @@ export default function OwnerAddProperty({ go }) {
         city: form.city,
         tehsil: form.tehsil || undefined,
         address: form.address || undefined,
+        propertyType: form.propertyType,
         latitude: form.latitude ?? undefined,
         longitude: form.longitude ?? undefined,
         images: form.images,
@@ -118,6 +135,15 @@ export default function OwnerAddProperty({ go }) {
           <Field label="Property Title" required>
             <input className="control" placeholder="e.g. 2BHK Flat, Malviya Nagar"
               value={form.title} onChange={(e) => setField('title', e.target.value)} />
+          </Field>
+
+          <Field label="Property Type" required>
+            <select className="control" value={form.propertyType} onChange={(e) => setField('propertyType', e.target.value)}>
+              <option value="">Select type...</option>
+              {PROPERTY_TYPES.map((t) => (
+                <option key={t.value} value={t.value}>{t.label}</option>
+              ))}
+            </select>
           </Field>
 
           <div className="row">

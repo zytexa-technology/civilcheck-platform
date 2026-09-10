@@ -25,9 +25,11 @@ import {
   createVerificationRequest,
   getMarketplaceRequestDetail,
   getQuotesForRequest,
+  linkDiscoveredProperty,
   startVerification,
   submitVerificationQuote,
   submitVerificationReport,
+  type CreateVerificationRequestInput,
   type ProfessionalActor,
 } from '../services/verification.service.js'
 import { notifySeller, notifyBuyerAlert } from '../services/notification.service.js'
@@ -51,15 +53,30 @@ export const getMarketplaceConfig = async (_req: Request, res: Response) => {
 // POST /api/verification-requests
 export const createRequest = async (req: Request, res: Response) => {
   const userId = req.user!.id
-  const { source, listingId, propertyId, initialOfferAmount } = req.body as {
-    source: 'LISTING' | 'PROPERTY'
-    listingId?: string
-    propertyId?: string
-    initialOfferAmount: number
-  }
+  const {
+    source,
+    listingId,
+    propertyId,
+    initialOfferAmount,
+    desiredAddress,
+    desiredCity,
+    desiredTehsil,
+    desiredPropertyType,
+    desiredKhasraOrSurvey,
+  } = req.body as CreateVerificationRequestInput
 
   try {
-    const request = await createVerificationRequest(userId, { source, listingId, propertyId, initialOfferAmount })
+    const request = await createVerificationRequest(userId, {
+      source,
+      listingId,
+      propertyId,
+      initialOfferAmount,
+      desiredAddress,
+      desiredCity,
+      desiredTehsil,
+      desiredPropertyType,
+      desiredKhasraOrSurvey,
+    })
     void notifyBuyer(userId, {
       type: 'verification',
       title: 'Verification request submitted',
@@ -117,6 +134,15 @@ export const getMyRequests = async (req: Request, res: Response) => {
 // accepted quote's fee and the assigned professional's public info are
 // included; nothing about competing (CLOSED) quotes is exposed, since those
 // carry another professional's pricing.
+//
+// Property Discovery flow (Step 4E) — also selects the target `listing`/
+// `property` (only public location fields, no seller-private data), which
+// this endpoint never returned before. Needed so the buyer's detail page
+// can transition from "Property Discovery" (desired* fields, no target) to
+// the real linked Listing's location once linkDiscoveredProperty sets
+// listingId — that transition was otherwise impossible to observe from this
+// endpoint's response. Purely additive to an existing read query; no write
+// path, payment, ledger, or other model is touched.
 export const getRequestById = async (req: Request, res: Response) => {
   const userId = req.user!.id
   const id = req.params.id as string
@@ -127,6 +153,8 @@ export const getRequestById = async (req: Request, res: Response) => {
       acceptedQuote: true,
       assignedSeller: { select: { name: true, badge: true, profession: true, accuracyScore: true } },
       report: true,
+      listing: { select: { address: true, city: true, tehsil: true, propertyType: true, latitude: true, longitude: true } },
+      property: { select: { title: true, address: true, city: true, tehsil: true, propertyType: true, latitude: true, longitude: true } },
     },
   })
 
@@ -510,6 +538,17 @@ function resolveActor(req: Request): ProfessionalActor {
 // carries `myQuote` (this actor's own quote on it, or null) so the list can
 // show a per-request quote-status column without a follow-up call per row —
 // never another professional's quote, same restraint as the detail endpoint.
+//
+// Property Discovery flow (Step 4B) — a DISCOVERY row here has `listing:
+// null, property: null` (Prisma resolves an absent relation to null, it
+// never throws), while its desiredAddress/desiredCity/desiredTehsil/
+// desiredPropertyType/desiredKhasraOrSurvey columns are already present on
+// every row regardless of source — this query never `select`s a narrower
+// shape. No buyer identity is joined here for any source, so there is
+// nothing DISCOVERY-specific to further restrict for PII. Quoting
+// eligibility (Expert-only, KYC-approved, one quote per professional) for
+// DISCOVERY is enforced in submitVerificationQuote, not here — this
+// endpoint is a read of what's open, same visibility for every source.
 export const getMarketplaceRequests = async (req: Request, res: Response) => {
   const actor = resolveActor(req)
 
@@ -623,6 +662,39 @@ export const start = async (req: Request, res: Response) => {
       data: { verificationRequestId: request.id },
     })
     res.json({ success: true, message: 'Verification started', request })
+  } catch (err) {
+    if (err instanceof VerificationError) {
+      res.status(err.status).json({ success: false, message: err.message })
+      return
+    }
+    throw err
+  }
+}
+
+// POST /api/seller/verification-marketplace/:id/discovered-listing
+// Property Discovery flow (Step 4B) — Expert-only (see verification.routes.ts;
+// this is deliberately not mounted on adminMarketplaceRouter). Links a
+// Listing the Expert already created via the normal New Listing flow onto
+// their accepted DISCOVERY request; every business rule (assignment, role,
+// KYC, ownership, listing validity, request state, race-safety) lives in
+// linkDiscoveredProperty.
+export const linkListing = async (req: Request, res: Response) => {
+  const id = req.params.id as string
+  const actor = resolveActor(req)
+  const { listingId } = req.body as { listingId: string }
+
+  try {
+    const { request } = await linkDiscoveredProperty(id, actor, listingId)
+    // Notify the buyer exactly once, only on a successful link — never on a
+    // failed/rejected/duplicate attempt (those all throw above and are
+    // caught below without reaching this line).
+    void notifyBuyer(request.userId, {
+      type: 'verification',
+      title: 'Property found',
+      body: 'The assigned Expert found and linked your property — verification will begin shortly.',
+      data: { verificationRequestId: request.id },
+    })
+    res.json({ success: true, message: 'Listing linked — verification can now proceed.', request })
   } catch (err) {
     if (err instanceof VerificationError) {
       res.status(err.status).json({ success: false, message: err.message })

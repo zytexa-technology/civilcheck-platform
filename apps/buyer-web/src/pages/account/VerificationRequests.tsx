@@ -44,7 +44,11 @@ export default function VerificationRequests() {
             <Link key={r.id} to={`/account/verifications/${r.id}`} className="card" style={{ display: 'block' }}>
               <div className="spread">
                 <span style={{ fontWeight: 700, fontSize: 13.5 }}>
-                  {r.source === 'LISTING' ? 'Paid report verification' : 'Owner-listed property verification'}
+                  {r.source === 'LISTING'
+                    ? 'Paid report verification'
+                    : r.source === 'DISCOVERY'
+                      ? 'Property discovery'
+                      : 'Owner-listed property verification'}
                 </span>
                 {r.status === 'OPEN' && (r.pendingQuoteCount ?? 0) > 0 ? (
                   <span className="pill pill--blue">Quotes available</span>

@@ -656,6 +656,19 @@ export const approveListing = async (req: Request, res: Response) => {
     return
   }
 
+  // Property Discovery flow (Step 2) — a Listing must never become
+  // buyer-visible without a real map pin. New listings are already required
+  // to submit latitude/longitude (listingCreateSchema), but this is the
+  // actual publish gate — it also protects any pre-existing PENDING_REVIEW
+  // row created before that requirement existed.
+  if (listing.latitude == null || listing.longitude == null) {
+    res.status(400).json({
+      success: false,
+      message: 'This listing has no latitude/longitude on file and cannot be approved until location data is supplied.',
+    })
+    return
+  }
+
   // Guarded: two reviewers clicking Approve produce one winner, and an
   // already-APPROVED listing does not re-notify the seller.
   const { count } = await prisma.listing.updateMany({
@@ -818,6 +831,19 @@ export const approveProperty = async (req: Request, res: Response) => {
 
   if (!property) {
     res.status(404).json({ success: false, message: 'Property not found' })
+    return
+  }
+
+  // Property Discovery flow (Step 2) — a Property must never become
+  // buyer-visible without a real map pin. New properties are already
+  // required to submit latitude/longitude (propertyCreateSchema), but this
+  // is the actual publish gate — it also protects any pre-existing PENDING
+  // row created before that requirement existed.
+  if (property.latitude == null || property.longitude == null) {
+    res.status(400).json({
+      success: false,
+      message: 'This property has no latitude/longitude on file and cannot be approved until location data is supplied.',
+    })
     return
   }
 

@@ -107,8 +107,13 @@ export async function requestPasswordReset(actor: ResetActor, email: string): Pr
 
   // Resend cooldown — silent no-op (not a different response) so timing
   // alone never reveals whether a previous request actually existed.
+  // Scoped to purpose: PASSWORD_RESET (Signup Email Verification, added
+  // later, reuses this same table under OtpPurpose.EMAIL_VERIFICATION) —
+  // without this filter, a more recent verification-email OTP for the same
+  // account would otherwise be picked up here instead of the real most
+  // recent password-reset OTP.
   const recent = await prisma.passwordResetOtp.findFirst({
-    where: { [column]: account.id },
+    where: { [column]: account.id, purpose: 'PASSWORD_RESET' },
     orderBy: { createdAt: 'desc' },
   })
   if (recent && Date.now() - recent.createdAt.getTime() < RESEND_COOLDOWN_MS) {
@@ -121,6 +126,7 @@ export async function requestPasswordReset(actor: ResetActor, email: string): Pr
   await prisma.passwordResetOtp.create({
     data: {
       [column]: account.id,
+      purpose: 'PASSWORD_RESET',
       otpHash,
       expiresAt: new Date(Date.now() + OTP_TTL_MS),
     },
@@ -142,8 +148,9 @@ export async function requestPasswordReset(actor: ResetActor, email: string): Pr
 // ─────────────────────────────────────────────────────────────────────────────
 async function findUsableOtp(actor: ResetActor, accountId: string) {
   const column = actorColumn(actor)
+  // purpose: 'PASSWORD_RESET' — see requestPasswordReset's identical filter above.
   return prisma.passwordResetOtp.findFirst({
-    where: { [column]: accountId, usedAt: null },
+    where: { [column]: accountId, purpose: 'PASSWORD_RESET', usedAt: null },
     orderBy: { createdAt: 'desc' },
   })
 }

@@ -19,7 +19,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { sellerLogin, sellerLoginFirebase, sellerRegister } from '../api/auth.api'
+import { sellerLogin, sellerLoginFirebase, sellerRegister, verifyEmail, resendVerificationEmail } from '../api/auth.api'
 import { getSellerProfile } from '../api/seller.api'
 import { sendOtp, confirmOtp, isFirebaseConfigured } from '../lib/firebaseAuth'
 import { Seal, Icon } from '../components/Icon'
@@ -74,10 +74,10 @@ export default function Login() {
   const navigate = useNavigate()
   const { login, seller } = useAuth()
 
-  // landing → login | profile → role
+  // landing → login | profile → role → verify-email
   const [step, setStep] = useState('landing')
   const [loginForm, setLoginForm] = useState({ email: '', password: '' })
-  const [form, setForm] = useState({ name: '', email: '', phone: '', password: '', city: '', state: '', profession: '', licenseNumber: '', yearsOfExperience: '' })
+  const [form, setForm] = useState({ name: '', email: '', phone: '', address: '', password: '', confirmPassword: '', city: '', state: '', profession: '', licenseNumber: '', yearsOfExperience: '' })
   const [role, setRole] = useState('')
   const [tcAccepted, setTcAccepted] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -89,6 +89,23 @@ export default function Login() {
   const [otpPhone, setOtpPhone] = useState('')
   const [otpCode, setOtpCode] = useState('')
   const [otpConfirmation, setOtpConfirmation] = useState(null)
+
+  // Signup Email Verification — the OTP screen after registration (and the
+  // recovery path when handleLogin gets EMAIL_NOT_VERIFIED back).
+  const [verifyEmailAddr, setVerifyEmailAddr] = useState('')
+  const [emailOtp, setEmailOtp] = useState('')
+  const [emailOtpCooldown, setEmailOtpCooldown] = useState(0)
+  const [resendMessage, setResendMessage] = useState('')
+
+  const startEmailOtpCooldown = () => {
+    setEmailOtpCooldown(60)
+    const iv = setInterval(() => {
+      setEmailOtpCooldown((c) => {
+        if (c <= 1) { clearInterval(iv); return 0 }
+        return c - 1
+      })
+    }, 1000)
+  }
 
   // Pehle se logged-in? → dashboard
   useEffect(() => { if (seller) navigate('/dashboard', { replace: true }) }, [seller, navigate])
@@ -110,6 +127,13 @@ export default function Login() {
         setErr(data.message || 'Login failed')
       }
     } catch (e) {
+      // Signup Email Verification — send an unverified account straight to
+      // the OTP screen instead of a dead-end "wrong password" error.
+      if (e.response?.data?.code === 'EMAIL_NOT_VERIFIED') {
+        setVerifyEmailAddr(loginForm.email.trim())
+        setErr(''); setStep('verify-email')
+        return
+      }
       setErr(e.response?.data?.message || 'Invalid email or password')
     } finally { setBusy(false) }
   }
@@ -149,7 +173,9 @@ export default function Login() {
     if (!form.name.trim())        { setErr('Full name zaroori'); return }
     if (form.phone.length !== 10) { setErr('10-digit mobile number zaroori'); return }
     if (!emailValid(form.email))  { setErr('Valid email zaroori'); return }
+    if (form.address.trim().length < 10) { setErr('Poora address daaliye (kam se kam 10 characters)'); return }
     if (!passwordValid(form.password)) { setErr('Password kam se kam 8 characters, 1 letter aur 1 number ke saath'); return }
+    if (form.password !== form.confirmPassword) { setErr('Passwords match nahi karte'); return }
     if (!form.city.trim())        { setErr('City zaroori'); return }
     if (!form.state)              { setErr('State select karein'); return }
     setErr(''); setStep('role')
@@ -174,7 +200,9 @@ export default function Login() {
         phone: form.phone,
         name: form.name.trim(),
         email: form.email.trim(),
+        address: form.address.trim(),
         password: form.password,
+        confirmPassword: form.confirmPassword,
         city: form.city.trim(),
         state: form.state,
         partnerRole: role,
@@ -191,8 +219,10 @@ export default function Login() {
         digitalSignature: form.name.trim(),
       })
       if (data.success) {
-        login(data.token, data.seller, [role])
-        navigate('/dashboard', { replace: true })
+        // Signup Email Verification — no token yet; the account is
+        // unverified until the emailed OTP is confirmed on the next step.
+        setVerifyEmailAddr(data.email || form.email.trim())
+        setStep('verify-email')
       } else {
         setErr(data.message || 'Register nahi hua')
       }
@@ -205,6 +235,37 @@ export default function Login() {
       } else {
         setErr(e.response?.data?.message || e.response?.data?.errors?.[0]?.message || 'Register nahi hua — dobara try karo')
       }
+    } finally { setBusy(false) }
+  }
+
+  // ── VERIFY EMAIL (register step 3) ─────────────────────────────────────
+  const handleVerifyEmail = async () => {
+    if (!/^\d{6}$/.test(emailOtp)) { setErr('Enter the 6-digit code'); return }
+    setErr(''); setBusy(true)
+    try {
+      const data = await verifyEmail(verifyEmailAddr, emailOtp)
+      if (data.success) {
+        // role may be '' if we got here via handleLogin's EMAIL_NOT_VERIFIED
+        // recovery path rather than fresh registration — finalizeLogin
+        // already knows how to fall back to the seller's own partnerRole.
+        await finalizeLogin(data.token, data.seller)
+      } else {
+        setErr(data.message || 'Verification failed')
+      }
+    } catch (e) {
+      setErr(e.response?.data?.message || 'Invalid or expired code')
+    } finally { setBusy(false) }
+  }
+
+  const handleResendEmailOtp = async () => {
+    if (emailOtpCooldown > 0) return
+    setErr(''); setBusy(true)
+    try {
+      const data = await resendVerificationEmail(verifyEmailAddr)
+      setResendMessage(data.message || '')
+      startEmailOtpCooldown()
+    } catch (e) {
+      setErr(e.response?.data?.message || "Couldn't resend the code. Please try again.")
     } finally { setBusy(false) }
   }
 
@@ -401,8 +462,14 @@ export default function Login() {
           <div className="row">
             <div className="field"><label>Email <span className="req">*</span></label>
               <input className="control" type="email" placeholder="name@email.com" value={form.email} onChange={(e) => setField('email', e.target.value)} /></div>
+            <div className="field"><label>Address <span className="req">*</span></label>
+              <input className="control" placeholder="Aapka poora address" value={form.address} onChange={(e) => setField('address', e.target.value)} /></div>
+          </div>
+          <div className="row">
             <div className="field"><label>Password <span className="req">*</span></label>
               <input className="control" type="password" placeholder="At least 8 characters" value={form.password} onChange={(e) => setField('password', e.target.value)} /></div>
+            <div className="field"><label>Confirm Password <span className="req">*</span></label>
+              <input className="control" type="password" placeholder="Re-enter password" value={form.confirmPassword} onChange={(e) => setField('confirmPassword', e.target.value)} /></div>
           </div>
           <div className="row">
             <div className="field"><label>City <span className="req">*</span></label>
@@ -497,6 +564,43 @@ export default function Login() {
             {busy ? 'Setup ho raha hai…' : 'Enter Partner Portal'}
           </button>
           <button className="btn btn-block" style={{ color: 'var(--muted)', marginTop: 6 }} onClick={() => setStep('profile')}>← Back</button>
+        </div>
+      )}
+
+      {/* ===== VERIFY PARTNER EMAIL (register step 3 / login recovery) ===== */}
+      {step === 'verify-email' && (
+        <div className="auth-card">
+          {BrandSmall}
+          <div className="eyebrow">Almost there</div>
+          <h1 style={{ fontSize: 22, margin: '6px 0 5px' }} className="dev">Verify your Partner email</h1>
+          <p className="muted small dev" style={{ marginBottom: 22 }}>
+            We've sent a verification code to {verifyEmailAddr}
+          </p>
+          {err && <ErrorBox msg={err} />}
+          {resendMessage && (
+            <div className="dev" style={{ background: 'var(--info-soft, #eef4ff)', color: 'var(--info, #2b5c8f)', borderRadius: 11, padding: '10px 14px', fontSize: 13, marginBottom: 16 }}>
+              {resendMessage}
+            </div>
+          )}
+          <div className="field">
+            <label>6-digit code</label>
+            <input
+              className="control" inputMode="numeric" maxLength={6}
+              placeholder="000000" value={emailOtp}
+              style={{ letterSpacing: 6, textAlign: 'center', fontSize: 18, fontWeight: 700 }}
+              onChange={(e) => setEmailOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+            />
+          </div>
+          <p className="xs muted dev" style={{ marginTop: -6, marginBottom: 12 }}>Code expires in 10 minutes.</p>
+          <button className="btn btn-primary btn-block" onClick={handleVerifyEmail} disabled={busy}>
+            {busy ? 'Verifying…' : 'Verify Email'}
+          </button>
+          <button
+            className="btn btn-block" style={{ color: 'var(--muted)', marginTop: 6 }}
+            onClick={handleResendEmailOtp} disabled={busy || emailOtpCooldown > 0}
+          >
+            {emailOtpCooldown > 0 ? `Resend OTP in ${emailOtpCooldown}s` : 'Resend OTP'}
+          </button>
         </div>
       )}
     </div>

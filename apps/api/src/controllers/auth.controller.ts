@@ -7,6 +7,7 @@ import { isAdminSessionExpired } from '../lib/session.js'
 import { verifyTotp } from '../services/twoFactor.service.js'
 import { AuditAction, clientIp, recordAudit } from '../services/audit.service.js'
 import { verifyFirebaseToken } from '../lib/firebase.js'
+import { sendWelcomeVerificationEmail } from '../services/emailVerification.service.js'
 
 // bcrypt has a hard 72-byte input limit; passwordSchema already caps input at
 // 72 characters so this only guards against callers that bypass Zod.
@@ -30,6 +31,23 @@ export const loginBuyer = async (req: Request, res: Response) => {
   const isValid = await bcrypt.compare(password, user.passwordHash)
   if (!isValid) {
     res.status(401).json({ success: false, message: 'Invalid email or password' })
+    return
+  }
+
+  // Signup Email Verification — a false row only ever exists for an account
+  // created by the current registerBuyer flow that hasn't completed
+  // verification yet; every pre-existing account defaults true (see
+  // schema.prisma), so this can never lock out anyone who registered before
+  // this feature existed. Distinct 403 (not the generic 401 above) so the
+  // frontend can route straight to the OTP screen instead of showing a
+  // dead-end "wrong password" error.
+  if (!user.emailVerified) {
+    res.status(403).json({
+      success: false,
+      code: 'EMAIL_NOT_VERIFIED',
+      message: 'Please verify your email before logging in.',
+      email: user.email,
+    })
     return
   }
 
@@ -134,6 +152,20 @@ export const sellerLogin = async (req: Request, res: Response) => {
   // "no such account" from the login form's point of view.
   if (seller.deletedAt) {
     res.status(401).json({ success: false, message: 'Invalid email or password' })
+    return
+  }
+
+  // Signup Email Verification — same reasoning as loginBuyer's identical
+  // check: only ever false for an account created by sellerRegister that
+  // hasn't completed verification yet; every pre-existing Seller defaults
+  // true, so this never affects an account registered before this feature.
+  if (!seller.emailVerified) {
+    res.status(403).json({
+      success: false,
+      code: 'EMAIL_NOT_VERIFIED',
+      message: 'Please verify your email before logging in.',
+      email: seller.email,
+    })
     return
   }
 
@@ -708,54 +740,54 @@ export const logout = async (req: Request, res: Response) => {
 
 
 // ─────────────────────────────────────────────────────────────────────────────
-// POST /api/auth/register → Buyer signup (email + password + mandatory phone —
-// replaces phone OTP, MSG91 removed). Logs the buyer straight in: no
-// verification step sits between this and a usable session.
+// POST /api/auth/register → Buyer signup (email + password + mandatory phone
+// + address). Signup Email Verification: the account is created unverified
+// and no session is issued here — POST /api/auth/verify-email is what
+// actually logs the buyer in, once the emailed OTP is confirmed.
 // ─────────────────────────────────────────────────────────────────────────────
 export const registerBuyer = async (req: Request, res: Response) => {
-  const { name, email, phone, password } = req.body as {
+  const { name, email, phone, address, password } = req.body as {
     name: string
     email: string
     phone: string
+    address: string
     password: string
   }
 
-  const existingPhone = await prisma.user.findUnique({ where: { phone } })
-  if (existingPhone) {
-    res.status(409).json({ success: false, message: 'This phone number is already registered.' })
+  const existingEmail = await prisma.user.findUnique({ where: { email } })
+  if (existingEmail && existingEmail.emailVerified) {
+    res.status(409).json({ success: false, message: 'This email is already registered.' })
     return
   }
 
-  const existingEmail = await prisma.user.findUnique({ where: { email } })
-  if (existingEmail) {
-    res.status(409).json({ success: false, message: 'This email is already registered.' })
+  const existingPhone = await prisma.user.findUnique({ where: { phone } })
+  if (existingPhone && existingPhone.id !== existingEmail?.id) {
+    res.status(409).json({ success: false, message: 'This phone number is already registered.' })
     return
   }
 
   const passwordHash = await bcrypt.hash(password, PASSWORD_BCRYPT_ROUNDS)
 
-  const user = await prisma.user.create({
-    data: { phone, name, email, passwordHash },
-  })
+  // A previously abandoned signup (unverified row already sitting on this
+  // exact email — the 409 above already ruled out a verified one) is
+  // updated in place with the freshly submitted fields rather than rejected
+  // or duplicated, so retrying signup after losing/ignoring the first code
+  // never creates a second account for the same email.
+  const user = existingEmail
+    ? await prisma.user.update({
+        where: { id: existingEmail.id },
+        data: { name, phone, address, passwordHash },
+      })
+    : await prisma.user.create({
+        data: { phone, name, email, address, passwordHash, emailVerified: false },
+      })
 
-  const token = jwt.sign(
-    { userId: user.id, phone: user.phone },
-    JWT_SECRET,
-    { expiresIn: ACCESS_TOKEN_EXPIRY }
-  )
+  await sendWelcomeVerificationEmail('BUYER', user.id, email, name)
 
   res.status(201).json({
     success: true,
-    message: 'Buyer registered successfully',
-    token,
-    user: {
-      id: user.id,
-      phone: user.phone,
-      name: user.name,
-      email: user.email,
-      city: user.city,
-      state: user.state,
-      profileComplete: Boolean(user.name && user.city && user.state),
-    },
+    message: 'Account created. Please check your email for a verification code.',
+    requiresVerification: true,
+    email: user.email,
   })
 }

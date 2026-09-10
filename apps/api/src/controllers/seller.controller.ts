@@ -1,13 +1,11 @@
 import { Request, Response } from 'express'
-import jwt from 'jsonwebtoken'
 import bcrypt from 'bcryptjs'
 import { Prisma } from '@prisma/client'
 import prisma from '../lib/prisma.js'
 import logger from '../lib/logger.js'
 import { generateUploadSignature, generateSignedDownloadUrl, parseCloudinaryUrl, UploadKind } from '../lib/cloudinary.js'
 import { notifySeller } from '../services/notification.service.js'
-
-import { JWT_SECRET, ACCESS_TOKEN_EXPIRY } from '../lib/jwt.js'
+import { sendWelcomeVerificationEmail } from '../services/emailVerification.service.js'
 
 // bcrypt has a hard 72-byte input limit; sellerRegistrationSchema's
 // passwordSchema already caps input at 72 characters so this only guards
@@ -36,7 +34,7 @@ export const sellerRegister = async (req: Request, res: Response) => {
   // bank pair (account+IFSC) format-checked hai, phone normalized hai,
   // email + password mandatory hain (auth cutover — MSG91 removed)
   const {
-    phone, name, email, password, city, state, profession, bankAccount, ifsc, partnerRole,
+    phone, name, email, address, password, city, state, profession, bankAccount, ifsc, partnerRole,
     tcAccepted, selfieUrl, barCouncilDoc, digitalSignature, licenseNumber, yearsOfExperience,
   } = req.body
 
@@ -52,22 +50,25 @@ export const sellerRegister = async (req: Request, res: Response) => {
   }
 
   try {
-    // Kya is phone se seller pehle se registered hai?
-    const existing = await prisma.seller.findUnique({ where: { phone } })
-    if (existing) {
+    // Email login identifier hai — duplicate nahi ho sakta (checked first,
+    // ahead of phone, so an abandoned unverified signup on this email can be
+    // resumed below rather than tripping the phone-uniqueness check against
+    // its own existing row).
+    const existingEmail = await prisma.seller.findUnique({ where: { email } })
+    if (existingEmail && existingEmail.emailVerified) {
       res.status(409).json({
         success: false,
-        message: 'Is phone number se seller already registered hai'
+        message: 'This email is already registered.'
       })
       return
     }
 
-    // Email login identifier hai — duplicate nahi ho sakta
-    const existingEmail = await prisma.seller.findUnique({ where: { email } })
-    if (existingEmail) {
+    // Kya is phone se (kisi doosre account se) seller pehle se registered hai?
+    const existingPhone = await prisma.seller.findUnique({ where: { phone } })
+    if (existingPhone && existingPhone.id !== existingEmail?.id) {
       res.status(409).json({
         success: false,
-        message: 'This email is already registered.'
+        message: 'Is phone number se seller already registered hai'
       })
       return
     }
@@ -81,69 +82,57 @@ export const sellerRegister = async (req: Request, res: Response) => {
     // work, so there is nothing for KYC to gate (contrast Expert, who
     // performs paid verification work and stays gated behind Super Admin
     // approval — kycStatus keeps the schema default PENDING for them).
+    // Signup Email Verification is orthogonal to all of this — instant KYC
+    // approval does not skip email verification; see sellerLogin's
+    // emailVerified gate.
     const instantApprove = partnerRole === 'OWNER' || partnerRole === 'REPORTER'
 
-    // Naya seller banao
-    const seller = await prisma.seller.create({
-      data: {
-        phone,
-        name,
-        email,
-        passwordHash,
-        city: city || null,
-        state: state || null,
-        // Client no longer sends this (removed from signup) — fall back to
-        // the fixed placeholder so the NOT NULL column is still satisfied.
-        // If a caller ever does send a real value, it's honored as before.
-        profession: profession || LEGACY_DEFAULT_PROFESSION,
-        // Property Expert KYC hardening — only Expert applications collect
-        // these (sellerRegistrationSchema requires yearsOfExperience for
-        // EXPERT; licenseNumber stays optional there too — "where
-        // applicable"). Owner/Reporter never send them, so this is a no-op
-        // for those roles.
-        licenseNumber: licenseNumber || null,
-        yearsOfExperience: yearsOfExperience ?? null,
-        bankAccount: bankAccount || null,
-        ifsc: ifsc || null,
-        partnerRole: partnerRole || null,   // OWNER | EXPERT (REPORTER not offered at signup yet)
-        tcAccepted: tcAccepted === true,    // compliance checkbox (PDF 6.1)
-        selfieUrl: selfieUrl || null,
-        barCouncilDoc: barCouncilDoc || null,
-        digitalSignature: digitalSignature || null,
-        // Owner → APPROVED immediately; everyone else keeps the schema default.
-        ...(instantApprove ? { kycStatus: 'APPROVED' as const } : {}),
-        // baaki sab default values schema se aayenge:
-        // badge: BRONZE, kycStatus: PENDING, accuracyScore: 100, totalEarnings: 0
-      }
-    })
+    const sellerData = {
+      phone,
+      name,
+      email,
+      address: address || null,
+      passwordHash,
+      city: city || null,
+      state: state || null,
+      // Client no longer sends this (removed from signup) — fall back to
+      // the fixed placeholder so the NOT NULL column is still satisfied.
+      // If a caller ever does send a real value, it's honored as before.
+      profession: profession || LEGACY_DEFAULT_PROFESSION,
+      // Property Expert KYC hardening — only Expert applications collect
+      // these (sellerRegistrationSchema requires yearsOfExperience for
+      // EXPERT; licenseNumber stays optional there too — "where
+      // applicable"). Owner/Reporter never send them, so this is a no-op
+      // for those roles.
+      licenseNumber: licenseNumber || null,
+      yearsOfExperience: yearsOfExperience ?? null,
+      bankAccount: bankAccount || null,
+      ifsc: ifsc || null,
+      partnerRole: partnerRole || null,   // OWNER | EXPERT (REPORTER not offered at signup yet)
+      tcAccepted: tcAccepted === true,    // compliance checkbox (PDF 6.1)
+      selfieUrl: selfieUrl || null,
+      barCouncilDoc: barCouncilDoc || null,
+      digitalSignature: digitalSignature || null,
+      // Owner → APPROVED immediately; everyone else keeps the schema default.
+      ...(instantApprove ? { kycStatus: 'APPROVED' as const } : {}),
+      // baaki sab default values schema se aayenge:
+      // badge: BRONZE, kycStatus: PENDING, accuracyScore: 100, totalEarnings: 0
+    }
 
-    // Seller ke liye alag JWT banao — userId ki jagah sellerId hai
-    const token = jwt.sign(
-      { sellerId: seller.id, phone: seller.phone },
-      JWT_SECRET,
-      { expiresIn: ACCESS_TOKEN_EXPIRY }
-    )
+    // A previously abandoned signup (unverified row already sitting on this
+    // exact email — a verified one already short-circuited with 409 above)
+    // is updated in place rather than rejected or duplicated.
+    const seller = existingEmail
+      ? await prisma.seller.update({ where: { id: existingEmail.id }, data: sellerData })
+      : await prisma.seller.create({ data: { ...sellerData, emailVerified: false } })
+
+    await sendWelcomeVerificationEmail('SELLER', seller.id, email, name)
 
     res.status(201).json({
       success: true,
-      message: instantApprove
-        ? partnerRole === 'REPORTER'
-          ? 'Reporter registered and approved. You can start submitting properties for moderation.'
-          : 'Property Owner registered and approved. You can start listing your property.'
-        : 'Seller registered successfully. Please upload your KYC documents.',
-      token,
-      seller: {
-        id: seller.id,
-        name: seller.name,
-        phone: seller.phone,
-        email: seller.email,
-        city: seller.city,
-        state: seller.state,
-        profession: seller.profession,
-        kycStatus: seller.kycStatus,
-        badge: seller.badge,
-        partnerRole: seller.partnerRole,
-      }
+      message: 'Account created. Please check your email for a verification code.',
+      requiresVerification: true,
+      email: seller.email,
     })
   } catch (err) {
     // Full error logged server-side only — the response used to echo the raw

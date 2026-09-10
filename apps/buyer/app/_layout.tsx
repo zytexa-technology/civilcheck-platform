@@ -18,7 +18,7 @@ import {
 void SplashScreen.preventAutoHideAsync()
 
 /** Routes reachable without a session. */
-const PUBLIC_ROUTES = new Set(['login', 'register', 'phone-login'])
+const PUBLIC_ROUTES = new Set(['login', 'register', 'phone-login', 'verify-email'])
 
 /**
  * Onboarding gate route. A buyer who signs in via phone-OTP only ever has
@@ -101,6 +101,7 @@ function RootNavigator() {
     >
       <Stack.Screen name="login" options={{ animation: 'fade' }} />
       <Stack.Screen name="register" />
+      <Stack.Screen name="verify-email" />
       <Stack.Screen name="phone-login" />
       <Stack.Screen name="complete-profile" options={{ animation: 'fade' }} />
       <Stack.Screen name="(tabs)" options={{ animation: 'fade' }} />

@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { useRouter } from 'expo-router'
 import { registerBuyer } from '../api/auth.api'
-import { useAuth } from '../context/AuthContext'
 import { errorMessage, errorStatus } from '../lib/errors'
 import { colors, SCREEN_PADDING, spacing } from '../theme'
 import { Button } from '../components/Button'
@@ -22,23 +21,26 @@ interface FieldErrors {
   phone?: string
   name?: string
   email?: string
+  address?: string
   password?: string
+  confirmPassword?: string
 }
 
 /**
- * Buyer signup — email + password + mandatory phone (replaces the old
- * phone-OTP flow, MSG91 removed). Registration logs the buyer straight in:
- * POST /api/auth/register now returns a token, so there is no separate
- * verification step to hand off to.
+ * Buyer signup — email + password + mandatory phone + address. Signup Email
+ * Verification: the account is created unverified and no session is issued
+ * here — /verify-email (VerifyEmailScreen) is what actually logs the buyer
+ * in, once the emailed OTP is confirmed.
  */
 export function RegisterScreen() {
   const router = useRouter()
-  const { signIn } = useAuth()
 
   const [phone, setPhone] = useState('')
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
+  const [address, setAddress] = useState('')
   const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({})
@@ -55,8 +57,14 @@ export function RegisterScreen() {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
       errors.email = 'Enter a valid email address.'
     }
+    if (address.trim().length < 10) {
+      errors.address = 'Enter your full address (at least 10 characters).'
+    }
     if (password.length < 8 || !/[A-Za-z]/.test(password) || !/[0-9]/.test(password)) {
       errors.password = 'At least 8 characters, with a letter and a number.'
+    }
+    if (password !== confirmPassword) {
+      errors.confirmPassword = 'Passwords do not match.'
     }
 
     return errors
@@ -77,13 +85,17 @@ export function RegisterScreen() {
         phone: normalized,
         name: name.trim(),
         email: email.trim(),
+        address: address.trim(),
         password,
+        confirmPassword,
       })
-      await signIn(result.token, result.user)
+      // Signup Email Verification — no session yet; the OTP screen is what
+      // actually logs the buyer in once the code is confirmed.
+      router.replace({ pathname: '/verify-email', params: { email: result.email } })
     } catch (err) {
-      // 409 means the phone or email is already registered — that buyer just
-      // needs to log in, so send them there rather than showing an error
-      // they can't fix.
+      // 409 means the phone or email is already registered (and verified) —
+      // that buyer just needs to log in, so send them there rather than
+      // showing an error they can't fix.
       if (errorStatus(err) === 409) {
         router.replace('/login')
         return
@@ -139,6 +151,16 @@ export function RegisterScreen() {
         />
 
         <TextField
+          label="Address"
+          value={address}
+          onChangeText={setAddress}
+          placeholder="Your full address"
+          error={fieldErrors.address}
+          editable={!loading}
+          multiline
+        />
+
+        <TextField
           label="Password"
           value={password}
           onChangeText={setPassword}
@@ -147,6 +169,18 @@ export function RegisterScreen() {
           error={fieldErrors.password}
           editable={!loading}
           hint="At least 8 characters, with a letter and a number."
+        />
+
+        <TextField
+          label="Confirm Password"
+          value={confirmPassword}
+          onChangeText={setConfirmPassword}
+          placeholder="Re-enter password"
+          secureTextEntry
+          error={fieldErrors.confirmPassword}
+          editable={!loading}
+          returnKeyType="go"
+          onSubmitEditing={() => void handleSubmit()}
         />
 
         <Button

@@ -1,0 +1,11 @@
+-- Property Discovery flow (Step 4A) — add the new VerificationSource value
+-- in its own migration, deliberately separate from the migration that uses
+-- it (20260909120100_verification_request_discovery_source). Postgres
+-- forbids referencing a freshly-added enum value inside the same
+-- transaction/migration that added it ("unsafe use of new value of enum
+-- type ... new enum values must be committed before they can be used").
+-- This codebase already follows that same split for every prior enum
+-- addition — see PaymentKind.VERIFICATION_ADVANCE/VERIFICATION_FINAL in
+-- 20260820030000_verification_marketplace_foundation, added there without
+-- being referenced anywhere else in that same file.
+ALTER TYPE "VerificationSource" ADD VALUE 'DISCOVERY';

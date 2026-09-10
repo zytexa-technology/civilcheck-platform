@@ -14,7 +14,9 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import type {
   Listing,
+  Prisma,
   Property,
+  PropertyType,
   VerificationQuote,
   VerificationRequest,
   VerificationRequestStatus,
@@ -49,10 +51,33 @@ export type ProfessionalActor = { adminId: string; sellerId?: undefined } | { se
 // amount — see submitVerificationQuote, which no longer compares a quote
 // against minFee at all.
 // ─────────────────────────────────────────────────────────────────────────────
+export interface CreateVerificationRequestInput {
+  source: 'LISTING' | 'PROPERTY' | 'DISCOVERY'
+  listingId?: string
+  propertyId?: string
+  initialOfferAmount: number
+  // Property Discovery flow (Step 4B) — only meaningful when source is
+  // DISCOVERY; ignored otherwise.
+  desiredAddress?: string
+  desiredCity?: string
+  desiredTehsil?: string
+  desiredPropertyType?: PropertyType
+  desiredKhasraOrSurvey?: string
+}
+
 export async function createVerificationRequest(
   userId: string,
-  input: { source: 'LISTING' | 'PROPERTY'; listingId?: string; propertyId?: string; initialOfferAmount: number }
+  input: CreateVerificationRequestInput
 ): Promise<VerificationRequest> {
+  // Property Discovery flow (Step 4B) — a DISCOVERY request has no existing
+  // Listing/Property to look up or dedupe against, so it's branched out
+  // early into its own function rather than threading a third case through
+  // the LISTING/PROPERTY lookup-and-validate logic below, which must stay
+  // exactly as it was for those two sources (unchanged in this diff).
+  if (input.source === 'DISCOVERY') {
+    return createDiscoveryVerificationRequest(userId, input)
+  }
+
   let listing: Listing | null = null
   let property: Property | null = null
   let uploaderRole: string
@@ -110,6 +135,125 @@ export async function createVerificationRequest(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// CREATE — Property Discovery flow (Step 4B). The buyer wants a property
+// that doesn't exist on CivilCheck yet, so there is no Listing/Property to
+// look up or attach — only a description of what they want found.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function normalizeLocationText(value: string): string {
+  return value.trim().replace(/\s+/g, ' ').toLowerCase()
+}
+
+interface DesiredLocation {
+  address: string
+  city: string
+  tehsil: string
+  propertyType: PropertyType
+}
+
+// DISCOVERY dedupe rule — the general "same property" guard above (used for
+// LISTING/PROPERTY) has no listingId/propertyId to key on here, since
+// nothing exists yet. Instead: one buyer may not have two ACTIVE DISCOVERY
+// requests describing the same desired location + property type. "Active"
+// reuses this codebase's own existing definition of the term (status NOT IN
+// CANCELLED/REPORT_UNLOCKED — the exact same set the LISTING/PROPERTY guard
+// above already excludes), not a new status. Comparison is deliberately
+// conservative and dependency-free: trim + collapse repeated whitespace +
+// lowercase on address/city/tehsil, plus an exact match on the enum
+// propertyType — no fuzzy matching, no geocoding, so it only catches
+// genuine near-identical resubmissions, never two buyers' (or one buyer's
+// two different) legitimately distinct requests for a similar-sounding area.
+async function assertNoActiveDiscoveryDuplicate(
+  tx: Prisma.TransactionClient,
+  userId: string,
+  desired: DesiredLocation
+): Promise<void> {
+  const activeDiscoveryRequests = await tx.verificationRequest.findMany({
+    where: {
+      userId,
+      source: 'DISCOVERY',
+      status: { notIn: ['CANCELLED', 'REPORT_UNLOCKED'] },
+    },
+    select: { desiredAddress: true, desiredCity: true, desiredTehsil: true, desiredPropertyType: true },
+  })
+
+  const normalizedAddress = normalizeLocationText(desired.address)
+  const normalizedCity = normalizeLocationText(desired.city)
+  const normalizedTehsil = normalizeLocationText(desired.tehsil)
+
+  const isDuplicate = activeDiscoveryRequests.some(
+    (r) =>
+      r.desiredPropertyType === desired.propertyType &&
+      normalizeLocationText(r.desiredAddress ?? '') === normalizedAddress &&
+      normalizeLocationText(r.desiredCity ?? '') === normalizedCity &&
+      normalizeLocationText(r.desiredTehsil ?? '') === normalizedTehsil
+  )
+
+  if (isDuplicate) {
+    throw new VerificationError(
+      'You already have an active property discovery request for this location and property type',
+      409
+    )
+  }
+}
+
+async function createDiscoveryVerificationRequest(
+  userId: string,
+  input: CreateVerificationRequestInput
+): Promise<VerificationRequest> {
+  if (!input.desiredAddress || !input.desiredCity || !input.desiredTehsil || !input.desiredPropertyType) {
+    throw new VerificationError(
+      'desiredAddress, desiredCity, desiredTehsil and desiredPropertyType are all required for a DISCOVERY request',
+      400
+    )
+  }
+
+  const settings = await getPlatformSettings()
+  if (input.initialOfferAmount < settings.minVerificationFee) {
+    throw new VerificationError(
+      `Your offer must be at least ₹${settings.minVerificationFee.toLocaleString('en-IN')}`,
+      400
+    )
+  }
+
+  const desired: DesiredLocation = {
+    address: input.desiredAddress,
+    city: input.desiredCity,
+    tehsil: input.desiredTehsil,
+    propertyType: input.desiredPropertyType,
+  }
+
+  // Best-effort race narrowing, not a full guarantee (Step 4B adds no
+  // schema change, so there is no unique index to make this fully atomic —
+  // see this function's mention in the Phase 4B report). Running the
+  // duplicate check and the insert inside one transaction keeps them on the
+  // same DB session rather than two independent round trips, which narrows
+  // — but, under Postgres's default READ COMMITTED isolation, does not
+  // eliminate — the window where two concurrent submissions could both
+  // pass the check before either commits. A true guarantee would need a
+  // partial unique index on normalized desired* columns, which is a schema
+  // change out of this phase's scope.
+  return prisma.$transaction(async (tx) => {
+    await assertNoActiveDiscoveryDuplicate(tx, userId, desired)
+
+    return tx.verificationRequest.create({
+      data: {
+        userId,
+        source: 'DISCOVERY',
+        minFee: settings.minVerificationFee,
+        buyerInitialOfferAmount: input.initialOfferAmount,
+        status: 'OPEN',
+        desiredAddress: desired.address.trim(),
+        desiredCity: desired.city.trim(),
+        desiredTehsil: desired.tehsil.trim(),
+        desiredPropertyType: desired.propertyType,
+        desiredKhasraOrSurvey: input.desiredKhasraOrSurvey?.trim() || null,
+      },
+    })
+  })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // QUOTE — a professional's proposed fee is an OFFER, not an acceptance. It is
 // created PENDING and simply sits alongside any other PENDING quotes on the
 // same request until the buyer reviews them and picks one (see
@@ -145,6 +289,37 @@ export async function submitVerificationQuote(
     // level lock is what actually protects the request, this is just a fast
     // fail for the common case). Fail fast without touching the DB further.
     throw new VerificationError('This request is no longer open for quotes', 409)
+  }
+
+  // Property Discovery flow (Step 4B) — a DISCOVERY request is a bigger ask
+  // than verifying something that already exists (the winning professional
+  // has to actually go find and publish the property, via their own New
+  // Listing flow, before verification can even start), so eligibility here
+  // is narrower than the general marketplace: Expert only (no Admin — the
+  // discovery flow's later linkDiscoveredProperty step requires a Listing
+  // the professional created themselves, which an Admin never does), and
+  // only one quote per professional. This is intentionally NOT applied to
+  // LISTING/PROPERTY, where the same professional may already submit more
+  // than one quote today (see this function's own comment above — no
+  // uniqueness constraint, a deliberate existing design, not a bug) and
+  // Admin may already quote (existing, unchanged behavior).
+  if (request.source === 'DISCOVERY') {
+    if (!actor.sellerId) {
+      throw new VerificationError('Only an Expert can submit a quote on a property discovery request', 403)
+    }
+    const seller = await prisma.seller.findUnique({
+      where: { id: actor.sellerId },
+      select: { partnerRole: true },
+    })
+    if (seller?.partnerRole !== 'EXPERT') {
+      throw new VerificationError('Only Experts can submit a quote on a property discovery request', 403)
+    }
+    const existingOwnQuote = await prisma.verificationQuote.findFirst({
+      where: { requestId, quotedBySellerId: actor.sellerId },
+    })
+    if (existingOwnQuote) {
+      throw new VerificationError('You have already submitted a quote for this request', 409)
+    }
   }
 
   return prisma.verificationQuote.create({
@@ -191,6 +366,18 @@ export async function getQuotesForRequest(
 // visibility rule). Anything else (someone else's assignment, a request
 // this actor never touched) is a 404, not a 403 — same "don't reveal
 // existence" pattern the buyer-side endpoints already use.
+//
+// Property Discovery flow (Step 4B) — no DISCOVERY-specific branch is
+// needed here: `request` already carries desiredAddress/desiredCity/
+// desiredTehsil/desiredPropertyType/desiredKhasraOrSurvey as plain columns
+// (Prisma returns every scalar field unless `select` narrows it, and this
+// query uses `include`, which only adds relations on top), and the
+// `listing`/`property` includes below resolve to `null` — not a thrown
+// error — for a DISCOVERY request with nothing linked yet. Once
+// linkDiscoveredProperty sets listingId, the exact same `listing` include
+// starts resolving to the real Listing summary automatically. Forcing an
+// explicit if/else branch here would just reproduce what Prisma already
+// does safely.
 // ─────────────────────────────────────────────────────────────────────────────
 export async function getMarketplaceRequestDetail(requestId: string, actor: ProfessionalActor) {
   const request = await prisma.verificationRequest.findUnique({
@@ -347,6 +534,112 @@ export async function startVerification(
   return prisma.verificationRequest.findUniqueOrThrow({ where: { id: requestId } })
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// LINK — Property Discovery flow (Step 4B). The assigned Expert has found
+// the property and published it as a real Listing via the existing, normal
+// New Listing flow (apps/seller's NewListing.jsx → POST /api/seller/
+// listings, untouched by this phase). This endpoint only records that
+// Listing's id onto the request — it never creates a Listing, never creates
+// a Property, never approves anything. From this point on, the request is
+// indistinguishable from a LISTING-source request to every downstream step
+// (startVerification, submitVerificationReport, both payment legs, the
+// ledger, the payout) — none of which are touched here.
+// ─────────────────────────────────────────────────────────────────────────────
+const DISCOVERY_LINKABLE_STATUSES: VerificationRequestStatus[] = ['ADVANCE_PAID', 'IN_PROGRESS']
+
+export interface LinkDiscoveredPropertyResult {
+  request: VerificationRequest
+}
+
+export async function linkDiscoveredProperty(
+  requestId: string,
+  actor: ProfessionalActor,
+  listingId: string
+): Promise<LinkDiscoveredPropertyResult> {
+  const request = await prisma.verificationRequest.findUnique({ where: { id: requestId } })
+  if (!request) throw new VerificationError('Verification request not found', 404)
+
+  // Deliberately stricter than assertAssigned above: only the assigned
+  // SELLER may link a property, never an assigned Admin. The discovery flow
+  // requires the professional to have created the Listing themselves via
+  // the seller-only New Listing flow — an Admin account has no such
+  // Listing to ever legitimately own.
+  if (!actor.sellerId || request.assignedSellerId !== actor.sellerId) {
+    throw new VerificationError('You are not the Expert assigned to this request', 403)
+  }
+
+  if (request.source !== 'DISCOVERY') {
+    throw new VerificationError('Only a property discovery request can have a discovered listing linked to it', 400)
+  }
+  // Structurally unreachable today — a DISCOVERY row can never carry a
+  // propertyId (Phase 4A's VerificationRequest_discovery_no_property CHECK
+  // constraint) — guarded directly anyway rather than trusted implicitly,
+  // matching this codebase's existing defense-in-depth style elsewhere
+  // (e.g. specialRequest.controller.ts's acceptRequest/submitRequest KYC
+  // re-checks).
+  if (request.propertyId != null) {
+    throw new VerificationError('This request already targets a Property and cannot be linked to a Listing', 409)
+  }
+  if (request.listingId != null) {
+    throw new VerificationError('A property has already been linked to this request', 409)
+  }
+  if (!DISCOVERY_LINKABLE_STATUSES.includes(request.status)) {
+    throw new VerificationError(
+      'A discovered property can only be linked once the advance payment has been confirmed',
+      409
+    )
+  }
+
+  const seller = await prisma.seller.findUnique({
+    where: { id: actor.sellerId },
+    select: { partnerRole: true, kycStatus: true },
+  })
+  if (seller?.partnerRole !== 'EXPERT' || seller?.kycStatus !== 'APPROVED') {
+    throw new VerificationError('Only a KYC-approved Expert can link a discovered property', 403)
+  }
+
+  const listing = await prisma.listing.findUnique({ where: { id: listingId } })
+  if (!listing) {
+    throw new VerificationError('Listing not found', 404)
+  }
+  if (listing.sellerId !== actor.sellerId) {
+    throw new VerificationError('You can only link a listing you created yourself', 403)
+  }
+  // Step 2 already requires latitude/longitude at Listing creation time, so
+  // this only ever fires for a legacy pre-Step-2 listing — checked directly
+  // rather than trusted, same reasoning as the propertyId guard above.
+  if (listing.latitude == null || listing.longitude == null) {
+    throw new VerificationError('This listing has no latitude/longitude on file and cannot be linked', 400)
+  }
+  // A Listing already linked to a DIFFERENT verification request would mean
+  // two buyers being sold the same "we found your property" outcome from
+  // one real-world listing — never a valid state for the discovery flow.
+  const linkedElsewhere = await prisma.verificationRequest.findFirst({
+    where: { listingId, id: { not: requestId } },
+  })
+  if (linkedElsewhere) {
+    throw new VerificationError('This listing is already linked to a different verification request', 409)
+  }
+
+  // Atomic claim — only a request that is STILL exactly this unlinked,
+  // linkable state gets the update, so two concurrent link attempts (same
+  // request, same or different listingId) can never both succeed.
+  const claim = await prisma.verificationRequest.updateMany({
+    where: {
+      id: requestId,
+      status: { in: DISCOVERY_LINKABLE_STATUSES },
+      listingId: null,
+      propertyId: null,
+    },
+    data: { listingId },
+  })
+  if (claim.count === 0) {
+    throw new VerificationError('This request was already linked or its status changed — please refresh', 409)
+  }
+
+  return { request: await prisma.verificationRequest.findUniqueOrThrow({ where: { id: requestId } }) }
+}
+
 export interface SubmitReportInput {
   findings: string
   riskAssessment?: 'GREEN' | 'AMBER' | 'RED'
@@ -366,6 +659,18 @@ export async function submitVerificationReport(
 
   if (request.status !== 'IN_PROGRESS') {
     throw new VerificationError('A report can only be submitted while verification is IN_PROGRESS', 409)
+  }
+
+  // Property Discovery flow (Step 4B) — a DISCOVERY request has neither
+  // target until linkDiscoveredProperty sets listingId. This is the guard
+  // that must exist regardless of source: no target, no report, since the
+  // snapshot logic just below requires exactly one of listingId/propertyId
+  // to actually read from.
+  if (request.listingId == null && request.propertyId == null) {
+    throw new VerificationError(
+      'A discovered property must be linked to this request before a report can be submitted',
+      409
+    )
   }
 
   // Snapshot property identity/location at submission time — the report is

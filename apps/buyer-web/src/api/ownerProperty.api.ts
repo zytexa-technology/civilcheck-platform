@@ -16,6 +16,7 @@ import type {
 export interface OwnerPropertySearchParams {
   query?: string
   city?: string
+  tehsil?: string
   propertyType?: PropertyType
   page?: number
   limit?: number

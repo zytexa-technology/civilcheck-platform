@@ -30,9 +30,23 @@ export const resetSellerPassword = async (email, otp, newPassword, confirmPasswo
   return response.data
 }
 
-// Naya seller signup — email + password + mandatory phone
+// Naya seller signup — email + password + mandatory phone + address.
+// Signup Email Verification: response has no token — account is created
+// unverified and an OTP is emailed; verifyEmail() below is what actually
+// logs the seller in.
 export const sellerRegister = async (data) => {
   const response = await API.post('/seller/register', data)
+  return response.data
+}
+
+// ─── SIGNUP EMAIL VERIFICATION ──────────────────────────────────────────────
+export const verifyEmail = async (email, otp) => {
+  const response = await API.post('/auth/seller/verify-email', { email, otp })
+  return response.data
+}
+
+export const resendVerificationEmail = async (email) => {
+  const response = await API.post('/auth/seller/resend-verification-email', { email })
   return response.data
 }
 

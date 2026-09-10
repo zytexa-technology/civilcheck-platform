@@ -1,5 +1,5 @@
 import client from './client'
-import type { LoginResponse, MeResponse, RegisterResponse } from '../types/api'
+import type { EmailVerifyResponse, LoginResponse, MeResponse, RegisterResponse } from '../types/api'
 
 /** POST /api/auth/login */
 export async function loginBuyer(email: string, password: string): Promise<LoginResponse> {
@@ -17,14 +17,32 @@ export async function loginBuyerFirebase(idToken: string): Promise<LoginResponse
   return data
 }
 
-/** POST /api/auth/register — logs the buyer straight in, no separate OTP step. */
+/**
+ * POST /api/auth/register — Signup Email Verification: creates the account
+ * unverified and emails a 6-digit OTP. Does not log the buyer in — call
+ * verifyEmail() with the code to actually get a session.
+ */
 export async function registerBuyer(input: {
   phone: string
   name: string
   email: string
+  address: string
   password: string
+  confirmPassword: string
 }): Promise<RegisterResponse> {
   const { data } = await client.post<RegisterResponse>('/auth/register', input)
+  return data
+}
+
+/** POST /api/auth/verify-email — succeeds → the account is now verified and logged in. */
+export async function verifyEmail(email: string, otp: string): Promise<EmailVerifyResponse> {
+  const { data } = await client.post<EmailVerifyResponse>('/auth/verify-email', { email, otp })
+  return data
+}
+
+/** POST /api/auth/resend-verification-email — always the same generic response, sent or not. */
+export async function resendVerificationEmail(email: string): Promise<{ success: boolean; message: string }> {
+  const { data } = await client.post('/auth/resend-verification-email', { email })
   return data
 }
 

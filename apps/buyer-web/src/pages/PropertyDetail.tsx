@@ -7,6 +7,7 @@ import { useAuth } from '../context/AuthContext'
 import { Badge, Tag } from '../components/Badge'
 import { Button } from '../components/Button'
 import { Card, DetailRow, InfoGrid, SectionCard } from '../components/Card'
+import { LocationMapSection } from '../components/LocationMapSection'
 import { MediaGallery } from '../components/MediaGallery'
 import { PaymentModal } from '../components/PaymentModal'
 import { ErrorState, InlineNotice, LoadingState } from '../components/States'
@@ -14,7 +15,7 @@ import { Textarea } from '../components/Field'
 import { VerifyPropertyCTA } from '../components/VerifyPropertyCTA'
 import { errorMessage } from '../lib/errors'
 import { downloadAuthenticatedPdf } from '../lib/pdf'
-import { buildGoogleMapsUrl, formatDate, formatRupees, humanize, riskBanner, sellerBadgeLong } from '../lib/format'
+import { formatDate, formatRupees, humanize, riskBanner, sellerBadgeLong } from '../lib/format'
 import type { CheckoutOrder, PaidReportProperty, ReportProperty } from '../types/api'
 
 // Content Control key — admin-editable via the same Disclaimer system
@@ -117,7 +118,6 @@ export default function PropertyDetail() {
   const banner = riskBanner(property.riskBadge)
   const location = property.tehsil ? `${property.tehsil}, ${property.city}` : property.city
   const paid = hasPurchased && property.isPaid ? (property as PaidReportProperty) : null
-  const mapsUrl = buildGoogleMapsUrl(property)
 
   const handleUnlock = async () => {
     setStartingUnlock(true)
@@ -179,48 +179,14 @@ export default function PropertyDetail() {
             <p className="muted" style={{ marginTop: 6 }}>📍 {location}</p>
           </div>
 
-          <SectionCard icon="🗺️" title="Location Map">
-            {mapsUrl ? (
-              <>
-                <a
-                  href={mapsUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  aria-label={`Open ${location} in Google Maps`}
-                  className="stack"
-                  style={{ textDecoration: 'none', color: 'inherit', cursor: 'pointer' }}
-                >
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      height: 140,
-                      borderRadius: 10,
-                      background: 'var(--cc-surface-2)',
-                      border: '1px solid var(--cc-border-2)',
-                      fontSize: 34,
-                    }}
-                    aria-hidden="true"
-                  >
-                    📍
-                  </div>
-                  <p className="muted" style={{ fontSize: 12.5, marginTop: 8 }}>{property.address}</p>
-                </a>
-                <a
-                  href={mapsUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="btn btn--secondary"
-                  style={{ marginTop: 10, display: 'inline-flex', textDecoration: 'none' }}
-                >
-                  📍 Open in Google Maps
-                </a>
-              </>
-            ) : (
-              <p className="muted" style={{ fontSize: 12.5 }}>No location data available for this property.</p>
-            )}
-          </SectionCard>
+          <LocationMapSection
+            latitude={property.latitude}
+            longitude={property.longitude}
+            address={property.address}
+            city={property.city}
+            tehsil={property.tehsil}
+            locationLabel={location ?? 'this property'}
+          />
 
           <div className="card" style={{ background: banner.bg, borderColor: banner.border }}>
             <div className="row">

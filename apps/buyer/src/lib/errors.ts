@@ -43,3 +43,11 @@ export function errorStatus(error: unknown): number | null {
 export function isNetworkError(error: unknown): boolean {
   return isAxiosError(error) && !error.response
 }
+
+// Signup Email Verification — loginBuyer's EMAIL_NOT_VERIFIED response is the
+// first place this app needs a structured error `code`, not just a message.
+export function errorCode(error: unknown): string | null {
+  if (!isAxiosError(error)) return null
+  const body = error.response?.data as Partial<ApiErrorBody> | undefined
+  return body?.code ?? null
+}

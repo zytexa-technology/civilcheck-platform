@@ -3,7 +3,7 @@ import { StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { useRouter } from 'expo-router'
 import { loginBuyer } from '../api/auth.api'
 import { useAuth } from '../context/AuthContext'
-import { errorMessage } from '../lib/errors'
+import { errorCode, errorMessage } from '../lib/errors'
 import { colors, SCREEN_PADDING, shadows, spacing } from '../theme'
 import { Button } from '../components/Button'
 import { Screen } from '../components/Screen'
@@ -34,6 +34,12 @@ export function LoginScreen() {
       // redirects to the tabs — no manual navigation needed here.
       await signIn(result.token, result.user)
     } catch (err) {
+      // Signup Email Verification — send an unverified account straight to
+      // the OTP screen instead of a dead-end "wrong password" error.
+      if (errorCode(err) === 'EMAIL_NOT_VERIFIED') {
+        router.push({ pathname: '/verify-email', params: { email: email.trim() } })
+        return
+      }
       setError(errorMessage(err, 'Invalid email or password.'))
     } finally {
       setLoading(false)

@@ -58,6 +58,15 @@ export const createProperty = async (req: Request, res: Response) => {
     return
   }
 
+  // Property Discovery flow (Step 2) — propertyCreateSchema (validateBody,
+  // see routes) already enforces this, but checked directly too, matching
+  // this function's existing title/area pattern: every buyer-visible
+  // property must have a real map pin from the moment it's created.
+  if (typeof latitude !== 'number' || typeof longitude !== 'number') {
+    res.status(400).json({ success: false, message: 'latitude and longitude are both required' })
+    return
+  }
+
   // req.body already passed propertyCreateSchema (validateBody, see routes)
   // by this point, so every entry is a real { type, url } pair — the shape
   // check happened there, the composition check (all 8 types, no dupes)

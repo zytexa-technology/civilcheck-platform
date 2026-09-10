@@ -149,6 +149,10 @@ export type PropertyStatus = (typeof PropertyStatus)[keyof typeof PropertyStatus
 export const VerificationSource = {
   LISTING: 'LISTING',
   PROPERTY: 'PROPERTY',
+  // Property Discovery flow (Step 4A/4B) — the buyer wants a property that
+  // does not exist on CivilCheck yet. See schema.prisma's VerificationRequest
+  // comment for the full design.
+  DISCOVERY: 'DISCOVERY',
 } as const
 export type VerificationSource = (typeof VerificationSource)[keyof typeof VerificationSource]
 

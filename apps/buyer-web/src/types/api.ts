@@ -82,7 +82,16 @@ export interface MeResponse extends ApiEnvelope {
   user: AuthUser
 }
 
+// Signup Email Verification — registration no longer logs the buyer straight
+// in; POST /api/auth/verify-email (EmailVerifyResponse below, same shape as
+// LoginResponse) is what actually issues a session, once the emailed OTP is
+// confirmed.
 export interface RegisterResponse extends ApiEnvelope {
+  requiresVerification: true
+  email: string
+}
+
+export interface EmailVerifyResponse extends ApiEnvelope {
   token: string
   user: AuthUser
 }
@@ -667,10 +676,12 @@ export interface VerificationAssignedSeller {
 export interface VerificationRequest {
   id: string
   userId: string
-  source: 'LISTING' | 'PROPERTY'
+  source: 'LISTING' | 'PROPERTY' | 'DISCOVERY'
   listingId: string | null
   propertyId: string | null
-  uploaderRole: PartnerRole
+  // Nullable (Phase 4A) — a DISCOVERY request has no target/uploader until
+  // an Expert links a Listing; always set for LISTING/PROPERTY, unchanged.
+  uploaderRole: PartnerRole | null
   minFee: number
   /** The buyer's own initial offer/budget — never a payment. See createVerificationRequest. */
   buyerInitialOfferAmount: number
@@ -691,6 +702,22 @@ export interface VerificationRequest {
   report?: VerificationReport | null
   /** Only present on the list endpoint — count of PENDING quotes while OPEN. */
   pendingQuoteCount?: number
+
+  // Property Discovery flow (Step 4A/4E) — the buyer's desired location for
+  // a source=DISCOVERY request (nothing exists yet to point listingId/
+  // propertyId at). Always null for LISTING/PROPERTY requests.
+  desiredAddress?: string | null
+  desiredCity?: string | null
+  desiredTehsil?: string | null
+  desiredPropertyType?: string | null
+  desiredKhasraOrSurvey?: string | null
+
+  // Populated once a target exists — a DISCOVERY request gains this after
+  // linkDiscoveredProperty sets listingId; LISTING/PROPERTY requests could
+  // carry it from creation, once the backend selects it (see
+  // verification.controller.ts's getRequestById).
+  listing?: { address: string; city: string | null; tehsil: string | null; propertyType: string; latitude: number | null; longitude: number | null } | null
+  property?: { title: string; address: string | null; city: string | null; tehsil: string | null; propertyType: string; latitude: number | null; longitude: number | null } | null
 }
 
 // Buyer-choice negotiation (Buyer Experience redesign) — a PENDING quote the

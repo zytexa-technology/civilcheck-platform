@@ -647,6 +647,29 @@ export const approveSpecialRequest = async (req: Request, res: Response) => {
     return
   }
 
+  // Property Discovery flow (Step 2) — this path approves a Listing
+  // directly (bypassing admin.controller.ts's approveListing), so it needs
+  // the same map-pin gate: a Listing must never become buyer-visible
+  // without latitude/longitude. Checked before the claim below so a request
+  // failing this never gets marked APPROVED either.
+  const completedListing = request.completedListingId
+    ? await prisma.listing.findUnique({
+        where: { id: request.completedListingId },
+        select: { latitude: true, longitude: true },
+      })
+    : null
+
+  if (
+    request.completedListingId &&
+    (!completedListing || completedListing.latitude == null || completedListing.longitude == null)
+  ) {
+    res.status(400).json({
+      success: false,
+      message: 'The completed listing has no latitude/longitude on file and cannot be approved until location data is supplied.',
+    })
+    return
+  }
+
   // Guarded claim — two concurrent approve calls must not both pass the
   // COMPLETED check and both create a payout row for the same request.
   const claim = await prisma.specialRequest.updateMany({

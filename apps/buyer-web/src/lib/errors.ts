@@ -28,6 +28,15 @@ export function errorStatus(error: unknown): number | null {
   return isAxiosError(error) ? (error.response?.status ?? null) : null
 }
 
+// Signup Email Verification — loginBuyer's EMAIL_NOT_VERIFIED response is the
+// first place this codebase needs a structured error `code`, not just a
+// message/status.
+export function errorCode(error: unknown): string | null {
+  if (!isAxiosError(error)) return null
+  const body = error.response?.data as Partial<ApiErrorBody> & { code?: string } | undefined
+  return body?.code ?? null
+}
+
 export function isNetworkError(error: unknown): boolean {
   return isAxiosError(error) && !error.response
 }

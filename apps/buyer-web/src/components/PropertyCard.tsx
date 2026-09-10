@@ -1,6 +1,7 @@
 import { Link, useNavigate } from 'react-router-dom'
 import { Badge, Tag } from './Badge'
-import { formatRupees, formatDate, humanize, riskTone, sellerBadgeLabel } from '../lib/format'
+import { formatRupees, formatDate, formatDistance, haversineDistanceKm, humanize, riskTone, sellerBadgeLabel } from '../lib/format'
+import type { Coordinates } from '../lib/geolocation'
 import type { FreePreviewProperty, OwnerProperty, ReporterPost } from '../types/api'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -52,11 +53,21 @@ function CardActions({
   )
 }
 
-export function PropertyCard({ property }: { property: FreePreviewProperty }) {
+export function PropertyCard({
+  property,
+  buyerCoords,
+}: {
+  property: FreePreviewProperty
+  /** Already-resolved buyer location, shared from the page — a card never requests it itself. */
+  buyerCoords?: Coordinates | null
+}) {
   const tone = riskTone(property.riskBadge)
   const location = property.tehsil ? `${property.tehsil}, ${property.city}` : property.city
   const cover = property.images[0] ?? property.videos[0]
   const detailsHref = `/reports/${property.id}`
+  const distanceLabel = buyerCoords
+    ? formatDistance(haversineDistanceKm(buyerCoords.latitude, buyerCoords.longitude, property.latitude, property.longitude))
+    : null
 
   return (
     <article className="property-card">
@@ -76,6 +87,7 @@ export function PropertyCard({ property }: { property: FreePreviewProperty }) {
           <div className="property-card__name">{property.address}</div>
           <div className="property-card__meta">
             📍 {location} · 👁 {property.views ?? 0}
+            {distanceLabel ? ` · ${distanceLabel}` : ''}
           </div>
         </div>
       </Link>
@@ -114,9 +126,19 @@ function HealthBar({ value }: { value: number }) {
   )
 }
 
-export function OwnerPropertyCard({ property }: { property: OwnerProperty }) {
+export function OwnerPropertyCard({
+  property,
+  buyerCoords,
+}: {
+  property: OwnerProperty
+  /** Already-resolved buyer location, shared from the page — a card never requests it itself. */
+  buyerCoords?: Coordinates | null
+}) {
   const cover = property.images[0] ?? property.videos[0]
   const detailsHref = `/owner-properties/${property.id}`
+  const distanceLabel = buyerCoords
+    ? formatDistance(haversineDistanceKm(buyerCoords.latitude, buyerCoords.longitude, property.latitude, property.longitude))
+    : null
 
   return (
     <article className="property-card">
@@ -135,6 +157,7 @@ export function OwnerPropertyCard({ property }: { property: OwnerProperty }) {
           <div className="property-card__name">{property.title}</div>
           <div className="property-card__meta">
             📍 {property.city ?? 'Location not listed'} · {property.area}
+            {distanceLabel ? ` · ${distanceLabel}` : ''}
           </div>
         </div>
       </Link>

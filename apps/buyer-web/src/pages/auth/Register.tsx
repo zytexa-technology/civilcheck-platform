@@ -2,7 +2,6 @@ import { useState, type FormEvent } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { buyerRegisterSchema } from '@civilcheck/shared'
 import { registerBuyer } from '../../api/auth.api'
-import { useAuth } from '../../context/AuthContext'
 import { Button } from '../../components/Button'
 import { Input } from '../../components/Field'
 import { InlineNotice } from '../../components/States'
@@ -11,12 +10,13 @@ import { errorMessage, errorStatus } from '../../lib/errors'
 export default function Register() {
   const navigate = useNavigate()
   const [params] = useSearchParams()
-  const { signIn } = useAuth()
 
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
+  const [address, setAddress] = useState('')
   const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [formError, setFormError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -25,7 +25,7 @@ export default function Register() {
     e.preventDefault()
     setFormError('')
 
-    const parsed = buyerRegisterSchema.safeParse({ name, email, phone, password })
+    const parsed = buyerRegisterSchema.safeParse({ name, email, phone, address, password, confirmPassword })
     if (!parsed.success) {
       const errs: Record<string, string> = {}
       for (const issue of parsed.error.issues) {
@@ -39,9 +39,12 @@ export default function Register() {
     setBusy(true)
     try {
       const res = await registerBuyer(parsed.data)
-      signIn(res.token, res.user)
+      // Signup Email Verification — no session yet; the OTP screen is what
+      // actually logs the buyer in once the code is confirmed.
       const next = params.get('next')
-      navigate(next && next.startsWith('/') ? next : '/account', { replace: true })
+      navigate(`/verify-email?email=${encodeURIComponent(res.email)}${next ? `&next=${encodeURIComponent(next)}` : ''}`, {
+        replace: true,
+      })
     } catch (err) {
       if (errorStatus(err) === 409) {
         setFormError('An account with this email already exists.')
@@ -87,6 +90,13 @@ export default function Register() {
             error={fieldErrors.phone}
           />
           <Input
+            label="Address"
+            autoComplete="street-address"
+            value={address}
+            onChange={(e) => setAddress(e.target.value)}
+            error={fieldErrors.address}
+          />
+          <Input
             label="Password"
             type="password"
             autoComplete="new-password"
@@ -94,6 +104,14 @@ export default function Register() {
             onChange={(e) => setPassword(e.target.value)}
             error={fieldErrors.password}
             hint={!fieldErrors.password ? 'At least 8 characters, with a letter and a number.' : undefined}
+          />
+          <Input
+            label="Confirm password"
+            type="password"
+            autoComplete="new-password"
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            error={fieldErrors.confirmPassword}
           />
           <Button type="submit" size="lg" block loading={busy}>
             Create account

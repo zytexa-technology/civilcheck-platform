@@ -18,11 +18,12 @@ import { Badge } from '../../components/Badge'
 import { Button } from '../../components/Button'
 import { Card, DetailRow, SectionCard } from '../../components/Card'
 import { Input, Textarea } from '../../components/Field'
+import { LocationMapSection } from '../../components/LocationMapSection'
 import { PaymentModal } from '../../components/PaymentModal'
 import { ErrorState, InlineNotice, LoadingState } from '../../components/States'
 import { VerificationStepper } from '../../components/VerificationStepper'
 import { errorMessage } from '../../lib/errors'
-import { formatDate, formatRupees, sellerBadgeLong, verificationRequestTone } from '../../lib/format'
+import { buildGoogleMapsUrl, formatDate, formatRupees, humanize, sellerBadgeLong, verificationRequestTone } from '../../lib/format'
 import type { CheckoutOrder, Claim, VerificationQuote, VerificationReport, VerificationRequest } from '../../types/api'
 
 type PaymentStage = 'advance' | 'final' | null
@@ -175,11 +176,95 @@ export default function VerificationRequestDetail() {
         </div>
         <p className="muted" style={{ fontSize: 12 }}>
           Requested {formatDate(request.createdAt)} ·{' '}
-          {request.source === 'LISTING' ? 'Paid report' : 'Owner-listed property'} · Your initial offer{' '}
-          {formatRupees(request.buyerInitialOfferAmount)}
+          {request.source === 'LISTING'
+            ? 'Paid report'
+            : request.source === 'DISCOVERY'
+              ? 'Property discovery'
+              : 'Owner-listed property verification'}{' '}
+          · Your initial offer {formatRupees(request.buyerInitialOfferAmount)}
         </p>
 
         {payError ? <InlineNotice tone="warn" message={payError} /> : null}
+
+        {/* Property Discovery flow (Step 4E) — before an Expert links a real
+            Listing, there is no property to show yet; the buyer instead sees
+            what they asked CivilCheck to find. Never a fake "Untitled
+            property" placeholder — this only ever shows the buyer's own
+            desired* fields, which always exist for a DISCOVERY request. */}
+        {request.source === 'DISCOVERY' && !request.listing && !request.property ? (
+          <SectionCard icon="🔍" title="Property Discovery">
+            <div className="grid g2" style={{ gap: 10 }}>
+              <div>
+                <div className="xs muted">Desired Location</div>
+                <div className="small">{request.desiredAddress || '—'}</div>
+              </div>
+              <div>
+                <div className="xs muted">City</div>
+                <div className="small">{request.desiredCity || '—'}</div>
+              </div>
+              {request.desiredTehsil ? (
+                <div>
+                  <div className="xs muted">Tehsil</div>
+                  <div className="small">{request.desiredTehsil}</div>
+                </div>
+              ) : null}
+              <div>
+                <div className="xs muted">Property Type</div>
+                <div className="small">{request.desiredPropertyType ? humanize(request.desiredPropertyType) : '—'}</div>
+              </div>
+              {request.desiredKhasraOrSurvey ? (
+                <div>
+                  <div className="xs muted">Khasra / Survey</div>
+                  <div className="small">{request.desiredKhasraOrSurvey}</div>
+                </div>
+              ) : null}
+            </div>
+            {buildGoogleMapsUrl({
+              address: request.desiredAddress,
+              city: request.desiredCity,
+              tehsil: request.desiredTehsil,
+            }) ? (
+              <a
+                href={buildGoogleMapsUrl({ address: request.desiredAddress, city: request.desiredCity, tehsil: request.desiredTehsil })!}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="small"
+                style={{ display: 'inline-block', marginTop: 10, color: 'var(--cc-blue)' }}
+              >
+                📍 Open desired location in Google Maps ↗
+              </a>
+            ) : null}
+            <p className="muted" style={{ fontSize: 11.5, marginTop: 10 }}>
+              This is your desired location, not a confirmed property yet — an eligible Expert will
+              search for a matching property once you accept a quote.
+            </p>
+          </SectionCard>
+        ) : null}
+
+        {/* Once an Expert links a real Listing (or, for the older LISTING/
+            PROPERTY sources, the target that already existed at creation),
+            show its actual location — same map component/behavior as the
+            property detail pages, not a duplicate implementation. Scoped to
+            DISCOVERY only: LISTING/PROPERTY requests never showed a location
+            section on this page before, and this phase does not redesign
+            that unrelated existing behavior. */}
+        {request.source === 'DISCOVERY' && (request.listing || request.property) ? (
+          <LocationMapSection
+            latitude={(request.listing ?? request.property)!.latitude}
+            longitude={(request.listing ?? request.property)!.longitude}
+            address={request.listing ? request.listing.address : request.property!.address}
+            city={(request.listing ?? request.property)!.city}
+            tehsil={(request.listing ?? request.property)!.tehsil}
+            locationLabel={
+              [
+                (request.listing ?? request.property)!.tehsil,
+                (request.listing ?? request.property)!.city,
+              ]
+                .filter(Boolean)
+                .join(', ') || 'the property'
+            }
+          />
+        ) : null}
 
         <SectionCard icon="📋" title="Progress">
           <div style={{ padding: '10px 0' }}>

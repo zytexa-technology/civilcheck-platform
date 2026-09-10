@@ -9,12 +9,12 @@ const PROPERTY_FIELDS = {
   RESIDENTIAL: {
     label: 'Residential',
     icon: '🏠',
-    fields: ['colonyApartment', 'flatHouseNo', 'landmark', 'pinCode', 'city', 'tehsil', 'surveyNo', 'propertyArea', 'isBuilt'],
+    fields: ['colonyApartment', 'flatHouseNo', 'landmark', 'pinCode', 'city', 'tehsil', 'surveyNo', 'khasraNo', 'propertyArea', 'isBuilt'],
   },
   COMMERCIAL: {
     label: 'Commercial',
     icon: '🏢',
-    fields: ['colonyApartment', 'flatHouseNo', 'landmark', 'pinCode', 'city', 'tehsil', 'surveyNo', 'propertyArea', 'isBuilt'],
+    fields: ['colonyApartment', 'flatHouseNo', 'landmark', 'pinCode', 'city', 'tehsil', 'surveyNo', 'khasraNo', 'propertyArea', 'isBuilt'],
   },
   AGRICULTURAL: {
     label: 'Agricultural',
@@ -24,12 +24,12 @@ const PROPERTY_FIELDS = {
   PLOT: {
     label: 'Plot',
     icon: '📐',
-    fields: ['colonyApartment', 'flatHouseNo', 'landmark', 'pinCode', 'city', 'tehsil', 'surveyNo', 'propertyArea', 'isBuilt'],
+    fields: ['colonyApartment', 'flatHouseNo', 'landmark', 'pinCode', 'city', 'tehsil', 'surveyNo', 'khasraNo', 'propertyArea', 'isBuilt'],
   },
   OTHER: {
     label: 'Other',
     icon: '🏗️',
-    fields: ['colonyApartment', 'flatHouseNo', 'landmark', 'pinCode', 'city', 'tehsil', 'surveyNo', 'propertyArea', 'isBuilt'],
+    fields: ['colonyApartment', 'flatHouseNo', 'landmark', 'pinCode', 'city', 'tehsil', 'surveyNo', 'khasraNo', 'propertyArea', 'isBuilt'],
   },
 }
 
@@ -164,6 +164,10 @@ export default function NewListing() {
 
   const submit = async () => {
     if (busy) return
+    if (form.latitude == null || form.longitude == null) {
+      setError('Property Location zaroori hai — Step 2 me "Use My Current Location" par click karein')
+      return
+    }
     setError(''); setBusy(true)
     try {
       const res = await createListing(buildPayload())
@@ -203,6 +207,9 @@ export default function NewListing() {
       if (form.caseExists === '') return false
       // Backend requires caseNumber whenever caseExists is true.
       if (form.caseExists === 'true' && !form.caseNumber.trim()) return false
+      // Property Discovery flow (Step 2) — every buyer-visible Listing must
+      // have a real map pin; the backend now rejects creation without it.
+      if (form.latitude == null || form.longitude == null) return false
       return true
     }
     if (step === 3) {
@@ -338,10 +345,10 @@ export default function NewListing() {
 
                 <div style={s.formGrid}>
 
-                  {/* Khasra Number — sirf Agricultural mein */}
+                  {/* Khasra Number — required for Agricultural, optional for every other type */}
                   {showField('khasraNo') && (
                     <FormField
-                      label="Khasra Number *"
+                      label={isAgricultural ? 'Khasra Number *' : 'Khasra Number (optional)'}
                       placeholder="e.g. 890/2"
                       value={form.khasraNo}
                       onChange={v => update('khasraNo', v)}

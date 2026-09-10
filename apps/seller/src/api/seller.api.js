@@ -202,6 +202,17 @@ export const startVerificationJob = async (id) => {
   return response.data
 }
 
+// Property Discovery flow (Phase 4B/4C) — links a Listing the Expert already
+// created (via the existing createListing flow) onto their accepted
+// source=DISCOVERY request. Expert-only; the assignment/role/KYC/ownership/
+// location/request-state checks all live server-side in
+// verification.service.ts's linkDiscoveredProperty — this is a thin client
+// call, same shape as every other function in this file.
+export const linkDiscoveredListing = async (id, listingId) => {
+  const response = await API.post(`/seller/verification-marketplace/${id}/discovered-listing`, { listingId })
+  return response.data
+}
+
 export const submitVerificationReport = async (id, data) => {
   const response = await API.post(`/seller/verification-marketplace/${id}/report`, data)
   return response.data

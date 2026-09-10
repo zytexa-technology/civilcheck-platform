@@ -52,10 +52,14 @@ function formatOwnerProperty(property: Property & { seller: { name: string; badg
 // ─────────────────────────────────────────────────────────────────────────────
 // Buyers search karte hain — sirf APPROVED properties dikhti hain.
 // No full-text search index on Property (unlike Listing's searchVector), so
-// this is a simple ILIKE on title/city — fine at this table's scale.
+// this is a simple case-insensitive ILIKE, OR'd across every field a buyer's
+// free-text query (address/locality box on Browse Property) could plausibly
+// be describing — title, address, city, tehsil — fine at this table's scale.
+// Previously this only matched `title`, so an address/locality search never
+// found a Property even when its address/city/tehsil matched exactly.
 // ─────────────────────────────────────────────────────────────────────────────
 export const searchOwnerProperties = async (req: Request, res: Response) => {
-  const { query, city, propertyType, page = '1', limit = '10' } = req.query
+  const { query, city, tehsil, propertyType, page = '1', limit = '10' } = req.query
 
   const pageNum = Math.max(1, parseInt(page as string, 10) || 1)
   const limitNum = Math.min(50, Math.max(1, parseInt(limit as string, 10) || 10))
@@ -63,8 +67,16 @@ export const searchOwnerProperties = async (req: Request, res: Response) => {
 
   const where: Prisma.PropertyWhereInput = { status: 'APPROVED' }
   const q = typeof query === 'string' ? query.trim() : ''
-  if (q) where.title = { contains: q, mode: 'insensitive' }
+  if (q) {
+    where.OR = [
+      { title: { contains: q, mode: 'insensitive' } },
+      { address: { contains: q, mode: 'insensitive' } },
+      { city: { contains: q, mode: 'insensitive' } },
+      { tehsil: { contains: q, mode: 'insensitive' } },
+    ]
+  }
   if (city) where.city = { contains: city as string, mode: 'insensitive' }
+  if (tehsil) where.tehsil = { contains: tehsil as string, mode: 'insensitive' }
   if (propertyType) where.propertyType = propertyType as PropertyType
 
   const [properties, total] = await Promise.all([

@@ -50,14 +50,46 @@ export const passwordSchema = z
 
 export const emailSchema = z.email('Enter a valid email address').trim().toLowerCase()
 
+// Signup Email Verification — required at Buyer and Partner registration
+// (both User and Seller previously had no dedicated address field at all).
+// Trimmed + a reasonable minimum length rather than any structural format
+// check, since a real postal address has no single universal shape.
+export const addressSchema = z
+  .string()
+  .trim()
+  .min(10, 'Enter your full address (at least 10 characters)')
+
+// Shared by both registration schemas below — Zod's per-field validators
+// can't compare sibling fields, so this always needs a .refine()/superRefine
+// wired up wherever it's used (same pattern passwordResetSchema already uses
+// for newPassword/confirmPassword).
+export const confirmPasswordSchema = z.string()
+
+// 6-digit OTP, single-use — email verification reuses the exact-same shape
+// and security model as password-reset OTPs (resetOtpSchema below), just
+// under a different name for readability at the call site.
+export const emailVerificationOtpSchema = z
+  .string()
+  .trim()
+  .regex(/^\d{6}$/, 'Enter the 6-digit code')
+
 // ─── BUYER AUTH (email + password — replaces phone OTP, MSG91 removed) ──────
 
-export const buyerRegisterSchema = z.object({
-  name: z.string().trim().min(2, 'Name must be at least 2 characters'),
-  email: emailSchema,
-  phone: phoneSchema,
-  password: passwordSchema,
-})
+export const buyerRegisterSchema = z
+  .object({
+    name: z.string().trim().min(2, 'Name must be at least 2 characters'),
+    email: emailSchema,
+    phone: phoneSchema,
+    // Signup Email Verification — address is a newly-required registration
+    // field (User had no dedicated address column before this).
+    address: addressSchema,
+    password: passwordSchema,
+    confirmPassword: confirmPasswordSchema,
+  })
+  .refine((data) => data.password === data.confirmPassword, {
+    message: 'Passwords do not match',
+    path: ['confirmPassword'],
+  })
 export type BuyerRegisterInput = z.infer<typeof buyerRegisterSchema>
 
 export const buyerLoginSchema = z.object({
@@ -84,7 +116,13 @@ export const sellerRegistrationSchema = z
     phone: phoneSchema,
     name: z.string().trim().min(2, 'Name must be at least 2 characters'),
     email: emailSchema,
+    // Signup Email Verification — address is a newly-required registration
+    // field (Seller had no dedicated address column before this; city/state
+    // above are a separate, pre-existing "service area" concept and stay
+    // optional exactly as before).
+    address: addressSchema,
     password: passwordSchema,
+    confirmPassword: confirmPasswordSchema,
     // Removed from the signup flow (audit 2026-09-02) — no longer collected
     // or required at registration. Still accepted if a caller sends one
     // (harmless, and keeps this schema from breaking any other integration
@@ -127,6 +165,9 @@ export const sellerRegistrationSchema = z
         path: ['bankAccount'],
         message: 'bankAccount is required with IFSC',
       })
+    }
+    if (data.password !== data.confirmPassword) {
+      ctx.addIssue({ code: 'custom', path: ['confirmPassword'], message: 'Passwords do not match' })
     }
     // Property Expert applications require meaningful professional evidence
     // (audit finding — signup previously asked Experts for nothing more than
@@ -255,8 +296,15 @@ export const listingCreateSchema = z
     partiesInvolved: z.string().trim().min(2).optional(),
     loanDefault: z.boolean().default(false),
     lenderName: z.string().trim().min(2).optional(),
-    latitude: z.number().min(-90).max(90).optional(),
-    longitude: z.number().min(-180).max(180).optional(),
+    // Property Discovery flow (Step 2) — a buyer-visible Listing must always
+    // have a real map pin, so these are required (not .optional()) at
+    // creation, unlike listingUpdateSchema which never touches coordinates
+    // at all (editing a listing can never change/drop them — see
+    // listing.controller.ts's updateListing). z.number() in Zod v4 already
+    // rejects NaN/Infinity by default (`.finite()` is a deprecated no-op
+    // here), so the min/max range checks are the only validation needed.
+    latitude: z.number().min(-90, 'Latitude must be between -90 and 90').max(90, 'Latitude must be between -90 and 90'),
+    longitude: z.number().min(-180, 'Longitude must be between -180 and 180').max(180, 'Longitude must be between -180 and 180'),
     price: z
       .number()
       .min(99, 'Price must be at least Rs. 99')
@@ -365,8 +413,12 @@ export const propertyCreateSchema = z.object({
   city: z.string().trim().min(2).optional(),
   tehsil: z.string().trim().min(2).optional(),
   address: z.string().trim().min(5).optional(),
-  latitude: z.number().min(-90).max(90).optional(),
-  longitude: z.number().min(-180).max(180).optional(),
+  // Property Discovery flow (Step 2) — a buyer-visible Owner property must
+  // always have a real map pin, so these are required (not .optional()) at
+  // creation. propertyUpdateSchema below keeps them optional so editing
+  // other fields never forces re-capturing a location that's already set.
+  latitude: z.number().min(-90, 'Latitude must be between -90 and 90').max(90, 'Latitude must be between -90 and 90'),
+  longitude: z.number().min(-180, 'Longitude must be between -180 and 180').max(180, 'Longitude must be between -180 and 180'),
   propertyType: z.enum(PropertyType).optional(),
   documents: z.array(propertyDocumentSchema).default([]),
   images: z.array(z.url()).default([]),
@@ -374,23 +426,38 @@ export const propertyCreateSchema = z.object({
 })
 export type PropertyCreateInput = z.infer<typeof propertyCreateSchema>
 
-export const propertyUpdateSchema = z.object({
-  title: z.string().trim().min(2).optional(),
-  area: z.string().trim().min(1).optional(),
-  age: z.string().trim().min(1).optional(),
-  city: z.string().trim().min(2).optional(),
-  tehsil: z.string().trim().min(2).optional(),
-  address: z.string().trim().min(5).optional(),
-  latitude: z.number().min(-90).max(90).optional(),
-  longitude: z.number().min(-180).max(180).optional(),
-  propertyType: z.enum(PropertyType).optional(),
-  // Same shape as propertyCreateSchema (audit 2026-09-01) — an update used to
-  // accept plain URL strings here, which would silently drop every
-  // document's type the moment a seller edited their listing.
-  documents: z.array(propertyDocumentSchema).optional(),
-  images: z.array(z.url()).optional(),
-  videos: z.array(z.url()).optional(),
-})
+export const propertyUpdateSchema = z
+  .object({
+    title: z.string().trim().min(2).optional(),
+    area: z.string().trim().min(1).optional(),
+    age: z.string().trim().min(1).optional(),
+    city: z.string().trim().min(2).optional(),
+    tehsil: z.string().trim().min(2).optional(),
+    address: z.string().trim().min(5).optional(),
+    latitude: z.number().min(-90, 'Latitude must be between -90 and 90').max(90, 'Latitude must be between -90 and 90').optional(),
+    longitude: z.number().min(-180, 'Longitude must be between -180 and 180').max(180, 'Longitude must be between -180 and 180').optional(),
+    propertyType: z.enum(PropertyType).optional(),
+    // Same shape as propertyCreateSchema (audit 2026-09-01) — an update used to
+    // accept plain URL strings here, which would silently drop every
+    // document's type the moment a seller edited their listing.
+    documents: z.array(propertyDocumentSchema).optional(),
+    images: z.array(z.url()).optional(),
+    videos: z.array(z.url()).optional(),
+  })
+  .superRefine((data, ctx) => {
+    // Both optional here (an edit shouldn't force re-supplying a location
+    // that's already stored — see property-owner.controller.ts's
+    // `latitude: latitude ?? existing.latitude`), but a partial pair (one
+    // sent without the other) is never valid at any point in the lifecycle.
+    if ((data.latitude === undefined) !== (data.longitude === undefined)) {
+      const field = data.latitude === undefined ? 'latitude' : 'longitude'
+      ctx.addIssue({
+        code: 'custom',
+        path: [field],
+        message: 'latitude and longitude must be provided together',
+      })
+    }
+  })
 export type PropertyUpdateInput = z.infer<typeof propertyUpdateSchema>
 
 // ─── REPORTER POST (property-information/news content, not a listing) ───────
@@ -556,6 +623,23 @@ export const passwordResetSchema = z
   })
 export type PasswordResetInput = z.infer<typeof passwordResetSchema>
 
+// ─── SIGNUP EMAIL VERIFICATION (Buyer + Partner) ─────────────────────────────
+// Same email-OTP shape as password reset above, reusing PasswordResetOtp
+// (see schema.prisma's OtpPurpose) — request → verify is the whole flow here
+// (no third "reset" step; verifying the code IS the action, unlike password
+// reset's separate re-validated write).
+
+export const emailVerificationRequestSchema = z.object({
+  email: emailSchema,
+})
+export type EmailVerificationRequestInput = z.infer<typeof emailVerificationRequestSchema>
+
+export const emailVerificationVerifySchema = z.object({
+  email: emailSchema,
+  otp: emailVerificationOtpSchema,
+})
+export type EmailVerificationVerifyInput = z.infer<typeof emailVerificationVerifySchema>
+
 // ─── ADMIN KYC DECISIONS (PDF 5.2) ───────────────────────────────────────────
 
 // The reason is sent verbatim to the seller over SMS/email, so it has to say
@@ -702,6 +786,16 @@ export const verificationRequestCreateSchema = z
     // verification price. The >= PlatformSetting.minVerificationFee floor is
     // a runtime value, so it's checked in the service, not here.
     initialOfferAmount: z.number().positive('initialOfferAmount must be a positive number'),
+    // Property Discovery flow (Step 4B) — the buyer's desired location for a
+    // source=DISCOVERY request (nothing exists yet to point listingId/
+    // propertyId at). Required together only when source is DISCOVERY — see
+    // the superRefine below; left optional at the shape level, same pattern
+    // as listingId/propertyId's own conditional requiredness.
+    desiredAddress: z.string().trim().min(5, 'desiredAddress must be at least 5 characters').optional(),
+    desiredCity: z.string().trim().min(2).optional(),
+    desiredTehsil: z.string().trim().min(2).optional(),
+    desiredPropertyType: z.enum(PropertyType).optional(),
+    desiredKhasraOrSurvey: z.string().trim().min(1).optional(),
   })
   .superRefine((data, ctx) => {
     if (data.source === VerificationSource.LISTING && !data.listingId) {
@@ -712,6 +806,30 @@ export const verificationRequestCreateSchema = z
     }
     if (data.listingId && data.propertyId) {
       ctx.addIssue({ code: 'custom', path: ['propertyId'], message: 'Only one of listingId/propertyId may be set' })
+    }
+    // Property Discovery flow (Step 4B) — additive only; the three checks
+    // above (LISTING/PROPERTY/both-set) are unchanged from before this field
+    // existed.
+    if (data.source === VerificationSource.DISCOVERY) {
+      if (data.listingId || data.propertyId) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['source'],
+          message: 'listingId/propertyId must not be set when source is DISCOVERY — nothing exists yet to target',
+        })
+      }
+      if (!data.desiredAddress) {
+        ctx.addIssue({ code: 'custom', path: ['desiredAddress'], message: 'desiredAddress is required when source is DISCOVERY' })
+      }
+      if (!data.desiredCity) {
+        ctx.addIssue({ code: 'custom', path: ['desiredCity'], message: 'desiredCity is required when source is DISCOVERY' })
+      }
+      if (!data.desiredTehsil) {
+        ctx.addIssue({ code: 'custom', path: ['desiredTehsil'], message: 'desiredTehsil is required when source is DISCOVERY' })
+      }
+      if (!data.desiredPropertyType) {
+        ctx.addIssue({ code: 'custom', path: ['desiredPropertyType'], message: 'desiredPropertyType is required when source is DISCOVERY' })
+      }
     }
   })
 export type VerificationRequestCreateInput = z.infer<typeof verificationRequestCreateSchema>
@@ -739,6 +857,16 @@ export const verificationCancelSchema = z.object({
   reason: z.string().trim().min(10, 'Give a reason for cancelling (min 10 characters)'),
 })
 export type VerificationCancelInput = z.infer<typeof verificationCancelSchema>
+
+// Property Discovery flow (Step 4B) — the assigned Expert links a Listing
+// they already created (via the normal New Listing flow) to their accepted
+// DISCOVERY request. Shape-only check; every business rule (assignment,
+// role, KYC, ownership, location, request state) is enforced in
+// verification.service.ts's linkDiscoveredProperty.
+export const linkDiscoveredListingSchema = z.object({
+  listingId: z.uuid('listingId must be a valid id'),
+})
+export type LinkDiscoveredListingInput = z.infer<typeof linkDiscoveredListingSchema>
 
 // ─── CLAIMS (Phase 3) ─────────────────────────────────────────────────────────
 

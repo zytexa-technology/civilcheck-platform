@@ -6,6 +6,7 @@
 // their own rows in `afterAll`.
 // ─────────────────────────────────────────────────────────────────────────────
 import request from 'supertest'
+import bcrypt from 'bcryptjs'
 import app from '../src/app.js'
 import prisma from '../src/lib/prisma.js'
 import { signMockPaymentResponse } from '../src/lib/razorpay.js'
@@ -28,6 +29,29 @@ export function uniqueEmail(prefix: string): string {
 // Satisfies passwordSchema (min 8 chars, at least one letter + one number)
 // for every fixture that registers a buyer/seller/admin.
 export const TEST_PASSWORD = 'Test1234'
+
+// Satisfies addressSchema (min 10 chars) for every fixture that registers a
+// buyer/seller — Signup Email Verification made this a required field.
+const TEST_ADDRESS = '221B QA Test Street, Baker Colony, Jaipur, Rajasthan'
+
+// Signup Email Verification (see emailVerification.service.ts) never returns
+// the real OTP anywhere the test process can read it — by design, the same
+// as production. Every fixture that needs a verified account instead swaps
+// the stored hash to a value it controls, exactly as this feature's own live
+// QA scripts did: same bcrypt mechanism and round count as production
+// (OTP_BCRYPT_ROUNDS = 10 in emailVerification.service.ts), same DB column
+// (otpHash), never persisted in plaintext, never logged, never a real code.
+const FIXTURE_OTP = '013579'
+
+async function forceKnownOtp(column: 'userId' | 'sellerId', accountId: string): Promise<void> {
+  const hash = await bcrypt.hash(FIXTURE_OTP, 10)
+  const row = await prisma.passwordResetOtp.findFirst({
+    where: { [column]: accountId, purpose: 'EMAIL_VERIFICATION' },
+    orderBy: { createdAt: 'desc' },
+  })
+  if (!row) throw new Error(`No EMAIL_VERIFICATION OTP row found for ${column}=${accountId}`)
+  await prisma.passwordResetOtp.update({ where: { id: row.id }, data: { otpHash: hash } })
+}
 
 // The Neon dev DB's serverless pooler occasionally can't hand out a
 // connection/transaction slot fast enough under this suite's rapid
@@ -58,17 +82,43 @@ export async function loginAdmin(): Promise<string> {
   return res.body.token as string
 }
 
+// Signup Email Verification changed this in two ways: (1) registration now
+// requires address/confirmPassword and (2) it creates an UNVERIFIED account
+// with no token — POST /api/auth/verify-email is what actually issues a
+// session. This helper still returns the exact same { token, userId, phone }
+// shape every existing caller expects; it just gets there via register →
+// (controlled OTP) → verify instead of register alone.
 export async function registerAndLoginBuyer(): Promise<{ token: string; userId: string; phone: string }> {
   const phone = uniquePhone()
   const email = uniqueEmail('buyer')
   const registerRes = await withTransientRetry(() =>
-    request(app).post('/api/auth/register').send({ phone, name: 'Test Buyer', email, password: TEST_PASSWORD })
+    request(app)
+      .post('/api/auth/register')
+      .send({ phone, name: 'Test Buyer', email, address: TEST_ADDRESS, password: TEST_PASSWORD, confirmPassword: TEST_PASSWORD })
   )
   if (!registerRes.body.success) throw new Error(`Buyer register failed: ${JSON.stringify(registerRes.body)}`)
+  // The register response is deliberately unauthenticated (requiresVerification:
+  // true, no token/user) — the account id has to be looked up directly.
+  const user = await prisma.user.findUniqueOrThrow({ where: { email } })
 
-  return { token: registerRes.body.token as string, userId: registerRes.body.user.id as string, phone }
+  await forceKnownOtp('userId', user.id)
+  const verifyRes = await withTransientRetry(() =>
+    request(app).post('/api/auth/verify-email').send({ email, otp: FIXTURE_OTP })
+  )
+  if (!verifyRes.body.success) throw new Error(`Buyer email verification failed: ${JSON.stringify(verifyRes.body)}`)
+
+  return { token: verifyRes.body.token as string, userId: verifyRes.body.user.id as string, phone }
 }
 
+// Signup Email Verification made the same two changes on the Partner side:
+// registration requires address/confirmPassword and no longer returns a
+// seller object or token — POST /api/auth/seller/verify-email does. That
+// verify response already carries the same session shape the old
+// POST /api/auth/seller/login call existed only to obtain, so the separate
+// login step is no longer necessary (a verified account's JWT is identical
+// either way — sellerMiddleware re-checks kycStatus from the DB per request,
+// never from the token). This helper still returns the exact same
+// { token, sellerId, phone } shape every existing caller expects.
 export async function registerApprovedSeller(
   adminToken: string,
   partnerRole: 'OWNER' | 'REPORTER' | 'EXPERT' = 'EXPERT'
@@ -80,32 +130,42 @@ export async function registerApprovedSeller(
       phone,
       name: 'Test Seller',
       email,
+      address: TEST_ADDRESS,
       password: TEST_PASSWORD,
+      confirmPassword: TEST_PASSWORD,
       profession: 'LAWYER',
       partnerRole,
+      // sellerRegistrationSchema requires yearsOfExperience for EXPERT
+      // applications (Property Expert KYC hardening) — OWNER/REPORTER never
+      // send it, same as before.
+      ...(partnerRole === 'EXPERT' ? { yearsOfExperience: 5 } : {}),
       tcAccepted: true,
     })
   )
   if (!registerRes.body.success) throw new Error(`Seller register failed: ${JSON.stringify(registerRes.body)}`)
-  const sellerId = registerRes.body.seller.id as string
+  // The register response is deliberately unauthenticated (requiresVerification:
+  // true, no seller/token) — the account id has to be looked up directly.
+  const seller = await prisma.seller.findUniqueOrThrow({ where: { email } })
+
+  await forceKnownOtp('sellerId', seller.id)
+  const verifyRes = await withTransientRetry(() =>
+    request(app).post('/api/auth/seller/verify-email').send({ email, otp: FIXTURE_OTP })
+  )
+  if (!verifyRes.body.success) throw new Error(`Seller email verification failed: ${JSON.stringify(verifyRes.body)}`)
+  const sellerId = verifyRes.body.seller.id as string
 
   // Owners and Reporters auto-activate on registration (Partner Module item
   // 1.8; Phase 4A extends the same instant-approve to Reporter), so the admin
   // approve step is a no-op that would return "already approved". Only drive
   // it for fixtures that actually start PENDING (e.g. experts).
-  if (registerRes.body.seller.kycStatus !== 'APPROVED') {
+  if (verifyRes.body.seller.kycStatus !== 'APPROVED') {
     const approveRes = await withTransientRetry(() =>
       request(app).post(`/api/admin/sellers/${sellerId}/approve`).set('Authorization', `Bearer ${adminToken}`)
     )
     if (!approveRes.body.success) throw new Error(`Seller approve failed: ${JSON.stringify(approveRes.body)}`)
   }
 
-  const loginRes = await withTransientRetry(() =>
-    request(app).post('/api/auth/seller/login').send({ email, password: TEST_PASSWORD })
-  )
-  if (!loginRes.body.success) throw new Error(`Seller login failed: ${JSON.stringify(loginRes.body)}`)
-
-  return { token: loginRes.body.token as string, sellerId, phone }
+  return { token: verifyRes.body.token as string, sellerId, phone }
 }
 
 export async function createApprovedListing(
@@ -193,6 +253,10 @@ export async function deleteSeller(sellerId: string): Promise<void> {
   await prisma.redeemRequest.deleteMany({ where: { sellerId } })
   await prisma.rewardTransaction.deleteMany({ where: { sellerId } })
   await prisma.property.deleteMany({ where: { sellerId } })
+  // Signup Email Verification — PasswordResetOtp.sellerId is also a RESTRICT
+  // FK, and every seller fixture now has at least one row here (the welcome
+  // verification email at registration).
+  await prisma.passwordResetOtp.deleteMany({ where: { sellerId } })
   await prisma.seller.deleteMany({ where: { id: sellerId } })
 }
 
@@ -213,6 +277,10 @@ export async function deleteBuyer(userId: string): Promise<void> {
   await prisma.specialRequestPayout.deleteMany({ where: { specialRequest: { userId } } })
   await prisma.specialRequest.deleteMany({ where: { userId } })
   await prisma.purchase.deleteMany({ where: { userId } })
+  // Signup Email Verification — PasswordResetOtp.userId is also a RESTRICT
+  // FK, and every buyer fixture now has at least one row here (the welcome
+  // verification email at registration).
+  await prisma.passwordResetOtp.deleteMany({ where: { userId } })
   await prisma.user.deleteMany({ where: { id: userId } })
 }
 

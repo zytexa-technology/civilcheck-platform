@@ -85,6 +85,18 @@ export const createListing = async (req: Request, res: Response) => {
     return
   }
 
+  // Property Discovery flow (Step 2) — listingCreateSchema (validateBody,
+  // see routes) already enforces this, but checked directly too, matching
+  // this function's existing pattern: every buyer-visible Listing must have
+  // a real map pin from the moment it's created.
+  if (typeof latitude !== 'number' || typeof longitude !== 'number') {
+    res.status(400).json({
+      success: false,
+      message: 'latitude and longitude are both required'
+    })
+    return
+  }
+
   // Agar case exists hai toh case details bhi chahiye
   if (caseExists && (!caseNumber || !caseType || !caseStatus || !courtName)) {
     res.status(400).json({

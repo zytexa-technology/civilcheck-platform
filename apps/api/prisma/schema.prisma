@@ -27,6 +27,17 @@ model User {
   city         String?
   state        String?
   photoUrl     String?
+  // Signup Email Verification — collected as a required registration field
+  // (registerBuyer). Nullable at the DB level only because pre-existing rows
+  // (created before this field existed) have none on file; every new
+  // registration always sets it.
+  address      String?
+  // Signup Email Verification — defaults true so every pre-existing row
+  // (created before this feature existed) is automatically treated as
+  // verified with zero migration-time action; registerBuyer explicitly sets
+  // this false at creation, and it flips true only once verifyEmailOtp
+  // succeeds. loginBuyer refuses a false row with EMAIL_NOT_VERIFIED.
+  emailVerified Boolean @default(true)
   // Buyer push (PDF 12/20) — FCM device token + opt-out flag. When push is
   // disabled or no token is on record, alert delivery falls back to SMS.
   fcmToken     String?
@@ -131,6 +142,12 @@ model Seller {
   name             String
   city             String? // service area shown on the seller dashboard
   state            String?
+  // Signup Email Verification — same reasoning as User.address/emailVerified
+  // above: nullable only for pre-existing rows; every new registration sets
+  // both. sellerMiddleware does not gate on emailVerified (KYC already gates
+  // professional work); sellerLogin refuses a false row with EMAIL_NOT_VERIFIED.
+  address          String?
+  emailVerified    Boolean      @default(true)
   profession       Profession
   // Professional evidence collected for EXPERT applications (Property Expert
   // KYC hardening). Nullable/additive — Owner/Reporter never set these, and
@@ -958,6 +975,14 @@ model PlatformSetting {
 enum VerificationSource {
   LISTING
   PROPERTY
+  // Property Discovery flow (Step 4A) — the buyer wants a property that does
+  // not exist on CivilCheck yet. Starts with neither listingId nor
+  // propertyId set; gains a listingId once the assigned Expert finds and
+  // publishes it (see VerificationRequest's own comment below). Never gains
+  // a propertyId — enforced permanently by
+  // VerificationRequest_discovery_no_property below, since the approved
+  // discovery flow only ever produces a Listing, not an Owner Property.
+  DISCOVERY
 }
 
 enum VerificationRequestStatus {
@@ -974,9 +999,20 @@ enum VerificationRequestStatus {
 }
 
 // A buyer's request for a paid professional verification of an existing
-// Listing or Property. Exactly one of listingId/propertyId is set — CHECK
-// constraint added by raw SQL (see Refund's purchase/specialRequest XOR for
-// the same pattern; Prisma has no declarative XOR-across-columns).
+// Listing or Property (source LISTING/PROPERTY — exactly one of
+// listingId/propertyId is set), OR (Step 4A — Property Discovery flow) a
+// request to find and verify a property that doesn't exist on CivilCheck
+// yet (source DISCOVERY — starts with neither set, may gain a listingId
+// later once the assigned Expert publishes what they found; never gains a
+// propertyId). At most one of listingId/propertyId may ever be set, and a
+// DISCOVERY request may never carry a propertyId — both permanent
+// invariants enforced by raw-SQL CHECK constraints (see migration
+// 20260909120100_verification_request_discovery_source; same pattern as
+// Refund's purchase/specialRequest XOR — Prisma has no declarative
+// XOR-across-columns). The temporal rule "DISCOVERY has no listingId until
+// the Expert finds the property" is NOT a DB constraint (a CHECK cannot
+// distinguish "not yet" from "never" — see that migration's comment) and
+// must be enforced in application logic (Phase 4B), not here.
 model VerificationRequest {
   id     String @id @default(uuid(7))
   userId String
@@ -990,8 +1026,26 @@ model VerificationRequest {
 
   // Snapshot of the target property's uploader — display only ("this
   // property was uploaded by an Owner/Reporter/Expert"), not who is doing
-  // the verifying (that's assignedAdminId/assignedSellerId below).
-  uploaderRole PartnerRole
+  // the verifying (that's assignedAdminId/assignedSellerId below). Optional
+  // (Step 4A) because a DISCOVERY request has no target — and therefore no
+  // uploader — until a Listing is linked; always set for LISTING/PROPERTY
+  // requests, unchanged from before.
+  uploaderRole PartnerRole?
+
+  // Property Discovery flow (Step 4A) — the buyer's desired location/
+  // criteria for a not-yet-existing property, populated only when
+  // source = DISCOVERY (mirrors SpecialRequest's existing address/city/
+  // tehsil/propertyType shape). Left null for LISTING/PROPERTY requests,
+  // where the real address/city/tehsil/propertyType live on the target
+  // Listing/Property itself instead. khasra/survey is a single free-text
+  // field here (unlike Listing's separate khasraNumber/surveyNumber) since
+  // this is only ever a buyer's rough description of what they're looking
+  // for, never a stored land-record value.
+  desiredAddress        String?
+  desiredCity           String?
+  desiredTehsil         String?
+  desiredPropertyType   PropertyType?
+  desiredKhasraOrSurvey String?
 
   // Frozen from PlatformSetting.minVerificationFee at creation — the floor
   // buyerInitialOfferAmount had to meet, NOT a floor on provider quotes (see
@@ -1443,6 +1497,16 @@ model Notification {
 // as Notification's — Admin/Seller/User rows are never hard-deleted by the
 // app, so this never fires in practice; it only prevents a silent XOR-CHECK
 // violation if a hard delete were ever attempted.
+//
+// Signup Email Verification reuses this exact table rather than a parallel
+// one — same actor-XOR shape, same hash/expiry/attempts/single-use security
+// model, nothing purpose-specific about any of that. `purpose` is the only
+// addition, defaulting to PASSWORD_RESET so every pre-existing row (and
+// every passwordReset.service.ts query, which now explicitly filters on it)
+// is completely unaffected. Never delete rows of one purpose from the other
+// — both createByLatest/`findFirst(orderBy: createdAt desc)` lookups in each
+// service, now purpose-scoped, would otherwise be able to pick up the wrong
+// purpose's OTP for the same account.
 model PasswordResetOtp {
   id       String  @id @default(uuid(7))
   adminId  String?
@@ -1451,6 +1515,8 @@ model PasswordResetOtp {
   seller   Seller? @relation(fields: [sellerId], references: [id], onDelete: Restrict)
   userId   String?
   user     User?   @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  purpose OtpPurpose @default(PASSWORD_RESET)
 
   otpHash String
   // 10-minute expiry from creation (passwordReset.service.ts's OTP_TTL_MS).
@@ -1468,6 +1534,17 @@ model PasswordResetOtp {
   @@index([adminId])
   @@index([sellerId])
   @@index([userId])
+  // Both services' lookups now filter by purpose alongside the actor column
+  // (e.g. `where: { userId, purpose: 'EMAIL_VERIFICATION' }`) — this composite
+  // covers that access pattern instead of the single-column indexes above
+  // doing a full purpose scan within one account's (usually tiny) row set.
+  @@index([userId, purpose])
+  @@index([sellerId, purpose])
+}
+
+enum OtpPurpose {
+  PASSWORD_RESET
+  EMAIL_VERIFICATION
 }
 
 // ─────────────────────────────────────────────────────────────────────────

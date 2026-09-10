@@ -202,6 +202,79 @@ export function buildGoogleMapsUrl(location: {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`
 }
 
+function isValidLatLng(lat: unknown, lng: unknown): boolean {
+  return (
+    typeof lat === 'number' &&
+    typeof lng === 'number' &&
+    Number.isFinite(lat) &&
+    Number.isFinite(lng) &&
+    lat >= -90 &&
+    lat <= 90 &&
+    lng >= -180 &&
+    lng <= 180
+  )
+}
+
+/**
+ * Straight-line (haversine) distance in kilometres between two coordinate
+ * pairs — an approximation of actual road/travel distance, never a claim of
+ * it. Returns null for any missing/invalid/out-of-range coordinate rather
+ * than throwing, since both sides may come from buyer geolocation (which can
+ * fail) or a property record (whose location fields are optional).
+ */
+export function haversineDistanceKm(
+  buyerLatitude: number | null | undefined,
+  buyerLongitude: number | null | undefined,
+  propertyLatitude: number | null | undefined,
+  propertyLongitude: number | null | undefined,
+): number | null {
+  if (!isValidLatLng(buyerLatitude, buyerLongitude) || !isValidLatLng(propertyLatitude, propertyLongitude)) {
+    return null
+  }
+  // isValidLatLng is a plain runtime check (not a type predicate covering
+  // all four params), so assert the now-verified values explicitly.
+  const lat1 = buyerLatitude as number
+  const lng1 = buyerLongitude as number
+  const lat2 = propertyLatitude as number
+  const lng2 = propertyLongitude as number
+
+  const toRad = (deg: number) => (deg * Math.PI) / 180
+  const earthRadiusKm = 6371
+  const dLat = toRad(lat2 - lat1)
+  const dLng = toRad(lng2 - lng1)
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+  return earthRadiusKm * c
+}
+
+/** "650 m away" under 1 km, otherwise "4.8 km away" (whole km once ≥ 10 km). */
+export function formatDistance(km: number | null | undefined): string | null {
+  if (km == null || !Number.isFinite(km) || km < 0) return null
+  if (km < 1) return `${Math.round(km * 1000)} m away`
+  const rounded = km < 10 ? Math.round(km * 10) / 10 : Math.round(km)
+  return `${rounded} km away`
+}
+
+/**
+ * Google Maps Directions deep link — free `maps/dir` URL API, no key. Origin
+ * is included only when the buyer's own coordinates are known; otherwise
+ * Google Maps itself prompts for a starting point. Destination requires real
+ * coordinates (this is the "get me there" action, distinct from
+ * buildGoogleMapsUrl's address-text search-pin fallback above).
+ */
+export function buildDirectionsUrl(
+  destination: { latitude: number | null | undefined; longitude: number | null | undefined },
+  origin?: { latitude: number | null | undefined; longitude: number | null | undefined } | null,
+): string | null {
+  if (!isValidLatLng(destination.latitude, destination.longitude)) return null
+  const dest = encodeURIComponent(`${destination.latitude},${destination.longitude}`)
+  if (origin && isValidLatLng(origin.latitude, origin.longitude)) {
+    const orig = encodeURIComponent(`${origin.latitude},${origin.longitude}`)
+    return `https://www.google.com/maps/dir/?api=1&origin=${orig}&destination=${dest}`
+  }
+  return `https://www.google.com/maps/dir/?api=1&destination=${dest}`
+}
+
 // ─── PRIMITIVES ──────────────────────────────────────────────────────────────
 
 export function formatDate(value: string | null | undefined): string {
