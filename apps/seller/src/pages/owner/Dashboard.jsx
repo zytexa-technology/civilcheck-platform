@@ -14,7 +14,12 @@ import { Card, StatCard, Chip, PageHead, SectionTitle, Field, Modal, toast } fro
 // ─── STATUS META ────────────────────────────────────────────────────────────
 export function propStatus(s) {
   return {
-    approved:  ['green', 'Approved'],
+    // Direct-publish business rule — Owner listing no longer waits on admin
+    // approval, so the buyer-visible ('approved') status now reads
+    // "Published" here instead of "Approved". 'pending'/'rejected' labels are
+    // kept only for any legacy row still in that state from before this
+    // change — a new submission can never reach them.
+    approved:  ['green', 'Published'],
     pending:   ['amber', 'Pending Review'],
     rejected:  ['red',   'Rejected'],
     draft:     ['ink',   'Draft'],
@@ -59,7 +64,6 @@ export default function OwnerDashboard({ go }) {
 
   const active = props.filter((p) => p.status !== 'deleted')
   const ap = active.filter((p) => p.status === 'approved').length
-  const pe = active.filter((p) => p.status === 'pending').length
   const dr = active.filter((p) => p.status === 'draft').length
   const vw = active.reduce((a, p) => a + (p.views || 0), 0)
 
@@ -98,24 +102,23 @@ export default function OwnerDashboard({ go }) {
         <button className="btn btn-seal" onClick={() => go?.('add')}>+ Add Property</button>
       </Card>
 
-      {/* Stats */}
+      {/* Stats — "Pending Review" removed (direct-publish means a new
+          submission is never pending); replaced with a plain total count. */}
       <div className="grid g4" style={{ marginBottom: 20 }}>
-        <StatCard icon="props" color="#137a56" value={ap} label="Approved" trend="▲" />
-        <StatCard icon="add"   color="#B67A12" value={pe} label="Pending Review" />
+        <StatCard icon="props" color="#137a56" value={ap} label="Published" trend="▲" />
+        <StatCard icon="add"   color="#B67A12" value={active.length} label="Total Properties" />
         <StatCard icon="file"  color="#2b5c8f" value={dr} label="Drafts" />
         <StatCard icon="chart" color="#B0812F" value={vw} label="Total Views" trend="▲ 8%" />
       </div>
 
-      {/* Workflow — a plain explainer, not a per-property progress tracker
-          (this page shows all your properties, which can each be at a
-          different stage, so there is no single "current step" to highlight). */}
-      <SectionTitle right={<Chip tone="ink">Har update par dobara review</Chip>}>Approval Workflow</SectionTitle>
+      {/* Workflow — direct-publish: no admin approval gate for Owner
+          listing (Property VERIFICATION, requested by a Buyer afterward, is
+          a separate, unchanged flow shown elsewhere). */}
+      <SectionTitle right={<Chip tone="ink">Turant publish</Chip>}>Listing Workflow</SectionTitle>
       <Card style={{ marginBottom: 22 }}>
         <div className="flow">
           <span className="step done">Upload Property</span><span className="arw">→</span>
-          <span className="step done">Pending Review</span><span className="arw">→</span>
-          <span className="step done">Super Admin Review</span><span className="arw">→</span>
-          <span className="step">Approved — Published to Buyers</span>
+          <span className="step">Published to Buyers</span>
         </div>
       </Card>
 
@@ -223,7 +226,8 @@ export function PropTile({ p, onDelete, onUpdated }) {
         )}
       </Modal>
 
-      {/* Edit modal — real PUT /seller/properties/:id, resets status to Pending Review */}
+      {/* Edit modal — real PUT /seller/properties/:id; direct-publish means
+          an edit no longer resets status / pulls the property off Buyer view */}
       <EditPropertyModal
         open={editing}
         property={p}
@@ -263,7 +267,7 @@ function EditPropertyModal({ open, property, onClose, onSaved }) {
         age: form.age || null,
         city: form.city,
       })
-      toast('Property updated — dobara review me gayi')
+      toast('Property updated')
       onSaved?.(updated)
     } catch (e) {
       toast(e.response?.data?.message || 'Update nahi hua — dobara try karo')
@@ -290,7 +294,7 @@ function EditPropertyModal({ open, property, onClose, onSaved }) {
         <input className="control" value={form.city} onChange={(e) => setField('city', e.target.value)} />
       </Field>
       <button className="btn btn-primary btn-block" onClick={save} disabled={busy}>
-        {busy ? 'Saving…' : 'Save — Submit for Re-Review'}
+        {busy ? 'Saving…' : 'Save Changes'}
       </button>
     </Modal>
   )

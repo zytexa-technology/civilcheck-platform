@@ -9,7 +9,7 @@ import prisma from '../lib/prisma.js'
 import logger from '../lib/logger.js'
 import { refundPayment, RazorpayError } from '../lib/razorpay.js'
 import { recordReversalForRefund } from './ledger.service.js'
-import { notifyBuyerAlert } from './notification.service.js'
+import { notifyBuyerAlert, notifySeller } from './notification.service.js'
 
 export interface ExecuteRefundResult {
   ok: boolean
@@ -145,6 +145,26 @@ export async function executeRefund(refundId: string, note?: string): Promise<Ex
           data: { verificationRequestId: refund.verificationRequestId, refundId },
         }
       ).catch((err) => logger.error(`[refund] buyer notification failed for ${refundId}: ${err}`))
+    }
+
+    // Buyer Verification Experience enhancement — section 14 requires the
+    // affected professional to be notified too, not just the buyer. Only
+    // fires for a claim-driven refund (refund.claimId set) — a plain
+    // cancellation refund isn't "against" the professional's work the same
+    // way, and the request's assignedSellerId may already be gone/irrelevant
+    // by then for a pre-acceptance cancellation.
+    if (refund.claimId) {
+      const request = await prisma.verificationRequest.findUnique({ where: { id: refund.verificationRequestId } })
+      if (request?.assignedSellerId) {
+        const seller = await prisma.seller.findUnique({ where: { id: request.assignedSellerId } })
+        if (seller) {
+          void notifySeller(seller, {
+            type: 'claim',
+            title: 'Refund processed on a disputed verification',
+            body: `A ₹${refund.amount} refund was processed for a verification request you completed, following a resolved claim.`,
+          }).catch((err) => logger.error(`[refund] seller notification failed for ${refundId}: ${err}`))
+        }
+      }
     }
   }
   return { ok: true, refund: updatedRefund, message: `₹${refund.amount} refund successfully processed!` }

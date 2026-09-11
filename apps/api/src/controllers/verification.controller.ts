@@ -23,9 +23,14 @@ import {
   acceptVerificationQuote,
   cancelVerificationRequest,
   createVerificationRequest,
+  getBuyerMessages,
+  getClaimsForAssignment,
   getMarketplaceRequestDetail,
+  getProfessionalMessages,
   getQuotesForRequest,
   linkDiscoveredProperty,
+  sendBuyerMessage,
+  sendProfessionalMessage,
   startVerification,
   submitVerificationQuote,
   submitVerificationReport,
@@ -498,11 +503,46 @@ export const createClaim = async (req: Request, res: Response) => {
     data: { verificationRequestId: id, claimId: claim.id },
   })
 
+  // Buyer Verification Experience enhancement — section 12 requires the
+  // claim be visible/known to the professional it's raised against too, not
+  // just the buyer and admin oversight. Same "sellers only, no in-app
+  // channel for admins" convention already used by every other loss/close
+  // notification in this file (see notifyLosingQuotes below).
+  if (request.assignedSellerId) {
+    const seller = await prisma.seller.findUnique({ where: { id: request.assignedSellerId } })
+    if (seller) {
+      await notifySeller(seller, {
+        type: 'claim',
+        title: 'A claim was raised on your verification',
+        body: `The buyer raised a claim ("${reason}") on a verification request you completed. An admin will review it.`,
+      })
+    }
+  }
+
   res.status(201).json({
     success: true,
     message: 'Claim submitted — an admin will review it.',
     claim,
   })
+}
+
+// GET /api/{seller,admin}/verification-marketplace/:id/claims
+// Buyer Verification Experience enhancement — lets the assigned professional
+// see claims raised against their own work (never another professional's).
+export const getAssignmentClaims = async (req: Request, res: Response) => {
+  const id = req.params.id as string
+  const actor = resolveActor(req)
+
+  try {
+    const claims = await getClaimsForAssignment(id, actor)
+    res.json({ success: true, total: claims.length, claims })
+  } catch (err) {
+    if (err instanceof VerificationError) {
+      res.status(err.status).json({ success: false, message: err.message })
+      return
+    }
+    throw err
+  }
 }
 
 // GET /api/verification-requests/:id/claims
@@ -524,6 +564,60 @@ export const getMyClaims = async (req: Request, res: Response) => {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// CONVERSATION (buyer side) — Buyer Verification Experience enhancement.
+// Only opens once the buyer has accepted an offer (assertConversationOpen in
+// verification.service.ts); the assigned professional is notified of every
+// new buyer message the same way they're notified of a new quote/assignment.
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/verification-requests/:id/messages
+export const postMessage = async (req: Request, res: Response) => {
+  const userId = req.user!.id
+  const id = req.params.id as string
+  const { body } = req.body as { body: string }
+
+  try {
+    const message = await sendBuyerMessage(id, userId, body)
+
+    const request = await prisma.verificationRequest.findUnique({ where: { id } })
+    if (request?.assignedSellerId) {
+      const seller = await prisma.seller.findUnique({ where: { id: request.assignedSellerId } })
+      if (seller) {
+        await notifySeller(seller, {
+          type: 'message',
+          title: 'New message from buyer',
+          body: body.length > 140 ? `${body.slice(0, 140)}…` : body,
+        })
+      }
+    }
+
+    res.status(201).json({ success: true, message })
+  } catch (err) {
+    if (err instanceof VerificationError) {
+      res.status(err.status).json({ success: false, message: err.message })
+      return
+    }
+    throw err
+  }
+}
+
+// GET /api/verification-requests/:id/messages
+export const getMessages = async (req: Request, res: Response) => {
+  const userId = req.user!.id
+  const id = req.params.id as string
+
+  try {
+    const messages = await getBuyerMessages(id, userId)
+    res.json({ success: true, total: messages.length, messages })
+  } catch (err) {
+    if (err instanceof VerificationError) {
+      res.status(err.status).json({ success: false, message: err.message })
+      return
+    }
+    throw err
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // PROFESSIONAL SIDE (Admin + Expert) — resolveActor() builds a
 // ProfessionalActor from whichever authenticated principal called in.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -531,6 +625,58 @@ export const getMyClaims = async (req: Request, res: Response) => {
 function resolveActor(req: Request): ProfessionalActor {
   if (req.admin) return { adminId: req.admin.id }
   return { sellerId: req.seller!.id }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CONVERSATION (professional side) — mirrors the buyer-side pair above.
+// assertAssigned (verification.service.ts) is what actually keeps a
+// non-selected professional out; this controller only translates that into
+// an HTTP 403 like every other professional-side action already does.
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/{seller,admin}/verification-marketplace/:id/messages
+export const postAssignmentMessage = async (req: Request, res: Response) => {
+  const id = req.params.id as string
+  const { body } = req.body as { body: string }
+  const actor = resolveActor(req)
+
+  try {
+    const message = await sendProfessionalMessage(id, actor, body)
+
+    const request = await prisma.verificationRequest.findUnique({ where: { id } })
+    if (request) {
+      void notifyBuyer(request.userId, {
+        type: 'message',
+        title: 'New message from your verification professional',
+        body: body.length > 140 ? `${body.slice(0, 140)}…` : body,
+        data: { verificationRequestId: id },
+      })
+    }
+
+    res.status(201).json({ success: true, message })
+  } catch (err) {
+    if (err instanceof VerificationError) {
+      res.status(err.status).json({ success: false, message: err.message })
+      return
+    }
+    throw err
+  }
+}
+
+// GET /api/{seller,admin}/verification-marketplace/:id/messages
+export const getAssignmentMessages = async (req: Request, res: Response) => {
+  const id = req.params.id as string
+  const actor = resolveActor(req)
+
+  try {
+    const messages = await getProfessionalMessages(id, actor)
+    res.json({ success: true, total: messages.length, messages })
+  } catch (err) {
+    if (err instanceof VerificationError) {
+      res.status(err.status).json({ success: false, message: err.message })
+      return
+    }
+    throw err
+  }
 }
 
 // GET /api/{seller/verification-marketplace,admin/verification-marketplace}

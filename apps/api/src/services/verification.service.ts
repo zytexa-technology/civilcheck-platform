@@ -17,6 +17,7 @@ import type {
   Prisma,
   Property,
   PropertyType,
+  VerificationMessage,
   VerificationQuote,
   VerificationRequest,
   VerificationRequestStatus,
@@ -852,4 +853,103 @@ async function executeCancellation(request: VerificationRequest, reason: string)
   )
 
   return { request: updated, paidAmount, cancellationFee, refundAmount }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CONVERSATION — Buyer Verification Experience enhancement. The minimum
+// buyer<->assigned-professional messaging the brief asks for: a flat thread
+// per request (VerificationMessage, schema.prisma), open only once a
+// professional is assigned (assignedSellerId/assignedAdminId set, i.e.
+// status ACCEPTED or later) and closed once the request is CANCELLED. A
+// non-selected professional was never assigned in the first place, so
+// assertAssigned() below already keeps every other quoter out — no separate
+// access-control table is needed.
+// ─────────────────────────────────────────────────────────────────────────────
+function assertConversationOpen(request: VerificationRequest): void {
+  if (!request.assignedSellerId && !request.assignedAdminId) {
+    throw new VerificationError('The conversation opens once you accept a professional\'s offer', 409)
+  }
+  if (request.status === 'CANCELLED') {
+    throw new VerificationError('This request was cancelled — the conversation is closed', 409)
+  }
+}
+
+export async function sendBuyerMessage(
+  requestId: string,
+  userId: string,
+  body: string
+): Promise<VerificationMessage> {
+  const request = await prisma.verificationRequest.findUnique({ where: { id: requestId } })
+  if (!request || request.userId !== userId) {
+    throw new VerificationError('Verification request not found', 404)
+  }
+  assertConversationOpen(request)
+
+  return prisma.verificationMessage.create({
+    data: { verificationRequestId: requestId, senderRole: 'BUYER', senderUserId: userId, body },
+  })
+}
+
+export async function getBuyerMessages(requestId: string, userId: string): Promise<VerificationMessage[]> {
+  const request = await prisma.verificationRequest.findUnique({ where: { id: requestId } })
+  if (!request || request.userId !== userId) {
+    throw new VerificationError('Verification request not found', 404)
+  }
+  return prisma.verificationMessage.findMany({
+    where: { verificationRequestId: requestId },
+    orderBy: { createdAt: 'asc' },
+  })
+}
+
+export async function sendProfessionalMessage(
+  requestId: string,
+  actor: ProfessionalActor,
+  body: string
+): Promise<VerificationMessage> {
+  const request = await prisma.verificationRequest.findUnique({ where: { id: requestId } })
+  if (!request) throw new VerificationError('Verification request not found', 404)
+  assertAssigned(request, actor)
+  assertConversationOpen(request)
+
+  return prisma.verificationMessage.create({
+    data: {
+      verificationRequestId: requestId,
+      senderRole: 'PROFESSIONAL',
+      senderSellerId: actor.sellerId ?? null,
+      senderAdminId: actor.adminId ?? null,
+      body,
+    },
+  })
+}
+
+export async function getProfessionalMessages(
+  requestId: string,
+  actor: ProfessionalActor
+): Promise<VerificationMessage[]> {
+  const request = await prisma.verificationRequest.findUnique({ where: { id: requestId } })
+  if (!request) throw new VerificationError('Verification request not found', 404)
+  assertAssigned(request, actor)
+  return prisma.verificationMessage.findMany({
+    where: { verificationRequestId: requestId },
+    orderBy: { createdAt: 'asc' },
+  })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CLAIMS FOR ASSIGNMENT — Buyer Verification Experience enhancement. Section
+// 12 of the brief requires a buyer-raised Claim to be visible to "the
+// Admin/Expert who performed the verification", which had no read path
+// before this — only the buyer (getMyClaims) and admin oversight
+// (getAllClaims) could see one. Same assertAssigned() gate as messages, so a
+// non-assigned professional (including one who quoted but lost) can never
+// see a claim against work that isn't theirs.
+// ─────────────────────────────────────────────────────────────────────────────
+export async function getClaimsForAssignment(requestId: string, actor: ProfessionalActor) {
+  const request = await prisma.verificationRequest.findUnique({ where: { id: requestId } })
+  if (!request) throw new VerificationError('Verification request not found', 404)
+  assertAssigned(request, actor)
+  return prisma.claim.findMany({
+    where: { verificationRequestId: requestId },
+    orderBy: { createdAt: 'desc' },
+  })
 }

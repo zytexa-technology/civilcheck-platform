@@ -6,11 +6,14 @@ import { buildMapUrl } from '../lib/maps.js'
 // ─────────────────────────────────────────────────────────────────────────────
 // BUYER-FACING OWNER PROPERTIES (self-verification, separate from Listing).
 // Product decision: free trust signal only — no price, no purchase, no
-// commission. Admin approval (property.status === 'APPROVED') gates whether
-// a property is visible here at all — it does NOT mean CivilCheck has
-// independently verified the property, and this API/UI must never claim
-// that. No "Verified" badge is rendered anywhere a buyer sees this data —
-// see apps/buyer-web + apps/buyer's OwnerProperty* components. The owner's
+// commission. Owner listing is direct-publish (property.status === 'APPROVED'
+// is set immediately on submission by property-owner.controller.ts, no admin
+// approval gate) — this does NOT mean CivilCheck has independently verified
+// the property, and this API/UI must never claim that. Property VERIFICATION
+// is the separate, unchanged, opt-in flow a Buyer can request afterward (see
+// verification.service.ts). No "Verified" badge is rendered anywhere a buyer
+// sees this data — see apps/buyer-web + apps/buyer's OwnerProperty*
+// components. The owner's
 // uploaded DOCUMENTS are never exposed here (owner/admin only, via
 // property-owner.controller.ts / admin.controller.ts). Images and videos ARE
 // exposed — Property System (Phase 2) media is the buyer-facing visual for

@@ -191,8 +191,28 @@ export function OwnerPropertyCard({
 // "Reported by CivilCheck Reporter" attribution, for a scrolling feed.
 // ─────────────────────────────────────────────────────────────────────────────
 export function ReporterPostCard({ post }: { post: ReporterPost }) {
+  const navigate = useNavigate()
   const cover = post.images[0]
   const location = post.tehsil ? `${post.tehsil}, ${post.city}` : post.city
+
+  // Buyer Verification Experience enhancement — a Reporter Post is
+  // informational only (no address/propertyType, no ownership claim), so
+  // "verifying" it reuses the existing Property Discovery (source:
+  // 'DISCOVERY') request flow instead of inventing a new one: the post's
+  // title/city/tehsil are handed off as a starting point on the same
+  // "can't find the property" form BrowseProperty already uses, and the
+  // buyer fills in the rest (address, property type). This never creates or
+  // pretends to create a Property record, and never represents the Reporter
+  // as the owner.
+  const goVerify = () => {
+    navigate('/account/discovery-request/new', {
+      state: {
+        address: post.title ?? '',
+        city: post.city ?? '',
+        tehsil: post.tehsil ?? '',
+      },
+    })
+  }
 
   return (
     <article className="reporter-post-card">
@@ -214,6 +234,9 @@ export function ReporterPostCard({ post }: { post: ReporterPost }) {
             {formatDate(post.postedAt)}
           </span>
         </div>
+        <button type="button" className="btn btn--secondary btn--sm" style={{ marginTop: 10, width: '100%' }} onClick={goVerify}>
+          🔎 Verify This Property
+        </button>
       </div>
     </article>
   )

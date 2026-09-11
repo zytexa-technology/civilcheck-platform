@@ -22,6 +22,11 @@ import {
   submitVerificationQuote,
   linkDiscoveredListing,
   getMyListings,
+  startVerificationJob,
+  submitVerificationReport,
+  getVerificationMessages,
+  sendVerificationMessage,
+  getAssignmentClaims,
 } from '../../api/seller.api'
 import { Card, PageHead, SectionTitle, Field, Modal, Chip, toast } from '../../components/ui'
 import { Icon } from '../../components/Icon'
@@ -83,6 +88,34 @@ const QUOTE_CHIP = {
   PENDING: ['amber', 'Pending'],
   ACCEPTED: ['green', 'Accepted'],
   CLOSED: ['red', 'Closed — not selected'],
+}
+
+// RiskBadge (packages/shared enums.ts) — same three values the buyer-side
+// report view and the admin claim/report tooling use. Do not invent extra
+// values here.
+const RISK_OPTIONS = ['GREEN', 'AMBER', 'RED']
+
+// Claim.status (Prisma enum, packages/shared validation.ts's claimCreateSchema
+// neighbourhood) → [chip tone, label]. Experts only ever read these — claim
+// resolution is SuperAdmin-only, nothing here can change a claim's status.
+const CLAIM_STATUS_CHIP = {
+  OPEN: ['amber', 'Open'],
+  UNDER_REVIEW: ['blue', 'Under review'],
+  RESOLVED: ['green', 'Resolved'],
+  REJECTED: ['red', 'Rejected'],
+  REFUND_APPROVED: ['blue', 'Refund approved'],
+  REFUND_PROCESSED: ['green', 'Refund processed'],
+}
+
+// A simple comma-separated-URLs text input, split/trim/filter — the same
+// pattern buyer-web's own claim form (VerificationRequestDetail.tsx) uses
+// for its `evidence: string[]` field, which is shaped identically to this
+// report form's documents/images/videos arrays (all z.array(z.url())).
+function parseUrlList(text) {
+  return text
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
 }
 
 function propertySummary(req) {
@@ -267,6 +300,34 @@ function RequestDetailModal({ id, onClose, kycApproved, sellerId, onQuoted }) {
   const [linkSubmitting, setLinkSubmitting] = useState(false)
   const [linkError, setLinkError] = useState('')
 
+  // Buyer Verification Experience enhancement — "Start Verification" (ADVANCE_PAID → IN_PROGRESS).
+  const [startBusy, setStartBusy] = useState(false)
+  const [startError, setStartError] = useState('')
+
+  // Buyer Verification Experience enhancement — "Submit Report" (IN_PROGRESS → COMPLETED).
+  const [findings, setFindings] = useState('')
+  const [riskAssessment, setRiskAssessment] = useState('')
+  const [documentsText, setDocumentsText] = useState('')
+  const [imagesText, setImagesText] = useState('')
+  const [videosText, setVideosText] = useState('')
+  const [reportBusy, setReportBusy] = useState(false)
+  const [reportError, setReportError] = useState('')
+
+  // Buyer Verification Experience enhancement — conversation with the buyer,
+  // available once this Expert is the assigned professional (mirrors
+  // buyer-web's own VerificationRequestDetail.tsx conversation panel).
+  const [messages, setMessages] = useState(null)
+  const [messagesError, setMessagesError] = useState('')
+  const [messageDraft, setMessageDraft] = useState('')
+  const [messageBusy, setMessageBusy] = useState(false)
+  const [messageError, setMessageError] = useState('')
+
+  // Buyer Verification Experience enhancement — read-only claim visibility,
+  // fetched only once the report is unlocked (same gate buyer-web uses for
+  // when a claim can even exist).
+  const [claims, setClaims] = useState(null)
+  const [claimsError, setClaimsError] = useState('')
+
   useEffect(() => {
     if (!id) return
     let live = true
@@ -281,6 +342,21 @@ function RequestDetailModal({ id, onClose, kycApproved, sellerId, onQuoted }) {
     setSelectedListingId('')
     setConfirmingLink(false)
     setLinkError('')
+    setStartBusy(false)
+    setStartError('')
+    setFindings('')
+    setRiskAssessment('')
+    setDocumentsText('')
+    setImagesText('')
+    setVideosText('')
+    setReportBusy(false)
+    setReportError('')
+    setMessages(null)
+    setMessagesError('')
+    setMessageDraft('')
+    setMessageError('')
+    setClaims(null)
+    setClaimsError('')
     getVerificationMarketplaceRequest(id)
       .then((res) => {
         if (!live) return
@@ -290,13 +366,101 @@ function RequestDetailModal({ id, onClose, kycApproved, sellerId, onQuoted }) {
         // it; editing it is a counter-offer. Never trust this client-side
         // prefill as validation — the backend accepts any positive amount.
         setAmount(res.myQuote ? '' : String(res.request.buyerInitialOfferAmount))
+
+        // Conversation only exists once a professional is assigned — mirror
+        // buyer-web's own gate (assignedSeller present or status !== OPEN)
+        // rather than polling a thread that can't exist yet.
+        const assignedToMe = sellerId && res.request.assignedSellerId === sellerId
+        if (assignedToMe && res.request.status !== 'OPEN') {
+          getVerificationMessages(id)
+            .then((mres) => { if (live) setMessages(mres.messages) })
+            .catch((err) => { if (live) setMessagesError(err?.response?.data?.message || 'Could not load messages.') })
+        }
+
+        // Claims can only exist once the report is unlocked — same gate
+        // buyer-web uses before it ever calls getMyClaims.
+        if (res.request.status === 'REPORT_UNLOCKED') {
+          getAssignmentClaims(id)
+            .then((cres) => { if (live) setClaims(cres.claims) })
+            .catch((err) => { if (live) setClaimsError(err?.response?.data?.message || 'Could not load claims.') })
+        }
       })
       .catch((err) => {
         if (!live) return
         setLoadError(err?.response?.data?.message || 'Could not load this request — it may no longer be available.')
       })
     return () => { live = false }
-  }, [id])
+  }, [id, sellerId])
+
+  // Shared refresh after Start/Submit Report succeed — re-fetches full
+  // detail (rather than trusting the action endpoint's own partial response)
+  // so request.status and any newly-joined data (e.g. report) stay correct,
+  // same approach handleLink already uses below.
+  const refreshDetail = async () => {
+    const detail = await getVerificationMarketplaceRequest(id)
+    setRequest(detail.request)
+    setMyQuote(detail.myQuote)
+    onQuoted?.()
+  }
+
+  const handleStart = async () => {
+    setStartBusy(true)
+    setStartError('')
+    try {
+      await startVerificationJob(id)
+      await refreshDetail()
+      toast('Verification started')
+    } catch (err) {
+      const msg = err?.response?.data?.message
+      setStartError(msg || 'Could not start verification. Please try again.')
+    } finally {
+      setStartBusy(false)
+    }
+  }
+
+  const handleSubmitReport = async () => {
+    if (findings.trim().length < 20) {
+      setReportError('Findings must be at least 20 characters.')
+      return
+    }
+    setReportBusy(true)
+    setReportError('')
+    try {
+      await submitVerificationReport(id, {
+        findings: findings.trim(),
+        riskAssessment: riskAssessment || undefined,
+        documents: parseUrlList(documentsText),
+        images: parseUrlList(imagesText),
+        videos: parseUrlList(videosText),
+      })
+      await refreshDetail()
+      toast('Report submitted — the buyer will be asked for the final payment')
+    } catch (err) {
+      const status = err?.response?.status
+      const msg = err?.response?.data?.message
+      if (status === 400) setReportError(msg || 'Please check the report fields and try again.')
+      else if (status === 403) setReportError(msg || 'You are not authorized to submit a report for this request.')
+      else if (status === 409) setReportError(msg || 'This request is not ready for a report yet.')
+      else setReportError(msg || 'Could not submit the report. Please try again.')
+    } finally {
+      setReportBusy(false)
+    }
+  }
+
+  const handleSendMessage = async () => {
+    if (messageDraft.trim().length === 0) return
+    setMessageBusy(true)
+    setMessageError('')
+    try {
+      const res = await sendVerificationMessage(id, messageDraft.trim())
+      setMessages((prev) => [...(prev || []), res.message])
+      setMessageDraft('')
+    } catch (err) {
+      setMessageError(err?.response?.data?.message || 'Could not send your message.')
+    } finally {
+      setMessageBusy(false)
+    }
+  }
 
   const submit = async () => {
     const fee = Number(amount)
@@ -536,6 +700,76 @@ function RequestDetailModal({ id, onClose, kycApproved, sellerId, onQuoted }) {
             </p>
           )}
 
+          {/* Buyer Verification Experience enhancement — "Start Verification".
+              The buyer has paid the 50% advance; nothing in the UI let the
+              assigned Expert move the job past ADVANCE_PAID until this. */}
+          {isAssignedToMe && request.status === 'ADVANCE_PAID' ? (
+            <div>
+              <SectionTitle>Start Verification</SectionTitle>
+              {startError ? <p className="small dev" style={{ color: 'var(--danger)', marginBottom: 8 }}>{startError}</p> : null}
+              <p className="xs muted dev" style={{ marginBottom: 8 }}>
+                The buyer's advance payment has been received. Start the job once you begin work on
+                this verification.
+              </p>
+              <button className="btn btn-primary btn-block" onClick={handleStart} disabled={startBusy}>
+                {startBusy ? 'Starting…' : 'Start Verification'}
+              </button>
+            </div>
+          ) : null}
+
+          {/* Buyer Verification Experience enhancement — "Submit Report".
+              Fields mirror verificationReportCreateSchema exactly: findings
+              (required, min 20 chars), riskAssessment (optional RiskBadge
+              enum), documents/images/videos (optional URL arrays). */}
+          {isAssignedToMe && request.status === 'IN_PROGRESS' ? (
+            <div>
+              <SectionTitle>Submit Report</SectionTitle>
+              {reportError ? <p className="small dev" style={{ color: 'var(--danger)', marginBottom: 8 }}>{reportError}</p> : null}
+              <Field label="Findings" required>
+                <textarea
+                  className="control"
+                  rows={5}
+                  placeholder="Describe what you found during the verification (minimum 20 characters)."
+                  value={findings}
+                  onChange={(e) => setFindings(e.target.value)}
+                />
+              </Field>
+              <Field label="Risk assessment" optional>
+                <select className="control" value={riskAssessment} onChange={(e) => setRiskAssessment(e.target.value)}>
+                  <option value="">— Not specified —</option>
+                  {RISK_OPTIONS.map((r) => <option key={r} value={r}>{r}</option>)}
+                </select>
+              </Field>
+              <Field label="Documents (optional)" optional>
+                <input
+                  className="control"
+                  placeholder="Comma-separated URLs to supporting documents"
+                  value={documentsText}
+                  onChange={(e) => setDocumentsText(e.target.value)}
+                />
+              </Field>
+              <Field label="Images (optional)" optional>
+                <input
+                  className="control"
+                  placeholder="Comma-separated URLs to photos"
+                  value={imagesText}
+                  onChange={(e) => setImagesText(e.target.value)}
+                />
+              </Field>
+              <Field label="Videos (optional)" optional>
+                <input
+                  className="control"
+                  placeholder="Comma-separated URLs to videos"
+                  value={videosText}
+                  onChange={(e) => setVideosText(e.target.value)}
+                />
+              </Field>
+              <button className="btn btn-primary btn-block" onClick={handleSubmitReport} disabled={reportBusy}>
+                {reportBusy ? 'Submitting…' : 'Submit Report'}
+              </button>
+            </div>
+          ) : null}
+
           {/* Property Discovery flow (Phase 4C) — once linked, show the real
               listing; while eligible-but-unlinked, offer the link action. */}
           {request.source === 'DISCOVERY' && request.listing ? (
@@ -629,6 +863,97 @@ function RequestDetailModal({ id, onClose, kycApproved, sellerId, onQuoted }) {
                   )}
                 </>
               )}
+            </div>
+          ) : null}
+
+          {/* Buyer Verification Experience enhancement — conversation with
+              the buyer. Only rendered once this Expert is the assigned
+              professional and the request has moved past OPEN (mirrors
+              buyer-web's own gate: a thread can't exist before assignment). */}
+          {isAssignedToMe && request.status !== 'OPEN' ? (
+            <div>
+              <SectionTitle>Messages with Buyer</SectionTitle>
+              {messagesError ? <p className="small dev" style={{ color: 'var(--danger)', marginBottom: 8 }}>{messagesError}</p> : null}
+              <Card style={{ padding: 12, maxHeight: 260, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {messages === null ? (
+                  <div className="small muted" style={{ padding: '10px 0', textAlign: 'center' }}>Loading…</div>
+                ) : messages.length === 0 ? (
+                  <p className="small muted dev" style={{ textAlign: 'center', padding: '10px 0' }}>
+                    No messages yet — start the conversation below.
+                  </p>
+                ) : (
+                  messages.map((m) => (
+                    <div
+                      key={m.id}
+                      style={{
+                        alignSelf: m.senderRole === 'PROFESSIONAL' ? 'flex-end' : 'flex-start',
+                        background: m.senderRole === 'PROFESSIONAL' ? 'var(--seal-soft, #f6ead0)' : 'var(--paper-2)',
+                        borderRadius: 10,
+                        padding: '8px 12px',
+                        maxWidth: '85%',
+                      }}
+                    >
+                      <div className="small dev">{m.body}</div>
+                      <div className="xs muted dev" style={{ marginTop: 4, textAlign: m.senderRole === 'PROFESSIONAL' ? 'right' : 'left' }}>
+                        {m.senderRole === 'PROFESSIONAL' ? 'You' : 'Buyer'} · {formatDate(m.createdAt)}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </Card>
+              {messageError ? <p className="small dev" style={{ color: 'var(--danger)', marginTop: 8 }}>{messageError}</p> : null}
+              <div className="row" style={{ marginTop: 8, gap: 8 }}>
+                <input
+                  className="control"
+                  style={{ flex: 1 }}
+                  placeholder="Write a message to the buyer…"
+                  value={messageDraft}
+                  onChange={(e) => setMessageDraft(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && !messageBusy) handleSendMessage() }}
+                />
+                <button className="btn btn-primary" onClick={handleSendMessage} disabled={messageBusy || messageDraft.trim().length === 0}>
+                  {messageBusy ? 'Sending…' : 'Send'}
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          {/* Buyer Verification Experience enhancement — read-only claim
+              visibility. Experts can see a claim was raised against their
+              completed work, but only SuperAdmin can resolve one. */}
+          {request.status === 'REPORT_UNLOCKED' ? (
+            <div>
+              <SectionTitle>Claims</SectionTitle>
+              {claimsError ? <p className="small dev" style={{ color: 'var(--danger)', marginBottom: 8 }}>{claimsError}</p> : null}
+              {claims === null ? (
+                <div className="small muted" style={{ padding: '10px 0', textAlign: 'center' }}>Loading…</div>
+              ) : claims.length === 0 ? (
+                <p className="small muted dev">No claims have been raised on this request.</p>
+              ) : (
+                <div className="stack" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {claims.map((c) => {
+                    const ct = CLAIM_STATUS_CHIP[c.status] || CLAIM_STATUS_CHIP.OPEN
+                    return (
+                      <Card key={c.id} style={{ padding: 12 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                          <b className="dev" style={{ fontSize: 13 }}>{c.reason}</b>
+                          <Chip tone={ct[0]}>{ct[1]}</Chip>
+                        </div>
+                        <p className="small muted dev" style={{ marginTop: 6 }}>{c.description}</p>
+                        {c.resolutionNote ? (
+                          <p className="xs dev" style={{ marginTop: 6, color: 'var(--blue, #2b5c8f)' }}>
+                            Admin response: {c.resolutionNote}
+                          </p>
+                        ) : null}
+                        <p className="xs muted dev" style={{ marginTop: 6 }}>Raised {formatDate(c.createdAt)}</p>
+                      </Card>
+                    )
+                  })}
+                </div>
+              )}
+              <p className="xs muted dev" style={{ marginTop: 8 }}>
+                Only CivilCheck's admin team can review and resolve a claim — there is nothing to action here.
+              </p>
             </div>
           ) : null}
         </div>

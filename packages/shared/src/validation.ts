@@ -381,22 +381,20 @@ export type ListingUpdateInput = z.infer<typeof listingUpdateSchema>
 // specific user-facing message, not just a shape check) — this file only
 // validates the SHAPE of each document entry (a real type key + a real URL).
 
-// Canonical machine keys for the 8 mandatory Owner-property document slots —
+// Canonical machine keys for the mandatory Owner-property document slots —
 // single source of truth for both propertyCreateSchema below and
 // property-owner.controller.ts's composition check, so the two can never
 // silently drift out of sync the way a "kept in sync, see comment" pattern
-// would. An entry whose `type` is anything else (NOC, Builder Documents, …)
-// is accepted as an optional/extra document — see propertyDocumentSchema —
-// but never counts toward a required slot.
+// would. An entry whose `type` is anything else (REGISTRY, KHATA, MUTATION,
+// PROPERTY_TAX_RECEIPT, PAN_CARD, NOC, Builder Documents, …) is accepted as
+// an optional/extra document — see propertyDocumentSchema — but never counts
+// toward a required slot. Reduced from 8 to these 3 per the Partner Portal
+// Add Property document-requirement change — every other document type
+// remains fully submittable, just never required.
 export const REQUIRED_PROPERTY_DOCUMENT_TYPES = [
   'SALE_DEED',
-  'REGISTRY',
-  'KHATA',
-  'MUTATION',
-  'PROPERTY_TAX_RECEIPT',
   'ELECTRICITY_BILL',
   'OWNER_AADHAAR',
-  'PAN_CARD',
 ] as const
 export type RequiredPropertyDocumentType = (typeof REQUIRED_PROPERTY_DOCUMENT_TYPES)[number]
 
@@ -882,6 +880,14 @@ export const claimResolutionSchema = z.object({
   resolutionNote: z.string().trim().min(5, 'Give a resolution note (min 5 characters)'),
 })
 export type ClaimResolutionInput = z.infer<typeof claimResolutionSchema>
+
+// Buyer Verification Experience enhancement — the minimum buyer<->assigned-
+// professional conversation the brief asks for, scoped to one
+// VerificationRequest (see VerificationMessage in schema.prisma).
+export const verificationMessageCreateSchema = z.object({
+  body: z.string().trim().min(1, 'Message cannot be empty').max(2000),
+})
+export type VerificationMessageCreateInput = z.infer<typeof verificationMessageCreateSchema>
 
 // ─── BUYER WEB SOCIAL FEED (Buyer Experience redesign) ────────────────────────
 export const feedCommentCreateSchema = z.object({

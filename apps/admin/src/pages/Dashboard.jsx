@@ -14,6 +14,7 @@ import RewardLedger from './admin/RewardLedger'
 import FinancialDashboard from './admin/FinancialDashboard'
 import SpecialRequests from './admin/SpecialRequests'
 import VerificationRequests from './admin/VerificationRequests'
+import Claims from './admin/Claims'
 import ReportFlags from './admin/ReportFlags'
 import Analytics from './admin/Analytics'
 import Buyers from './admin/Buyers'
@@ -47,6 +48,7 @@ const NAV = [
   { id: 'buyers', icon: '👤', label: 'Buyers', title: 'Buyers' },
   { id: 'special', icon: '🔍', label: 'Special Requests', title: 'Special Requests' },
   { id: 'verification-requests', icon: '🧾', label: 'Verification Requests', title: 'Verification Requests' },
+  { id: 'claims', icon: '⚖️', label: 'Claims', title: 'Claims Review' },
   { id: 'report-flags', icon: '🚩', label: 'Report Flags', title: 'Report Flags' },
   { id: 'support', icon: '💬', label: 'AI / Human Support', title: 'AI / Human Support' },
   { id: 'content', icon: '📝', label: 'Content Control', title: 'Content Control' },
@@ -208,6 +210,7 @@ export default function Dashboard() {
             <Route path="buyers" element={<Buyers />} />
             <Route path="special" element={<SpecialRequests />} />
             <Route path="verification-requests" element={<VerificationRequests />} />
+            <Route path="claims" element={<Claims />} />
             <Route path="report-flags" element={<ReportFlags />} />
             <Route path="support" element={<SupportDashboard />} />
             <Route path="content" element={<ContentControl />} />

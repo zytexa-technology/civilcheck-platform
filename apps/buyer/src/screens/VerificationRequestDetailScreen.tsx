@@ -1,13 +1,17 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Alert, StyleSheet, Text, View } from 'react-native'
+import { Alert, Linking, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import {
+  acceptVerificationQuote,
   cancelVerificationRequest,
   createAdvanceOrder,
   createClaim,
   createFinalOrder,
   getMyClaims,
+  getVerificationMessages,
+  getVerificationQuotes,
   getVerificationRequestById,
+  sendVerificationMessage,
   verifyAdvancePayment,
   verifyFinalPayment,
 } from '../api/verification.api'
@@ -23,7 +27,14 @@ import { ErrorState, InlineNotice, LoadingState } from '../components/States'
 import { TextField } from '../components/TextField'
 import { VerificationStepper } from '../components/VerificationStepper'
 import { PaymentSheet } from './PaymentSheet'
-import type { Claim, CheckoutOrder, CheckoutResult, VerificationRequest } from '../types/api'
+import type {
+  Claim,
+  CheckoutOrder,
+  CheckoutResult,
+  VerificationMessage,
+  VerificationQuote,
+  VerificationRequest,
+} from '../types/api'
 
 // Buyer-owned CANCELLABLE_STATUSES mirror — verification.service.ts is the
 // actual source of truth (the API rejects any status not in that list), this
@@ -75,6 +86,20 @@ export function VerificationRequestDetailScreen() {
   const [claimReason, setClaimReason] = useState('')
   const [claimDescription, setClaimDescription] = useState('')
   const [claimSubmitting, setClaimSubmitting] = useState(false)
+  const [claimPromptDismissed, setClaimPromptDismissed] = useState(false)
+
+  // Buyer-choice negotiation — the comparison list shown only while OPEN.
+  const [quotes, setQuotes] = useState<VerificationQuote[]>([])
+  const [confirmQuoteId, setConfirmQuoteId] = useState<string | null>(null)
+  const [acceptingId, setAcceptingId] = useState<string | null>(null)
+  const [quoteError, setQuoteError] = useState('')
+
+  // Buyer<->assigned-professional conversation — the minimum capability,
+  // scoped to this one request. Opens only once assignedSeller is set.
+  const [messages, setMessages] = useState<VerificationMessage[]>([])
+  const [messageDraft, setMessageDraft] = useState('')
+  const [messageBusy, setMessageBusy] = useState(false)
+  const [messageError, setMessageError] = useState('')
 
   const load = useCallback(async () => {
     if (!id) {
@@ -88,6 +113,18 @@ export function VerificationRequestDetailScreen() {
       if (response.request.status === 'REPORT_UNLOCKED') {
         const claimsResponse = await getMyClaims(id)
         setClaims(claimsResponse.claims)
+      }
+      if (response.request.status === 'OPEN') {
+        const quotesResponse = await getVerificationQuotes(id).catch(() => null)
+        if (quotesResponse) setQuotes(quotesResponse.quotes)
+      } else {
+        setQuotes([])
+      }
+      // The conversation only opens once a professional is assigned (the
+      // backend enforces this too) — no point loading it before then.
+      if (response.request.assignedSeller || response.request.status !== 'OPEN') {
+        const messagesResponse = await getVerificationMessages(id).catch(() => null)
+        if (messagesResponse) setMessages(messagesResponse.messages)
       }
     } catch (err) {
       setError(
@@ -192,6 +229,38 @@ export function VerificationRequestDetailScreen() {
     }
   }
 
+  const handleAcceptQuote = async (quoteId: string) => {
+    if (!id) return
+    setAcceptingId(quoteId)
+    setQuoteError('')
+    try {
+      await acceptVerificationQuote(id, quoteId)
+      setConfirmQuoteId(null)
+      setLoading(true)
+      await load()
+      setLoading(false)
+    } catch (err) {
+      setQuoteError(errorMessage(err, 'Could not accept this quote — it may no longer be available.'))
+    } finally {
+      setAcceptingId(null)
+    }
+  }
+
+  const handleSendMessage = async () => {
+    if (!id || messageDraft.trim().length === 0) return
+    setMessageBusy(true)
+    setMessageError('')
+    try {
+      const response = await sendVerificationMessage(id, messageDraft.trim())
+      setMessages((prev) => [...prev, response.message])
+      setMessageDraft('')
+    } catch (err) {
+      setMessageError(errorMessage(err, 'Could not send your message.'))
+    } finally {
+      setMessageBusy(false)
+    }
+  }
+
   if (loading) {
     return (
       <Screen>
@@ -233,11 +302,27 @@ export function VerificationRequestDetailScreen() {
   const paidSoFar = fullyPaid ? request.agreedFee : advancePaid ? request.advanceAmount : 0
   const remaining = request.agreedFee != null && paidSoFar != null ? request.agreedFee - paidSoFar : null
 
+  // The report's own attached files ARE the "Download Report" capability —
+  // no PDF generation step, just the documents/images/videos the
+  // professional submitted, opened via Linking exactly like a purchased
+  // Listing's documents (ReportScreen's UnlockedSections).
+  const reportAttachments = [
+    ...(request.report?.documents ?? []),
+    ...(request.report?.images ?? []),
+    ...(request.report?.videos ?? []),
+  ]
+
   return (
     <Screen scroll refreshing={refreshing} onRefresh={() => void handleRefresh()}>
       <ScreenHeader
         title="Verification request"
-        subtitle={request.source === 'LISTING' ? 'Expert report' : 'Owner listing'}
+        subtitle={
+          request.source === 'LISTING'
+            ? 'Expert report'
+            : request.source === 'DISCOVERY'
+              ? 'Property search'
+              : 'Owner listing'
+        }
         backFallback="/verifications"
       />
 
@@ -263,6 +348,69 @@ export function VerificationRequestDetailScreen() {
         <View style={styles.stepperDivider} />
         <VerificationStepper status={request.status} />
       </Card>
+
+      {request.status === 'OPEN' ? (
+        <SectionCard icon="💬" title="Compare quotes">
+          {quoteError ? (
+            <View style={styles.quoteErrorWrap}>
+              <InlineNotice tone="warn" message={quoteError} />
+            </View>
+          ) : null}
+          {quotes.length === 0 ? (
+            <Text style={styles.mutedNote}>
+              Waiting for Experts/Admin to respond with a quote. You&apos;ll be able to compare
+              and accept one here.
+            </Text>
+          ) : (
+            quotes.map((q) => (
+              <View key={q.id} style={styles.quoteCard}>
+                <View style={styles.quoteHeadRow}>
+                  <Text style={styles.quoteName}>{q.quotedBySeller ? q.quotedBySeller.name : 'CivilCheck Admin'}</Text>
+                  <Text style={styles.quoteFee}>{formatRupees(q.proposedFee)}</Text>
+                </View>
+                {q.quotedBySeller ? (
+                  <Text style={styles.quoteMeta}>
+                    {sellerBadgeLabel(q.quotedBySeller.badge)} · {humanize(q.quotedBySeller.profession)}
+                  </Text>
+                ) : null}
+                {q.message ? <Text style={styles.quoteMessage}>{q.message}</Text> : null}
+
+                {confirmQuoteId === q.id ? (
+                  <View style={styles.quoteConfirm}>
+                    <InlineNotice
+                      message={`You are selecting this provider for property verification. Final verification price: ${formatRupees(q.proposedFee)}. 50% advance required before verification: ${formatRupees(q.proposedFee / 2)}.`}
+                    />
+                    <ButtonRow>
+                      <Button
+                        label="Confirm — Accept"
+                        onPress={() => void handleAcceptQuote(q.id)}
+                        loading={acceptingId === q.id}
+                        disabled={acceptingId !== null}
+                        style={styles.flexButton}
+                      />
+                      <Button
+                        label="Back"
+                        variant="secondary"
+                        onPress={() => setConfirmQuoteId(null)}
+                        disabled={acceptingId !== null}
+                        style={styles.flexButton}
+                      />
+                    </ButtonRow>
+                  </View>
+                ) : (
+                  <Button
+                    label="Accept this quote"
+                    onPress={() => setConfirmQuoteId(q.id)}
+                    disabled={confirmQuoteId !== null}
+                    block
+                    style={styles.quoteAcceptButton}
+                  />
+                )}
+              </View>
+            ))
+          )}
+        </SectionCard>
+      ) : null}
 
       {request.status === 'ACCEPTED' || request.status === 'ADVANCE_PAYMENT_PENDING' ? (
         <View style={styles.section}>
@@ -307,6 +455,29 @@ export function VerificationRequestDetailScreen() {
           {request.report?.findings ? (
             <Text style={styles.findings}>{request.report.findings}</Text>
           ) : null}
+
+          {reportAttachments.length > 0 ? (
+            <>
+              <Text style={styles.attachmentsHeading}>📥 Download Report</Text>
+              {reportAttachments.map((url, index) => (
+                <TouchableOpacity
+                  key={url}
+                  style={[styles.documentRow, index === reportAttachments.length - 1 && styles.documentRowLast]}
+                  onPress={() => void Linking.openURL(url)}
+                  accessibilityRole="link"
+                >
+                  <Text style={styles.documentIcon}>📄</Text>
+                  <View style={styles.grow}>
+                    <Text style={styles.documentName} numberOfLines={1}>
+                      {url.split('/').pop() || `Attachment ${index + 1}`}
+                    </Text>
+                    <Text style={styles.documentHint}>Tap to open</Text>
+                  </View>
+                  <Text style={styles.documentGlyph}>↗</Text>
+                </TouchableOpacity>
+              ))}
+            </>
+          ) : null}
         </SectionCard>
       ) : null}
 
@@ -334,6 +505,52 @@ export function VerificationRequestDetailScreen() {
         </SectionCard>
       ) : null}
 
+      {request.assignedSeller && request.status !== 'CANCELLED' ? (
+        <SectionCard icon="✉️" title={`Chat with ${request.assignedSeller.name}`}>
+          {messageError ? (
+            <View style={styles.quoteErrorWrap}>
+              <InlineNotice tone="warn" message={messageError} />
+            </View>
+          ) : null}
+
+          <View style={styles.messageThread}>
+            {messages.length === 0 ? (
+              <Text style={styles.mutedNote}>No messages yet — start the conversation below.</Text>
+            ) : (
+              messages.map((m) => {
+                const mine = m.senderRole === 'BUYER'
+                return (
+                  <View key={m.id} style={[styles.messageRow, mine && styles.messageRowMine]}>
+                    <View style={[styles.messageBubble, mine ? styles.messageBubbleMine : styles.messageBubbleTheirs]}>
+                      <Text style={[styles.messageBody, mine && styles.messageBodyMine]}>{m.body}</Text>
+                      <Text style={[styles.messageMeta, mine && styles.messageMetaMine]}>
+                        {mine ? 'You' : request.assignedSeller!.name} · {formatDate(m.createdAt)}
+                      </Text>
+                    </View>
+                  </View>
+                )
+              })
+            )}
+          </View>
+
+          <View style={styles.messageComposerRow}>
+            <TextField
+              value={messageDraft}
+              onChangeText={setMessageDraft}
+              placeholder="Type a message…"
+              editable={!messageBusy}
+              style={styles.messageField}
+            />
+            <Button
+              label="Send"
+              onPress={() => void handleSendMessage()}
+              loading={messageBusy}
+              disabled={!messageDraft.trim()}
+            />
+          </View>
+        </SectionCard>
+      ) : null}
+
       <SectionCard icon="🕓" title="Timeline">
         <DetailRow label="Submitted" value={formatDate(request.createdAt)} />
         <DetailRow label="Last updated" value={formatDate(request.updatedAt)} last={!request.cancelledAt} />
@@ -350,6 +567,33 @@ export function VerificationRequestDetailScreen() {
 
       {canClaim ? (
         <View style={styles.section}>
+          {!activeClaim && !claimPromptDismissed ? (
+            <Card style={styles.claimPromptCard}>
+              <Text style={styles.claimPromptTitle}>Not satisfied with this verification report?</Text>
+              <Text style={styles.claimPromptBody}>
+                If you believe the report is incomplete or incorrect, you can submit a claim for
+                review.
+              </Text>
+              <ButtonRow>
+                <Button
+                  label="Raise a claim"
+                  variant="danger"
+                  onPress={() => {
+                    setShowClaimForm(true)
+                    setClaimPromptDismissed(true)
+                  }}
+                  style={styles.flexButton}
+                />
+                <Button
+                  label="Dismiss"
+                  variant="secondary"
+                  onPress={() => setClaimPromptDismissed(true)}
+                  style={styles.flexButton}
+                />
+              </ButtonRow>
+            </Card>
+          ) : null}
+
           {activeClaim ? (
             <SectionCard icon="⚑" iconBackground={colors.amberDim} title="Your claim">
               <DetailRow label="Reason" value={activeClaim.reason} />
@@ -413,6 +657,16 @@ export function VerificationRequestDetailScreen() {
                 block
               />
             )
+          ) : null}
+
+          {claims.length > 0 ? (
+            <TouchableOpacity
+              style={styles.contactSupportLink}
+              onPress={() => router.push('/support/new')}
+              accessibilityRole="button"
+            >
+              <Text style={styles.contactSupportText}>💬 Contact Support</Text>
+            </TouchableOpacity>
           ) : null}
         </View>
       ) : null}
@@ -530,4 +784,71 @@ const styles = StyleSheet.create({
   formTitle: { fontSize: 13.5, fontWeight: '700', color: colors.text, marginBottom: spacing.md },
   cancelBlurb: { fontSize: 11.5, color: colors.muted, lineHeight: 17, marginBottom: spacing.md },
   flexButton: { flex: 1 },
+  grow: { flex: 1 },
+  mutedNote: { fontSize: 12, color: colors.muted, lineHeight: 18, paddingVertical: spacing.md },
+
+  // ─── Compare quotes ──────────────────────────────────────────────────────
+  quoteErrorWrap: { paddingBottom: spacing.sm },
+  quoteCard: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 12,
+    padding: 14,
+    marginVertical: spacing.xs,
+  },
+  quoteHeadRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  quoteName: { fontSize: 13.5, fontWeight: '700', color: colors.text },
+  quoteFee: { fontSize: 14.5, fontWeight: '800', color: colors.gold },
+  quoteMeta: { fontSize: 11, color: colors.muted, marginTop: 2 },
+  quoteMessage: { fontSize: 12, color: colors.text, marginTop: spacing.sm, lineHeight: 18 },
+  quoteConfirm: { marginTop: spacing.md, gap: spacing.sm },
+  quoteAcceptButton: { marginTop: spacing.md },
+
+  // ─── Report attachments ("Download Report") ─────────────────────────────
+  attachmentsHeading: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.text,
+    marginTop: spacing.sm,
+    marginBottom: spacing.xs,
+  },
+  documentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  documentRowLast: { borderBottomWidth: 0 },
+  documentIcon: { fontSize: 18 },
+  documentName: { fontSize: 12, fontWeight: '600', color: colors.text },
+  documentHint: { fontSize: 10, color: colors.muted, marginTop: 2 },
+  documentGlyph: { fontSize: 15, color: colors.gold },
+
+  // ─── Conversation ────────────────────────────────────────────────────────
+  messageThread: { paddingVertical: spacing.sm, gap: spacing.sm },
+  messageRow: { flexDirection: 'row' },
+  messageRowMine: { justifyContent: 'flex-end' },
+  messageBubble: {
+    maxWidth: '82%',
+    borderRadius: 12,
+    paddingHorizontal: 13,
+    paddingVertical: 10,
+  },
+  messageBubbleTheirs: { backgroundColor: colors.surface2, borderWidth: 1, borderColor: colors.border },
+  messageBubbleMine: { backgroundColor: colors.gold },
+  messageBody: { fontSize: 12.5, color: colors.text, lineHeight: 18 },
+  messageBodyMine: { color: colors.onGold },
+  messageMeta: { fontSize: 9.5, color: colors.muted, marginTop: 4 },
+  messageMetaMine: { color: colors.onGold, opacity: 0.7 },
+  messageComposerRow: { flexDirection: 'row', alignItems: 'flex-end', gap: spacing.sm, marginTop: spacing.sm },
+  messageField: { flex: 1, marginBottom: 0 },
+
+  // ─── Claim prompt banner + Contact Support ──────────────────────────────
+  claimPromptCard: { borderColor: colors.goldBorder },
+  claimPromptTitle: { fontSize: 12.5, fontWeight: '700', color: colors.text },
+  claimPromptBody: { fontSize: 11.5, color: colors.muted, lineHeight: 17, marginTop: 4, marginBottom: spacing.md },
+  contactSupportLink: { alignSelf: 'flex-start', marginTop: spacing.md },
+  contactSupportText: { fontSize: 11.5, fontWeight: '600', color: colors.gold },
 })

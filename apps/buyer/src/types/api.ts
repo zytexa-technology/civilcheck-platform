@@ -712,10 +712,13 @@ export interface VerificationAssignedSeller {
 export interface VerificationRequest {
   id: string
   userId: string
-  source: 'LISTING' | 'PROPERTY'
+  source: 'LISTING' | 'PROPERTY' | 'DISCOVERY'
   listingId: string | null
   propertyId: string | null
-  uploaderRole: PartnerRole
+  // Nullable (Property Discovery flow) — a DISCOVERY request has no
+  // target/uploader until an Expert links a Listing; always set for
+  // LISTING/PROPERTY, unchanged.
+  uploaderRole: PartnerRole | null
   minFee: number
   /** The buyer's own initial offer/budget — never a payment. See createVerificationRequest. */
   buyerInitialOfferAmount: number
@@ -734,6 +737,44 @@ export interface VerificationRequest {
   assignedSeller?: VerificationAssignedSeller | null
   reportAvailable?: boolean
   report?: VerificationReport | null
+  /** Only present on the list endpoint — count of PENDING quotes while OPEN. */
+  pendingQuoteCount?: number
+
+  // Property Discovery flow — the buyer's desired location for a
+  // source=DISCOVERY request (nothing exists yet to point listingId/
+  // propertyId at). Always null for LISTING/PROPERTY requests.
+  desiredAddress?: string | null
+  desiredCity?: string | null
+  desiredTehsil?: string | null
+  desiredPropertyType?: string | null
+  desiredKhasraOrSurvey?: string | null
+
+  // Populated once a target exists — a DISCOVERY request gains this after an
+  // Expert links a real Listing.
+  listing?: { address: string; city: string | null; tehsil: string | null; propertyType: string; latitude: number | null; longitude: number | null } | null
+  property?: { title: string; address: string | null; city: string | null; tehsil: string | null; propertyType: string; latitude: number | null; longitude: number | null } | null
+}
+
+// Buyer-choice negotiation — a PENDING quote the buyer can compare against
+// others on the same request, then accept one.
+export interface VerificationQuote {
+  id: string
+  requestId: string
+  proposedFee: number
+  message: string | null
+  status: 'PENDING' | 'ACCEPTED' | 'CLOSED'
+  createdAt: string
+  quotedBySeller: { name: string; badge: SellerBadge; profession: Profession } | null
+}
+
+export interface VerificationQuotesResponse extends ApiEnvelope {
+  total: number
+  quotes: VerificationQuote[]
+}
+
+export interface AcceptQuoteResponse extends ApiEnvelope {
+  request: VerificationRequest
+  quote: VerificationQuote
 }
 
 export interface VerificationReport {
@@ -805,6 +846,33 @@ export interface CreateClaimResponse extends ApiEnvelope {
 export interface MyClaimsResponse extends ApiEnvelope {
   total: number
   claims: Claim[]
+}
+
+// Buyer<->assigned-professional conversation thread (VerificationMessage,
+// schema.prisma) — the minimum conversation capability, scoped to one
+// VerificationRequest, opened only once assignedSeller is set.
+export interface VerificationMessage {
+  id: string
+  verificationRequestId: string
+  senderRole: 'BUYER' | 'PROFESSIONAL'
+  senderUserId: string | null
+  senderSellerId: string | null
+  senderAdminId: string | null
+  body: string
+  createdAt: string
+}
+
+export interface VerificationMessagesResponse extends ApiEnvelope {
+  total: number
+  messages: VerificationMessage[]
+}
+
+// Not extending ApiEnvelope: its optional `message?: string` (the general
+// error-message field every envelope carries) would collide with this
+// endpoint's own `message: VerificationMessage` field.
+export interface SendVerificationMessageResponse {
+  success: boolean
+  message: VerificationMessage
 }
 
 // ─── NOTIFICATIONS (Phase 4C) ─────────────────────────────────────────────────

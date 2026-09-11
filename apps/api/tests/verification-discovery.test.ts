@@ -105,8 +105,10 @@ describe('property discovery — existing LISTING/PROPERTY regression (unchanged
         longitude: 75.8,
         documents: docs,
       })
+    // Direct-publish business rule — property-owner.controller.ts now
+    // publishes this property as APPROVED immediately; no separate admin
+    // approval call is needed (or possible — it's already approved).
     propertyId = propRes.body.property.id as string
-    await request(app).post(`/api/admin/properties/${propertyId}/approve`).set('Authorization', `Bearer ${adminToken}`)
   })
 
   afterAll(async () => {

@@ -98,6 +98,15 @@ export function canParticipateInVerificationMarketplace(role) {
   return role === ADMIN_ROLES.SUPER_ADMIN || role === ADMIN_ROLES.SUB_ADMIN
 }
 
+// Claims oversight (Buyer Verification Experience enhancement) — SUB_ADMIN
+// can view the claims list (GET /admin/claims, open to any admin role per
+// admin.routes.ts), but resolving one (POST /admin/claims/:id/resolve) is
+// SUPER_ADMIN only server-side (superOnly) — same tier as refunds/KYC, since
+// a REFUND_APPROVED resolution atomically creates a Refund row.
+export function canResolveClaims(role) {
+  return role === ADMIN_ROLES.SUPER_ADMIN
+}
+
 export function roleLabel(role) {
   return (
     { SUPER_ADMIN: 'Super Admin', SUB_ADMIN: 'Sub Admin', VIEWER: 'Viewer' }[role] || role

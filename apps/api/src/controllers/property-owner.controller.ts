@@ -6,8 +6,17 @@ import prisma from '../lib/prisma.js'
 // ─────────────────────────────────────────────────────────────────────────────
 //  OWNER PROPERTY CONTROLLER
 //  Property Owner apni property list karta hai. Listing (report-listing) se
-//  alag hai — yeh owner ki apni property hai jo verify hoke publish hoti hai.
+//  alag hai — yeh owner ki apni property hai.
 //  Sab routes sellerMiddleware ke peeche hain (har partner = seller record).
+//
+//  Business rule change (direct-publish) — Owner property LISTING and
+//  property VERIFICATION are separate flows. Listing no longer waits on any
+//  Admin/Super Admin approval: a submitted property is APPROVED (buyer-
+//  visible) immediately. PROPERTY VERIFICATION is a distinct, unchanged flow
+//  a Buyer opts into afterward (see verification.service.ts), still gated on
+//  status === 'APPROVED' exactly as before. Admin/SuperAdmin still retain
+//  suspend/delete/moderate ability (admin.controller.ts) — only the
+//  pre-publish approval gate is removed.
 // ─────────────────────────────────────────────────────────────────────────────
 
 // HELPER — documents ki count se health score (0-100)
@@ -44,7 +53,8 @@ function findDocumentTypeErrors(docs: PropertyDocumentInput[]): string | null {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// POST /api/seller/properties  → nayi property (status PENDING)
+// POST /api/seller/properties  → nayi property, directly APPROVED (no admin
+// approval gate for Owner listing — see file header)
 // ─────────────────────────────────────────────────────────────────────────────
 export const createProperty = async (req: Request, res: Response) => {
   const sellerId = req.seller!.id
@@ -104,13 +114,18 @@ export const createProperty = async (req: Request, res: Response) => {
       images: imgs,
       videos: vids,
       health: calcHealth(docs.length),
-      status: 'PENDING', // Super Admin approve karega
+      // Direct-publish business rule — Owner listing no longer waits on
+      // admin approval; the property is buyer-visible immediately
+      // (buyer-facing reads filter status === 'APPROVED', see
+      // ownerProperty.controller.ts / property.controller.ts). Property
+      // VERIFICATION remains a separate, unchanged, opt-in Buyer flow.
+      status: 'APPROVED',
     },
   })
 
   res.status(201).json({
     success: true,
-    message: 'Property submit ho gayi — Pending Review. Admin approval ke baad publish hogi.',
+    message: 'Property submit ho gayi — Buyers ko turant dikh rahi hai.',
     property,
   })
 }
@@ -151,7 +166,8 @@ export const getSingleProperty = async (req: Request, res: Response) => {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PUT /api/seller/properties/:id  → update (status wapas PENDING)
+// PUT /api/seller/properties/:id  → update (status untouched — direct-publish
+// means an edit no longer forces re-review / drops buyer visibility)
 // ─────────────────────────────────────────────────────────────────────────────
 export const updateProperty = async (req: Request, res: Response) => {
   const sellerId = req.seller!.id
@@ -206,11 +222,14 @@ export const updateProperty = async (req: Request, res: Response) => {
       images: imgs,
       videos: vids,
       health: calcHealth(docCount),
-      status: 'PENDING', // update hone par dobara review
+      // Direct-publish business rule — status is deliberately NOT reset here.
+      // An edit no longer requires re-review; a SUSPENDED/DELETED property
+      // (admin moderation) also correctly stays that way rather than an edit
+      // silently reinstating it.
     },
   })
 
-  res.json({ success: true, message: 'Property updated — dobara review me gayi.', property: updated })
+  res.json({ success: true, message: 'Property updated.', property: updated })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

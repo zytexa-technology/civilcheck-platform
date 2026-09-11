@@ -16,6 +16,11 @@ import {
   getMyVerificationAssignments,
   getVerificationMarketplaceRequest,
   submitVerificationQuote,
+  startVerificationJob,
+  submitVerificationReport,
+  getVerificationMessages,
+  sendVerificationMessage,
+  getVerificationAssignmentClaims,
 } from '../../api/admin.api'
 import { canParticipateInVerificationMarketplace } from '../../utils/permissions'
 import {
@@ -178,7 +183,7 @@ export default function VerificationRequests() {
         id={selectedId}
         onClose={() => setSelectedId(null)}
         canQuote={canParticipate}
-        onQuoted={() => { load(); showToast('Quote submitted — waiting for the buyer to review it') }}
+        onQuoted={(msg) => { load(); showToast(msg || 'Quote submitted — waiting for the buyer to review it') }}
       />
 
       <Toast message={toast} onDismiss={() => setToast('')} />
@@ -186,7 +191,18 @@ export default function VerificationRequests() {
   )
 }
 
+// Property Verification Marketplace report's riskAssessment — matches
+// @civilcheck/shared's RiskBadge enum exactly (packages/shared/src/enums.ts:
+// GREEN/AMBER/RED). Hardcoded here rather than importing the package since
+// this plain-JS admin app doesn't otherwise depend on @civilcheck/shared.
+const RISK_OPTIONS = ['GREEN', 'AMBER', 'RED']
+
+function csvToUrlArray(str) {
+  return str.split(',').map((s) => s.trim()).filter(Boolean)
+}
+
 function RequestDetailModal({ id, onClose, canQuote, onQuoted }) {
+  const { admin } = useAuth()
   const [request, setRequest] = useState(null)
   const [myQuote, setMyQuote] = useState(null)
   const [loadError, setLoadError] = useState('')
@@ -194,6 +210,32 @@ function RequestDetailModal({ id, onClose, canQuote, onQuoted }) {
   const [message, setMessage] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState('')
+
+  // Start / submit report (Buyer Verification Experience enhancement) —
+  // only relevant once this Admin is the assignee (request.assignedAdminId).
+  const [startLoading, setStartLoading] = useState(false)
+  const [startError, setStartError] = useState('')
+  const [findings, setFindings] = useState('')
+  const [riskAssessment, setRiskAssessment] = useState('')
+  const [documentsStr, setDocumentsStr] = useState('')
+  const [imagesStr, setImagesStr] = useState('')
+  const [videosStr, setVideosStr] = useState('')
+  const [reportSubmitting, setReportSubmitting] = useState(false)
+  const [reportError, setReportError] = useState('')
+
+  // Buyer<->professional conversation — same shape/gating as apps/seller's
+  // equivalent participant screen.
+  const [messages, setMessages] = useState(null)
+  const [messagesError, setMessagesError] = useState('')
+  const [newMsgBody, setNewMsgBody] = useState('')
+  const [sendingMsg, setSendingMsg] = useState(false)
+
+  // Claims raised against this specific assignment — read-only here;
+  // resolving one only ever happens on the SUPER_ADMIN Claims oversight page.
+  const [assignmentClaims, setAssignmentClaims] = useState(null)
+  const [claimsError, setClaimsError] = useState('')
+
+  const isAssignee = !!request && !!admin?.id && request.assignedAdminId === admin.id
 
   useEffect(() => {
     if (!id) return
@@ -204,6 +246,18 @@ function RequestDetailModal({ id, onClose, canQuote, onQuoted }) {
     setAmount('')
     setMessage('')
     setSubmitError('')
+    setStartError('')
+    setFindings('')
+    setRiskAssessment('')
+    setDocumentsStr('')
+    setImagesStr('')
+    setVideosStr('')
+    setReportError('')
+    setMessages(null)
+    setMessagesError('')
+    setNewMsgBody('')
+    setAssignmentClaims(null)
+    setClaimsError('')
     getVerificationMarketplaceRequest(id)
       .then((res) => {
         if (!live) return
@@ -220,6 +274,82 @@ function RequestDetailModal({ id, onClose, canQuote, onQuoted }) {
       })
     return () => { live = false }
   }, [id])
+
+  // Conversation — shown once this Admin is the assignee and the request is
+  // ACCEPTED or later (i.e. anything past the open-quoting stage).
+  useEffect(() => {
+    if (!id || !isAssignee || !request || request.status === 'OPEN') return
+    let live = true
+    getVerificationMessages(id)
+      .then((res) => { if (live) setMessages(res.messages || []) })
+      .catch((err) => { if (live) setMessagesError(err?.response?.data?.message || 'Could not load the conversation') })
+    return () => { live = false }
+  }, [id, isAssignee, request?.status])
+
+  // Claims — visible read-only once the report has unlocked (a claim can
+  // only ever be raised at that point onward).
+  useEffect(() => {
+    if (!id || !isAssignee || !request || request.status !== 'REPORT_UNLOCKED') return
+    let live = true
+    getVerificationAssignmentClaims(id)
+      .then((res) => { if (live) setAssignmentClaims(res.claims || []) })
+      .catch((err) => { if (live) setClaimsError(err?.response?.data?.message || 'Could not load claims') })
+    return () => { live = false }
+  }, [id, isAssignee, request?.status])
+
+  const handleSendMessage = async () => {
+    if (!newMsgBody.trim()) return
+    setSendingMsg(true)
+    setMessagesError('')
+    try {
+      const res = await sendVerificationMessage(id, newMsgBody.trim())
+      setMessages((m) => [...(m || []), res.message])
+      setNewMsgBody('')
+    } catch (err) {
+      setMessagesError(err?.response?.data?.message || 'Could not send your message')
+    } finally {
+      setSendingMsg(false)
+    }
+  }
+
+  const handleStart = async () => {
+    setStartLoading(true)
+    setStartError('')
+    try {
+      const res = await startVerificationJob(id)
+      setRequest(res.request)
+      onQuoted?.(res.message || 'Verification started')
+    } catch (err) {
+      setStartError(err?.response?.data?.message || 'Could not start this verification')
+    } finally {
+      setStartLoading(false)
+    }
+  }
+
+  const handleSubmitReport = async () => {
+    if (findings.trim().length < 20) {
+      setReportError('Findings must be at least 20 characters')
+      return
+    }
+    setReportSubmitting(true)
+    setReportError('')
+    try {
+      const res = await submitVerificationReport(id, {
+        findings: findings.trim(),
+        riskAssessment: riskAssessment || undefined,
+        documents: csvToUrlArray(documentsStr),
+        images: csvToUrlArray(imagesStr),
+        videos: csvToUrlArray(videosStr),
+      })
+      const fresh = await getVerificationMarketplaceRequest(id)
+      setRequest(fresh.request)
+      onQuoted?.(res.message || 'Verification report submitted')
+    } catch (err) {
+      setReportError(err?.response?.data?.message || 'Could not submit the report')
+    } finally {
+      setReportSubmitting(false)
+    }
+  }
 
   const submit = async () => {
     const fee = Number(amount)
@@ -344,6 +474,125 @@ function RequestDetailModal({ id, onClose, canQuote, onQuoted }) {
                 ? 'This request is no longer accepting new quotes.'
                 : 'This request has already moved past the quoting stage.'}
             </p>
+          )}
+
+          {isAssignee && request.status === 'ADVANCE_PAID' && (
+            <Card style={{ padding: 14 }}>
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8 }}>Advance paid — ready to begin</div>
+              {startError && <p style={{ color: 'var(--danger, #c0392b)', fontSize: 13, marginBottom: 8 }}>{startError}</p>}
+              <Button variant="primary" block onClick={handleStart} disabled={startLoading}>
+                {startLoading ? 'Starting…' : 'Start Verification'}
+              </Button>
+            </Card>
+          )}
+
+          {isAssignee && request.status === 'IN_PROGRESS' && (
+            <div>
+              <h4 style={{ marginBottom: 8 }}>Submit Verification Report</h4>
+              {reportError && <p style={{ color: 'var(--danger, #c0392b)', fontSize: 13, marginBottom: 8 }}>{reportError}</p>}
+              <Field label="Findings" required hint="Minimum 20 characters.">
+                <textarea
+                  className="control"
+                  rows={4}
+                  placeholder="What you found during the physical/document verification…"
+                  value={findings}
+                  onChange={(e) => setFindings(e.target.value)}
+                />
+              </Field>
+              <Field label="Risk assessment" optional>
+                <select className="control" value={riskAssessment} onChange={(e) => setRiskAssessment(e.target.value)}>
+                  <option value="">— Not assessed —</option>
+                  {RISK_OPTIONS.map((r) => <option key={r} value={r}>{r}</option>)}
+                </select>
+              </Field>
+              <Field label="Documents" optional hint="Comma-separated URLs.">
+                <input className="control" value={documentsStr} onChange={(e) => setDocumentsStr(e.target.value)} placeholder="https://…, https://…" />
+              </Field>
+              <Field label="Images" optional hint="Comma-separated URLs.">
+                <input className="control" value={imagesStr} onChange={(e) => setImagesStr(e.target.value)} placeholder="https://…, https://…" />
+              </Field>
+              <Field label="Videos" optional hint="Comma-separated URLs.">
+                <input className="control" value={videosStr} onChange={(e) => setVideosStr(e.target.value)} placeholder="https://…, https://…" />
+              </Field>
+              <Button variant="primary" block onClick={handleSubmitReport} disabled={reportSubmitting}>
+                {reportSubmitting ? 'Submitting…' : 'Submit Report'}
+              </Button>
+            </div>
+          )}
+
+          {isAssignee && request.status !== 'OPEN' && (
+            <Card style={{ padding: 14 }}>
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8 }}>Conversation with the buyer</div>
+              {messagesError && <p style={{ color: 'var(--danger, #c0392b)', fontSize: 13, marginBottom: 8 }}>{messagesError}</p>}
+              {messages === null ? (
+                <LoadingState label="Loading messages…" />
+              ) : messages.length === 0 ? (
+                <p className="muted" style={{ fontSize: 12.5 }}>No messages yet — say hello.</p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 220, overflowY: 'auto', marginBottom: 10 }}>
+                  {messages.map((m) => (
+                    <div
+                      key={m.id}
+                      style={{
+                        alignSelf: m.senderRole === 'PROFESSIONAL' ? 'flex-end' : 'flex-start',
+                        background: m.senderRole === 'PROFESSIONAL' ? 'var(--gold-tint, #f5e6c8)' : 'var(--surface-2)',
+                        borderRadius: 10,
+                        padding: '8px 12px',
+                        maxWidth: '80%',
+                      }}
+                    >
+                      <div style={{ fontSize: 12.5, lineHeight: 1.5 }}>{m.body}</div>
+                      <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 4 }}>
+                        {m.senderRole === 'PROFESSIONAL' ? 'You' : 'Buyer'} · {new Date(m.createdAt).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input
+                  className="control"
+                  placeholder="Type a message…"
+                  value={newMsgBody}
+                  onChange={(e) => setNewMsgBody(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && !sendingMsg && handleSendMessage()}
+                />
+                <Button variant="soft" onClick={handleSendMessage} disabled={sendingMsg || !newMsgBody.trim()}>
+                  {sendingMsg ? '…' : 'Send'}
+                </Button>
+              </div>
+            </Card>
+          )}
+
+          {isAssignee && request.status === 'REPORT_UNLOCKED' && (
+            <div>
+              <h4 style={{ marginBottom: 8 }}>Claims</h4>
+              {claimsError && <p style={{ color: 'var(--danger, #c0392b)', fontSize: 13, marginBottom: 8 }}>{claimsError}</p>}
+              {assignmentClaims === null ? (
+                <LoadingState label="Loading claims…" />
+              ) : assignmentClaims.length === 0 ? (
+                <p className="muted" style={{ fontSize: 12.5 }}>No claims have been raised on this verification.</p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {assignmentClaims.map((c) => (
+                    <Card key={c.id} style={{ padding: 12 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                        <b style={{ fontSize: 13 }}>{c.reason}</b>
+                        <Badge tone="amber">{c.status}</Badge>
+                      </div>
+                      {c.description && <p style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 6 }}>{c.description}</p>}
+                      <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>
+                        Raised {new Date(c.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                        {c.resolutionNote ? ` · ${c.resolutionNote}` : ''}
+                      </p>
+                    </Card>
+                  ))}
+                </div>
+              )}
+              <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>
+                Claims are resolved by a Super Admin from the Claims oversight page — this is read-only here.
+              </p>
+            </div>
           )}
         </div>
       )}

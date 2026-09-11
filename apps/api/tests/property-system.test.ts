@@ -118,12 +118,11 @@ describe('property system (Phase 2)', () => {
     expect(detailRes.body.property.mapUrl).toBe('https://www.google.com/maps?q=26.9124,75.7873')
   })
 
+  // Direct-publish business rule — createProperty (property-owner.controller.ts)
+  // already publishes Owner properties as APPROVED, so there is no separate
+  // admin-approve step to drive here anymore; the property is buyer-visible
+  // immediately after the earlier createProperty test.
   it('buyer-facing owner-property detail exposes uploadedBy, mapUrl and media, never documents', async () => {
-    const approveRes = await request(app)
-      .post(`/api/admin/properties/${propertyId}/approve`)
-      .set('Authorization', `Bearer ${adminToken}`)
-    expect(approveRes.body.success).toBe(true)
-
     const detailRes = await request(app).get(`/api/owner-properties/${propertyId}`)
     expect(detailRes.status).toBe(200)
     expect(detailRes.body.property.uploadedBy).toBe('OWNER')

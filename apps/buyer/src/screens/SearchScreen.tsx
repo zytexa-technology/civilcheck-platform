@@ -245,13 +245,32 @@ export function SearchScreen() {
           ) : error ? (
             <ErrorState message={error} onRetry={() => void handleRefresh()} />
           ) : (
-            <EmptyState
-              icon="🔍"
-              title="No properties match"
-              description="Try a different address, or clear the filters. If the property isn't in our database yet, request a custom check."
-              actionLabel="Request a custom check"
-              onAction={() => router.push('/requests/new')}
-            />
+            <View>
+              <EmptyState
+                icon="🔍"
+                title="No properties match"
+                description="Try a different address, or clear the filters. If the property isn't in our database yet, request a custom check."
+                actionLabel="Request a custom check"
+                onAction={() => router.push('/requests/new')}
+              />
+              <TouchableOpacity
+                style={styles.discoveryLink}
+                onPress={() =>
+                  router.push({
+                    pathname: '/discovery-request/new',
+                    params: {
+                      ...(query.trim() ? { address: query.trim() } : {}),
+                      ...(type ? { propertyType: type } : {}),
+                    },
+                  })
+                }
+                accessibilityRole="button"
+              >
+                <Text style={styles.discoveryLinkText}>
+                  🔎 Can&apos;t find this property? Request a property search
+                </Text>
+              </TouchableOpacity>
+            </View>
           )
         }
         ListFooterComponent={
@@ -357,4 +376,6 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   footerSpinner: { marginVertical: spacing.lg },
+  discoveryLink: { alignItems: 'center', paddingHorizontal: spacing.xl, paddingBottom: spacing.lg },
+  discoveryLinkText: { fontSize: 12, fontWeight: '600', color: colors.gold, textAlign: 'center' },
 })

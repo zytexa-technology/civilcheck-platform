@@ -135,7 +135,7 @@ export function VerifyPropertyCTA({
         </div>
       ) : (
         <Button onClick={handleStart} block>
-          🔎 Request Verification
+          🔎 Verify This Property
         </Button>
       )}
 

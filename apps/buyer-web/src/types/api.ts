@@ -813,6 +813,24 @@ export interface MyClaimsResponse extends ApiEnvelope {
   claims: Claim[]
 }
 
+// Buyer Verification Experience enhancement — the minimum buyer<->assigned-
+// professional conversation thread (VerificationMessage, schema.prisma).
+export interface VerificationMessage {
+  id: string
+  verificationRequestId: string
+  senderRole: 'BUYER' | 'PROFESSIONAL'
+  senderUserId: string | null
+  senderSellerId: string | null
+  senderAdminId: string | null
+  body: string
+  createdAt: string
+}
+
+export interface VerificationMessagesResponse extends ApiEnvelope {
+  total: number
+  messages: VerificationMessage[]
+}
+
 // ─── NOTIFICATIONS ─────────────────────────────────────────────────────────
 
 export interface AppNotification {

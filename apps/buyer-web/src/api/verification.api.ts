@@ -8,6 +8,7 @@ import type {
   MyVerificationRequestsResponse,
   VerificationCancelResponse,
   VerificationMarketplaceConfigResponse,
+  VerificationMessagesResponse,
   VerificationOrderResponse,
   VerificationQuotesResponse,
   VerificationReportResponse,
@@ -157,5 +158,25 @@ export async function createClaim(
 
 export async function getMyClaims(id: string): Promise<MyClaimsResponse> {
   const { data } = await client.get<MyClaimsResponse>(`/verification-requests/${id}/claims`)
+  return data
+}
+
+// Buyer Verification Experience enhancement — the minimum buyer<->assigned-
+// professional conversation the brief asks for (VerificationMessage,
+// schema.prisma). Only opens once an offer has been accepted; the backend
+// enforces that, not this client.
+export async function getVerificationMessages(id: string): Promise<VerificationMessagesResponse> {
+  const { data } = await client.get<VerificationMessagesResponse>(`/verification-requests/${id}/messages`)
+  return data
+}
+
+export async function sendVerificationMessage(
+  id: string,
+  body: string,
+): Promise<{ success: boolean; message: VerificationMessagesResponse['messages'][number] }> {
+  const { data } = await client.post<{ success: boolean; message: VerificationMessagesResponse['messages'][number] }>(
+    `/verification-requests/${id}/messages`,
+    { body },
+  )
   return data
 }

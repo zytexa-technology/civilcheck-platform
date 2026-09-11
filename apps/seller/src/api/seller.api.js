@@ -218,6 +218,28 @@ export const submitVerificationReport = async (id, data) => {
   return response.data
 }
 
+// Buyer Verification Experience enhancement — conversation with the buyer,
+// available once this Expert is the assigned professional on the request
+// (the buyer accepted their quote). The backend 403s these for any Expert
+// who isn't the assignee (assertAssigned in verification.service.ts); this
+// file doesn't duplicate that check, same as every other call here.
+export const getVerificationMessages = async (id) => {
+  const response = await API.get(`/seller/verification-marketplace/${id}/messages`)
+  return response.data
+}
+
+export const sendVerificationMessage = async (id, body) => {
+  const response = await API.post(`/seller/verification-marketplace/${id}/messages`, { body })
+  return response.data
+}
+
+// Read-only claim visibility for the assigned Expert — Experts cannot
+// resolve/act on a claim (SuperAdmin-only), only see that one was raised.
+export const getAssignmentClaims = async (id) => {
+  const response = await API.get(`/seller/verification-marketplace/${id}/claims`)
+  return response.data
+}
+
 // ─── VERIFICATION MARKETPLACE EARNINGS + PAYOUTS (Phase 4B) ───────────────
 // Distinct from the Report-Unlock earnings below — a different money system
 // (Verification Marketplace, Phase 3) with its own financial ledger.

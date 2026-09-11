@@ -8,75 +8,75 @@ datasource db {
 
 // ─── BUYERS ───────────────────────────────
 model User {
-  id           String   @id @default(uuid(7))
-  phone        String   @unique
-  name         String?
-  email        String?  @unique
+  id            String    @id @default(uuid(7))
+  phone         String    @unique
+  name          String?
+  email         String?   @unique
   // Email + password auth (replaces phone-OTP login — MSG91 removed).
   // Nullable so legacy/seed rows created before this migration still load;
   // new registrations always set it.
-  passwordHash String?
+  passwordHash  String?
   // Firebase phone-OTP login (additive — email+password above stays the
   // primary/default path). Set the first time a Firebase ID token resolves
   // to this row, by phone match; null for every buyer who has never used
   // phone-OTP login. Never trusted as a role/permission source — only used
   // to look the row back up.
-  firebaseUid  String?  @unique
+  firebaseUid   String?   @unique
   // Basic Profile (Partner Module item 1.6) — City/State are mandatory at the
   // first-login profile step (enforced by the buyer app); photo is optional.
-  city         String?
-  state        String?
-  photoUrl     String?
+  city          String?
+  state         String?
+  photoUrl      String?
   // Signup Email Verification — collected as a required registration field
   // (registerBuyer). Nullable at the DB level only because pre-existing rows
   // (created before this field existed) have none on file; every new
   // registration always sets it.
-  address      String?
+  address       String?
   // Signup Email Verification — defaults true so every pre-existing row
   // (created before this feature existed) is automatically treated as
   // verified with zero migration-time action; registerBuyer explicitly sets
   // this false at creation, and it flips true only once verifyEmailOtp
   // succeeds. loginBuyer refuses a false row with EMAIL_NOT_VERIFIED.
-  emailVerified Boolean @default(true)
+  emailVerified Boolean   @default(true)
   // Buyer push (PDF 12/20) — FCM device token + opt-out flag. When push is
   // disabled or no token is on record, alert delivery falls back to SMS.
-  fcmToken     String?
-  pushEnabled  Boolean  @default(true)
+  fcmToken      String?
+  pushEnabled   Boolean   @default(true)
   // Production hardening — same reasoning as Admin.blocked/Seller.deletedAt:
   // a buyer JWT is valid for 7 days regardless of DB state, so authMiddleware
   // re-checks this on every request rather than only at login. Admin-managed
   // (no self-service block); default false so every existing buyer keeps
   // working with zero migration-time action needed.
-  blocked      Boolean  @default(false)
+  blocked       Boolean   @default(false)
   // SuperAdmin-only permanent account removal (soft delete — mirrors
   // Seller.deletedAt exactly). Distinct from `blocked`: blocked is a
   // reversible suspension, deletedAt is not meant to be undone. Every
   // buyer-facing/auth read path that resolves a User by id/phone/email must
   // exclude deletedAt != null rows, same as Seller already does.
-  deletedAt    DateTime?
-  createdAt    DateTime @default(now())
+  deletedAt     DateTime?
+  createdAt     DateTime  @default(now())
 
-  purchases            Purchase[]
-  alerts               Alert[]
-  specialRequests      SpecialRequest[]
-  refunds              Refund[]
-  searchQueries        SearchQuery[]
-  reportFlags          ReportFlag[]
-  paymentOrders        PaymentOrder[]
-  subscriptions        Subscription[]
-  reviews              Review[]
-  verificationRequests VerificationRequest[]
-  claims               Claim[]
+  purchases              Purchase[]
+  alerts                 Alert[]
+  specialRequests        SpecialRequest[]
+  refunds                Refund[]
+  searchQueries          SearchQuery[]
+  reportFlags            ReportFlag[]
+  paymentOrders          PaymentOrder[]
+  subscriptions          Subscription[]
+  reviews                Review[]
+  verificationRequests   VerificationRequest[]
+  claims                 Claim[]
   // Financial Ledger (Phase 4B) — GROSS_PAYMENT/REFUND rows reference the buyer.
   financialLedgerEntries FinancialLedgerEntry[]
   // In-app inbox (Phase 4C) + AI/human support tickets.
-  notifications        Notification[]
-  supportTickets        SupportTicket[]
+  notifications          Notification[]
+  supportTickets         SupportTicket[]
   // Buyer Web social feed (Home redesign) — like/save/comment on any of the
   // three feed sources (Listing/Property/ReporterPost), see FeedTargetType.
-  propertyLikes    PropertyLike[]
-  propertySaves    PropertySave[]
-  propertyComments PropertyComment[]
+  propertyLikes          PropertyLike[]
+  propertySaves          PropertySave[]
+  propertyComments       PropertyComment[]
 
   passwordResetOtps PasswordResetOtp[]
 }
@@ -128,33 +128,33 @@ model Admin {
 
 // ─── SELLERS ──────────────────────────────
 model Seller {
-  id               String       @id @default(uuid(7))
-  phone            String       @unique
-  email            String?      @unique // login identifier (email + password auth) + KYC decision emails
+  id                                String                      @id @default(uuid(7))
+  phone                             String                      @unique
+  email                             String?                     @unique // login identifier (email + password auth) + KYC decision emails
   // Email + password auth (replaces phone-OTP login — MSG91 removed).
-  passwordHash     String?
+  passwordHash                      String?
   // Firebase phone-OTP login (additive — email+password above stays primary).
   // Set the first time a Firebase ID token resolves to this row by phone
   // match; null for every seller who has never used phone-OTP login. Never
   // auto-created a Seller row on its own — registration still requires the
   // full seller-registration form (profession, bank details, T&C).
-  firebaseUid      String?      @unique
-  name             String
-  city             String? // service area shown on the seller dashboard
-  state            String?
+  firebaseUid                       String?                     @unique
+  name                              String
+  city                              String? // service area shown on the seller dashboard
+  state                             String?
   // Signup Email Verification — same reasoning as User.address/emailVerified
   // above: nullable only for pre-existing rows; every new registration sets
   // both. sellerMiddleware does not gate on emailVerified (KYC already gates
   // professional work); sellerLogin refuses a false row with EMAIL_NOT_VERIFIED.
-  address          String?
-  emailVerified    Boolean      @default(true)
-  profession       Profession
+  address                           String?
+  emailVerified                     Boolean                     @default(true)
+  profession                        Profession
   // Professional evidence collected for EXPERT applications (Property Expert
   // KYC hardening). Nullable/additive — Owner/Reporter never set these, and
   // existing sellers are unaffected. licenseNumber is free text since not
   // every profession has a formal registration number (e.g. Tehsil Expert).
-  licenseNumber     String?
-  yearsOfExperience Int?
+  licenseNumber                     String?
+  yearsOfExperience                 Int?
   // Legacy — was set automatically by the DigiLocker OAuth callback on a
   // name match (see git history of src/lib/digilocker.ts). DigiLocker has
   // been replaced by manual identity-document review (identityVerification*
@@ -162,11 +162,11 @@ model Seller {
   // unused, rather than dropped — existing values are historical record, not
   // a live indicator, and removing a column from a table with real
   // production rows is avoided by default in this codebase.
-  aadhaarVerified  Boolean      @default(false)
-  barCouncilDoc    String? // Cloudinary URL — Bar Council / CE registration certificate
-  selfieUrl        String? // Cloudinary URL — KYC selfie (PDF 6.1)
-  tcAccepted       Boolean      @default(false) // T&C checkbox (PDF 6.1 compliance)
-  digitalSignature String? // typed/drawn signature payload (PDF 6.1)
+  aadhaarVerified                   Boolean                     @default(false)
+  barCouncilDoc                     String? // Cloudinary URL — Bar Council / CE registration certificate
+  selfieUrl                         String? // Cloudinary URL — KYC selfie (PDF 6.1)
+  tcAccepted                        Boolean                     @default(false) // T&C checkbox (PDF 6.1 compliance)
+  digitalSignature                  String? // typed/drawn signature payload (PDF 6.1)
   // Identity document verification (manual admin review — replaces
   // DigiLocker). Independent of kycStatus above: a seller can be fully
   // KYC-APPROVED (professional credentials, bank details, T&C) while their
@@ -179,36 +179,36 @@ model Seller {
   identityDocumentUploadedAt        DateTime?
   identityDocumentReviewedAt        DateTime?
   identityDocumentReviewedByAdminId String? // admin snapshot, no FK — same reasoning as AuditLog.adminId
-  bankAccount      String?
-  ifsc             String?
-  pan              String?
-  badge            Badge        @default(BRONZE)
-  kycStatus        KycStatus    @default(PENDING)
+  bankAccount                       String?
+  ifsc                              String?
+  pan                               String?
+  badge                             Badge                       @default(BRONZE)
+  kycStatus                         KycStatus                   @default(PENDING)
   // Latest reason an admin gave for a REJECTED kycStatus decision — mirrors
   // identityDocumentRejectionReason's existing pattern above. Full decision
   // history always stays in AuditLog regardless of this field; this is only
   // the seller-facing "why" shown on their own dashboard/KYC page. Cleared on
   // approval; overwritten (not appended) by a new rejection.
-  kycRejectionReason String?
-  accuracyScore    Float        @default(100.0)
-  totalEarnings    Float        @default(0)
+  kycRejectionReason                String?
+  accuracyScore                     Float                       @default(100.0)
+  totalEarnings                     Float                       @default(0)
   // Partner subtype (registration me chuna hua). Real enum, not a free
   // string — Reporter is a valid identity value even though the Reporter
   // feature module (content uploads, reward ledger) doesn't exist yet; the
   // signup UI deliberately doesn't offer it until that module ships, so it
   // can't be selected today, only set by a future admin/migration action.
-  partnerRole      PartnerRole?
+  partnerRole                       PartnerRole?
   // False Information Penalty System (PDF 10.4) — cumulative count of
   // spot-check FAILs, never reset by unsuspend. At strikeCount >= 3 the
   // handler suspends the seller, fines Rs. 500, and auto-refunds buyers of
   // the listing that triggered the strike. See admin.controller.ts.
-  strikeCount      Int          @default(0)
+  strikeCount                       Int                         @default(0)
   // Buyer rating (PDF 7.8/16) — recalculated from Review on every new review
   // and drives an automatic Badge recalculation (thresholds in review.service.ts).
   // null until the seller has at least one review.
-  avgRating        Float?
-  reviewCount      Int          @default(0)
-  createdAt        DateTime     @default(now())
+  avgRating                         Float?
+  reviewCount                       Int                         @default(0)
+  createdAt                         DateTime                    @default(now())
 
   // Partner account deletion (Phase 4A) — a Seller row cannot be hard-deleted
   // like Admin: Listing/Property/Review/etc. all carry a required FK to it, so
@@ -218,7 +218,7 @@ model Seller {
   // default — but every historical row the partner ever created stays intact
   // and attributable. No prior "account-deletion rule" existed for Seller
   // before this; this is the one this phase establishes.
-  deletedAt        DateTime?
+  deletedAt DateTime?
 
   // Professional payout foundation (Phase 4B). Bank details for payout stay
   // exactly where they already were (bankAccount/ifsc/pan above, unchanged) —
@@ -231,20 +231,20 @@ model Seller {
   razorpayLinkedAccountId String?
   payoutEligibilityStatus PayoutEligibilityStatus @default(PENDING_ONBOARDING)
 
-  listings              Listing[]
-  specialRequests       SpecialRequest[]
-  properties            Property[]
-  notifications         Notification[]
-  subscriptions         Subscription[]
-  reviews               Review[]
-  specialRequestPayouts SpecialRequestPayout[]
+  listings               Listing[]
+  specialRequests        SpecialRequest[]
+  properties             Property[]
+  notifications          Notification[]
+  subscriptions          Subscription[]
+  reviews                Review[]
+  specialRequestPayouts  SpecialRequestPayout[]
   // Verification Marketplace (Phase 3) — quotes this seller (an EXPERT) has
   // submitted, and requests where one of those quotes won.
-  verificationQuotes    VerificationQuote[]
-  verificationRequests  VerificationRequest[]
+  verificationQuotes     VerificationQuote[]
+  verificationRequests   VerificationRequest[]
   // Reporter Reward Ledger (Phase 4A)
-  rewardTransactions    RewardTransaction[]
-  redeemRequests        RedeemRequest[]
+  rewardTransactions     RewardTransaction[]
+  redeemRequests         RedeemRequest[]
   // Reporter content posts (Reporter/Owner architecture split) — informational
   // property-news posts, structurally separate from Property. See ReporterPost.
   reporterPosts          ReporterPost[]
@@ -605,6 +605,15 @@ model Refund {
   createdAt             DateTime             @default(now())
   updatedAt             DateTime             @updatedAt
 
+  // Buyer Verification Experience enhancement — set only when this refund
+  // was created off the back of an approved Claim (resolveClaim in
+  // admin.controller.ts), never on a purchase/special-request refund. The
+  // @unique both records the audit link and is the actual guard against
+  // creating a second Refund for the same approved claim (a duplicate
+  // tx.refund.create with the same claimId throws P2002).
+  claimId String? @unique
+  claim   Claim?  @relation(fields: [claimId], references: [id])
+
   // Financial Ledger (Phase 4B) — REVERSAL_COMMISSION/REVERSAL_EARNING rows
   // created when this refund is processed, if it reverses a verification payment.
   ledgerEntries FinancialLedgerEntry[]
@@ -910,10 +919,10 @@ model RedeemRequest {
   points Int // amount requested — must be <= available balance at request time
   note   String? // what the Reporter wants it redeemed for
 
-  status    RedeemRequestStatus @default(PENDING)
-  adminNote String?
+  status            RedeemRequestStatus @default(PENDING)
+  adminNote         String?
   resolvedByAdminId String? // admin snapshot, no FK — same reasoning as AuditLog
-  resolvedAt DateTime?
+  resolvedAt        DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1093,11 +1102,12 @@ model VerificationRequest {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  quotes        VerificationQuote[]
-  report        VerificationReport?
-  claims        Claim[]
-  paymentOrders PaymentOrder[]
-  refunds       Refund[]
+  quotes               VerificationQuote[]
+  report               VerificationReport?
+  claims               Claim[]
+  messages             VerificationMessage[]
+  paymentOrders        PaymentOrder[]
+  refunds              Refund[]
   // Financial Ledger + Professional Payouts (Phase 4B)
   ledgerEntries        FinancialLedgerEntry[]
   professionalEarnings ProfessionalEarning[]
@@ -1202,9 +1212,45 @@ model Claim {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Buyer Verification Experience enhancement — set when resolveClaim moves
+  // this claim to REFUND_APPROVED (admin.controller.ts creates the Refund
+  // row atomically alongside the status change). Still status PENDING until
+  // an admin separately calls the existing POST /api/admin/refunds/:id/process
+  // — a claim decision alone never moves money.
+  refund Refund?
+
   @@index([verificationRequestId])
   @@index([userId])
   @@index([status])
+}
+
+enum VerificationMessageSender {
+  BUYER
+  PROFESSIONAL
+}
+
+// Buyer Verification Experience enhancement — the minimum conversation
+// capability the brief asks for: a flat per-request thread, not a general
+// chat system. Available only once a professional is assigned (request
+// status ACCEPTED or later); readable/writable only by the buyer
+// (request.userId) and whichever professional is currently assigned
+// (request.assignedSellerId/assignedAdminId) — enforced in
+// verification.service.ts via the same assertAssigned() helper the
+// start/report actions already use, not by a column on this table.
+model VerificationMessage {
+  id                    String              @id @default(uuid(7))
+  verificationRequestId String
+  verificationRequest   VerificationRequest @relation(fields: [verificationRequestId], references: [id])
+
+  senderRole     VerificationMessageSender
+  senderUserId   String? // set when senderRole = BUYER
+  senderSellerId String? // set when senderRole = PROFESSIONAL and the assignee is a Seller (Expert)
+  senderAdminId  String? // set when senderRole = PROFESSIONAL and the assignee is an Admin — snapshot, no FK
+
+  body      String
+  createdAt DateTime @default(now())
+
+  @@index([verificationRequestId])
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -1429,7 +1475,7 @@ enum ReconciliationIssueStatus {
 model ReconciliationIssue {
   id String @id @default(uuid(7))
 
-  type ReconciliationIssueType
+  type      ReconciliationIssueType
   // Free-form reference to what's affected — "PaymentOrder:order_…",
   // "ProfessionalPayoutRecord:…" — same "readable after the referenced row
   // changes" reasoning as AuditLog.target.
@@ -1518,13 +1564,13 @@ model PasswordResetOtp {
 
   purpose OtpPurpose @default(PASSWORD_RESET)
 
-  otpHash String
+  otpHash   String
   // 10-minute expiry from creation (passwordReset.service.ts's OTP_TTL_MS).
   expiresAt DateTime
   // Incremented on every failed verify — the request is refused once this
   // reaches MAX_ATTEMPTS, closing the online-guessing window well before the
   // 10-minute expiry would.
-  attempts Int @default(0)
+  attempts  Int       @default(0)
   // Set the moment this OTP is successfully consumed by an actual password
   // reset — null means still usable (subject to expiresAt/attempts). A used
   // OTP is refused even if it hasn't expired yet, closing the replay window.
@@ -1606,9 +1652,9 @@ model SupportTicket {
   sellerId String?
   seller   Seller? @relation(fields: [sellerId], references: [id])
 
-  category SupportTicketCategory  @default(OTHER)
-  priority SupportTicketPriority  @default(NORMAL)
-  status   SupportTicketStatus    @default(OPEN)
+  category SupportTicketCategory @default(OTHER)
+  priority SupportTicketPriority @default(NORMAL)
+  status   SupportTicketStatus   @default(OPEN)
 
   subject String
 
@@ -1641,8 +1687,8 @@ model SupportMessage {
   ticketId String
   ticket   SupportTicket @relation(fields: [ticketId], references: [id])
 
-  sender         SupportMessageSender
-  senderAdminId  String? // set only when sender = ADMIN — admin snapshot, no FK
+  sender        SupportMessageSender
+  senderAdminId String? // set only when sender = ADMIN — admin snapshot, no FK
 
   body        String
   attachments String[] @default([]) // Cloudinary URLs — evidence, same pattern as Claim.evidence
@@ -1659,8 +1705,8 @@ model SupportMessage {
 // must never answer from anything outside these active rows — see
 // aiSupport.service.ts's buildKnowledgeContext().
 model SupportKnowledgeEntry {
-  id       String  @id @default(uuid(7))
-  key      String  @unique
+  id       String @id @default(uuid(7))
+  key      String @unique
   topic    String // display grouping: "Verification" | "Cancellation" | "Payment" | "General" | …
   question String // the canonical question this entry answers
   answer   String // the approved answer text fed to the AI as grounding

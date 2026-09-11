@@ -150,6 +150,7 @@ export function OwnerPropertyCard({ property, onPress }: OwnerPropertyCardProps)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function ReporterPostCard({ post }: { post: ReporterPost }) {
+  const router = useRouter()
   const cover = post.images[0]
   const location = post.tehsil ? `${post.tehsil}, ${post.city}` : post.city
 
@@ -181,6 +182,24 @@ export function ReporterPostCard({ post }: { post: ReporterPost }) {
             {formatDate(post.postedAt)}
           </Text>
         </View>
+
+        {/* Reporter posts are informational only, never a real Property or
+            listing — this hands off to the Property Discovery flow (a plain
+            desired-location VerificationRequest), never to a real
+            listingId/propertyId. The buyer still has to pick a property type
+            and refine the address themselves; ReporterPost carries neither. */}
+        <TouchableOpacity
+          style={styles.postVerifyBtn}
+          onPress={() =>
+            router.push({
+              pathname: '/discovery-request/new',
+              params: { address: post.title ?? '', city: post.city ?? '', tehsil: post.tehsil ?? '' },
+            })
+          }
+          accessibilityRole="button"
+        >
+          <Text style={styles.postVerifyBtnText}>🔎 Verify This Property</Text>
+        </TouchableOpacity>
       </View>
     </View>
   )
@@ -322,6 +341,17 @@ const styles = StyleSheet.create({
     borderTopColor: colors.border,
   },
   postSource: { fontSize: 10.5, color: colors.dim },
+  postVerifyBtn: {
+    alignSelf: 'flex-start',
+    marginTop: spacing.sm,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: radius.sm,
+    backgroundColor: colors.goldDim,
+    borderWidth: 1,
+    borderColor: colors.goldBorder,
+  },
+  postVerifyBtnText: { fontSize: 11, fontWeight: '700', color: colors.gold },
   uploaderTagStatic: {
     backgroundColor: colors.surface2,
     borderWidth: 1,

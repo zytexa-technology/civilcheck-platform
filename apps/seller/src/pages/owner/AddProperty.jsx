@@ -15,28 +15,40 @@ import LocationCapture from '../../components/LocationCapture'
 
 // `type` is the machine key the backend checks against
 // REQUIRED_PROPERTY_DOCUMENT_TYPES (packages/shared/src/validation.ts) — it
-// must submit all 8 exactly once, so every document sent to the API now
+// must submit these exactly once each, so every document sent to the API now
 // carries its type, not just a bare URL (audit 2026-09-01, finding #1: the
-// backend used to only count "8 URLs", never checking which document each
-// one actually was).
+// backend used to only count "N URLs", never checking which document each
+// one actually was). Reduced from 8 to these 3 mandatory documents per the
+// Partner Portal Add Property document-requirement change — the other 5
+// (Registry, Khata, Mutation, Property Tax Receipt, PAN Card) moved to
+// OPT_DOCS below, keeping their real type keys so Admin still shows the
+// correct document name; they just no longer block submission.
 const REQ_DOCS = [
   { label: 'Sale Deed', type: 'SALE_DEED' },
-  { label: 'Registry', type: 'REGISTRY' },
-  { label: 'Khata', type: 'KHATA' },
-  { label: 'Mutation', type: 'MUTATION' },
-  { label: 'Property Tax Receipt', type: 'PROPERTY_TAX_RECEIPT' },
   { label: 'Electricity Bill', type: 'ELECTRICITY_BILL' },
   { label: 'Owner Aadhaar', type: 'OWNER_AADHAAR' },
-  { label: 'PAN Card', type: 'PAN_CARD' },
 ]
 // Property Photos/Videos and Google Map Location used to live here as fake
 // document-upload slots (a "location" was just an uploaded screenshot).
 // Phase 2 gives them real backing instead — MediaUpload (images/videos
 // fields) and LocationCapture (real GPS) below.
 //
-// Optional docs stay plain labels — the backend never checks their type
-// against anything, they're just extra evidence attached to the submission.
-const OPT_DOCS = ['NOC', 'Builder Documents', 'Encumbrance Certificate']
+// Optional docs — the backend never requires their type (it isn't one of the
+// now-3 REQUIRED_PROPERTY_DOCUMENT_TYPES keys), so none of these block
+// submission. The five with a real machine `type` (moved out of REQ_DOCS
+// above) are still tagged with it for Admin's document-name display; the
+// original three (NOC, Builder Documents, Encumbrance Certificate) use their
+// own label as `type`, same as before this change.
+const OPT_DOCS = [
+  { label: 'Registry', type: 'REGISTRY' },
+  { label: 'Khata', type: 'KHATA' },
+  { label: 'Mutation', type: 'MUTATION' },
+  { label: 'Property Tax Receipt', type: 'PROPERTY_TAX_RECEIPT' },
+  { label: 'PAN Card', type: 'PAN_CARD' },
+  { label: 'NOC', type: 'NOC' },
+  { label: 'Builder Documents', type: 'Builder Documents' },
+  { label: 'Encumbrance Certificate', type: 'Encumbrance Certificate' },
+]
 
 // Same canonical values as Prisma's PropertyType enum / seller/NewListing.jsx
 // PROPERTY_FIELDS keys — apps/seller has no dependency on @civilcheck/shared,
@@ -96,11 +108,12 @@ export default function OwnerAddProperty({ go }) {
     if (missingDocs.length) { toast(`Mandatory documents missing: ${missingDocs.map((d) => d.label).join(', ')}`); return }
     setBusy(true)
     try {
-      // Each document is now tagged with its type — required docs use the
-      // machine key the backend validates against; optional docs use their
-      // own label (never checked, just stored as extra evidence).
+      // Each document is tagged with its type — required docs use the
+      // machine key the backend validates against; optional docs carry their
+      // own type too (never checked against the required list, just stored
+      // as extra evidence — see OPT_DOCS above).
       const requiredDocs = REQ_DOCS.map((d) => ({ type: d.type, url: uploaded[d.label].url }))
-      const optionalDocs = OPT_DOCS.filter((d) => uploaded[d]).map((d) => ({ type: d, url: uploaded[d].url }))
+      const optionalDocs = OPT_DOCS.filter((d) => uploaded[d.label]).map((d) => ({ type: d.type, url: uploaded[d.label].url }))
       await createProperty({
         title: form.title.trim(),
         area: form.area,
@@ -115,7 +128,7 @@ export default function OwnerAddProperty({ go }) {
         videos: form.videos,
         documents: [...requiredDocs, ...optionalDocs],
       })
-      toast('Submitted — Pending Review')
+      toast('Submitted — Published to Buyers')
       go?.('dash')
     } catch (e) {
       toast(e.response?.data?.message || 'Submit nahi hua — dobara try karo')
@@ -126,7 +139,7 @@ export default function OwnerAddProperty({ go }) {
 
   return (
     <>
-      <PageHead title="Add Property" subtitle="Submit karte hi listing Pending Review me jayegi. Super Admin approval ke baad buyers ko dikhne lagegi." />
+      <PageHead title="Add Property" subtitle="Submit karte hi listing Buyers ko turant dikhne lagegi." />
 
       <div className="grid g2" style={{ alignItems: 'start' }}>
         <Card style={{ padding: 22 }}>
@@ -216,10 +229,10 @@ export default function OwnerAddProperty({ go }) {
               <span style={{ fontSize: 15 }}>Optional Documents</span>
             </SectionTitle>
             {OPT_DOCS.map((d) => (
-              <DocRow key={d} name={d}
-                picked={uploaded[d]} busy={uploading === d}
-                onFile={(file) => handleFile(d, file)}
-                onClear={() => setUploaded((u) => { const n = { ...u }; delete n[d]; return n })} />
+              <DocRow key={d.label} name={d.label}
+                picked={uploaded[d.label]} busy={uploading === d.label}
+                onFile={(file) => handleFile(d.label, file)}
+                onClear={() => setUploaded((u) => { const n = { ...u }; delete n[d.label]; return n })} />
             ))}
           </Card>
         </div>

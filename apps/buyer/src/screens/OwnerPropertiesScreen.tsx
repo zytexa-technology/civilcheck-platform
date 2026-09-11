@@ -228,11 +228,30 @@ export function OwnerPropertiesScreen() {
           ) : error ? (
             <ErrorState message={error} onRetry={() => void handleRefresh()} />
           ) : (
-            <EmptyState
-              icon="🏡"
-              title="No listings yet"
-              description="Owners who publish a property with CivilCheck will appear here."
-            />
+            <View>
+              <EmptyState
+                icon="🏡"
+                title="No listings yet"
+                description="Owners who publish a property with CivilCheck will appear here."
+              />
+              <TouchableOpacity
+                style={styles.discoveryLink}
+                onPress={() =>
+                  router.push({
+                    pathname: '/discovery-request/new',
+                    params: {
+                      ...(query.trim() ? { address: query.trim() } : {}),
+                      ...(type ? { propertyType: type } : {}),
+                    },
+                  })
+                }
+                accessibilityRole="button"
+              >
+                <Text style={styles.discoveryLinkText}>
+                  🔎 Can&apos;t find this property? Request a property search
+                </Text>
+              </TouchableOpacity>
+            </View>
           )
         }
         ListFooterComponent={
@@ -295,4 +314,6 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   footerSpinner: { marginVertical: spacing.lg },
+  discoveryLink: { alignItems: 'center', paddingHorizontal: spacing.xl, paddingBottom: spacing.lg },
+  discoveryLinkText: { fontSize: 12, fontWeight: '600', color: colors.gold, textAlign: 'center' },
 })

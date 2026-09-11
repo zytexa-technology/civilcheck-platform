@@ -38,25 +38,20 @@ describe('owner properties (self-published, buyer-facing)', () => {
     await deleteSeller(sellerId)
   })
 
-  it('is not visible to buyers while PENDING', async () => {
-    const res = await request(app).get(`/api/owner-properties/${propertyId}`)
-    expect(res.status).toBe(404)
-  })
-
-  it('becomes visible and searchable once admin approves it, without exposing documents or a Verified claim', async () => {
-    const approveRes = await request(app)
-      .post(`/api/admin/properties/${propertyId}/approve`)
-      .set('Authorization', `Bearer ${adminToken}`)
-    expect(approveRes.body.success).toBe(true)
-
+  // Direct-publish business rule — Owner listing no longer waits on Admin/
+  // Super Admin approval (property-owner.controller.ts creates it already
+  // APPROVED); it must be buyer-visible immediately, without exposing
+  // documents or a "Verified" claim. Property VERIFICATION remains a
+  // separate, unchanged, opt-in Buyer flow (see verification.service.ts).
+  it('is immediately visible and searchable to buyers after submission, without exposing documents or a Verified claim', async () => {
     const detailRes = await request(app).get(`/api/owner-properties/${propertyId}`)
     expect(detailRes.status).toBe(200)
     expect(detailRes.body.property.id).toBe(propertyId)
     expect(detailRes.body.property.title).toBe(`${uniqueMarker} Flat`)
     expect(detailRes.body.property.documents).toBeUndefined()
-    // Admin approval gates visibility only — it must never be presented to
-    // buyers as a CivilCheck "Verified" claim (see the corrected Reporter/
-    // Owner architecture requirement).
+    // Direct-publish is not a CivilCheck "Verified" claim (see the corrected
+    // Reporter/Owner architecture requirement) — Property VERIFICATION is
+    // the separate flow that actually earns that claim.
     expect(JSON.stringify(detailRes.body)).not.toMatch(/verified/i)
 
     const searchRes = await request(app)
@@ -68,11 +63,12 @@ describe('owner properties (self-published, buyer-facing)', () => {
     expect(searchRes.body.results[0].documents).toBeUndefined()
   })
 
-  it('rejects a repeat admin approval', async () => {
+  it('rejects an admin approval attempt on an already-published property', async () => {
     const res = await request(app)
       .post(`/api/admin/properties/${propertyId}/approve`)
       .set('Authorization', `Bearer ${adminToken}`)
     expect(res.status).toBe(400)
+    expect(res.body.success).toBe(false)
   })
 })
 
@@ -104,6 +100,18 @@ describe('admin property status transitions (only PENDING can be approved/reject
     return res.body.property.id as string
   }
 
+  // Direct-publish business rule — property-owner.controller.ts now creates
+  // every property already APPROVED, so PENDING is no longer reachable via
+  // the public API. It remains a legitimate status this admin guard logic
+  // must still handle correctly (e.g. a pre-existing legacy row), so this
+  // test seeds it with a direct DB write — the same technique this file's
+  // sibling auth.test.ts already uses (forceKnownOtp) to reach a state the
+  // real API can no longer produce — and then drives the real admin
+  // approve/reject endpoints against it exactly as before.
+  const forcePending = async (id: string) => {
+    await prisma.property.update({ where: { id }, data: { status: 'PENDING' } })
+  }
+
   beforeAll(async () => {
     adminToken = await loginAdmin()
     const seller = await registerApprovedSeller(adminToken, 'OWNER')
@@ -116,9 +124,11 @@ describe('admin property status transitions (only PENDING can be approved/reject
     suspendedId = await createOne(seller.token, `${marker} SUSPENDED`)
     deletedId = await createOne(seller.token, `${marker} DELETED`)
 
-    await request(app).post(`/api/admin/properties/${approvedId}/approve`).set('Authorization', `Bearer ${adminToken}`)
+    // approvedId / suspendedId / deletedId are already APPROVED straight out
+    // of createOne (direct-publish) — no separate approve step needed.
+    await forcePending(pendingId)
+    await forcePending(rejectedId)
     await request(app).post(`/api/admin/properties/${rejectedId}/reject`).set('Authorization', `Bearer ${adminToken}`).send({ reason: 'setup' })
-    await request(app).post(`/api/admin/properties/${suspendedId}/approve`).set('Authorization', `Bearer ${adminToken}`)
     await request(app).post(`/api/admin/properties/${suspendedId}/suspend`).set('Authorization', `Bearer ${adminToken}`).send({ reason: 'setup' })
     await request(app).delete(`/api/admin/properties/${deletedId}`).set('Authorization', `Bearer ${adminToken}`)
   })

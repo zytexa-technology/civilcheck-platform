@@ -64,10 +64,10 @@ describe('financial ledger + professional payouts (Phase 4B)', () => {
         area: '2000',
         documents: Array.from({ length: 8 }, (_, i) => `https://x/doc${i}.pdf`),
       })
+    // Direct-publish business rule — property-owner.controller.ts now
+    // publishes this property as APPROVED immediately; no separate admin
+    // approval call is needed (or possible — it's already approved).
     propertyId = propRes.body.property.id
-    await request(app)
-      .post(`/api/admin/properties/${propertyId}/approve`)
-      .set('Authorization', `Bearer ${superAdminToken}`)
   })
 
   afterAll(async () => {

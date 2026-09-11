@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useEffect, useRef, useState } from 'react'
+import { Link, useParams } from 'react-router-dom'
 import {
   acceptVerificationQuote,
   cancelVerificationRequest,
@@ -7,9 +7,11 @@ import {
   createClaim,
   createFinalOrder,
   getMyClaims,
+  getVerificationMessages,
   getVerificationQuotes,
   getVerificationReport,
   getVerificationRequestById,
+  sendVerificationMessage,
   verifyAdvancePayment,
   verifyFinalPayment,
 } from '../../api/verification.api'
@@ -24,7 +26,7 @@ import { ErrorState, InlineNotice, LoadingState } from '../../components/States'
 import { VerificationStepper } from '../../components/VerificationStepper'
 import { errorMessage } from '../../lib/errors'
 import { buildGoogleMapsUrl, formatDate, formatRupees, humanize, sellerBadgeLong, verificationRequestTone } from '../../lib/format'
-import type { CheckoutOrder, Claim, VerificationQuote, VerificationReport, VerificationRequest } from '../../types/api'
+import type { CheckoutOrder, Claim, VerificationMessage, VerificationQuote, VerificationReport, VerificationRequest } from '../../types/api'
 
 type PaymentStage = 'advance' | 'final' | null
 
@@ -60,6 +62,16 @@ export default function VerificationRequestDetail() {
   const [claimEvidence, setClaimEvidence] = useState('')
   const [claimBusy, setClaimBusy] = useState(false)
   const [claimError, setClaimError] = useState('')
+  const [claimPromptDismissed, setClaimPromptDismissed] = useState(false)
+
+  // Buyer Verification Experience enhancement — the minimum conversation
+  // with the assigned professional (reuses the existing Notification system
+  // for the "new message" ping; nothing here is a new chat architecture).
+  const [messages, setMessages] = useState<VerificationMessage[]>([])
+  const [messageDraft, setMessageDraft] = useState('')
+  const [messageBusy, setMessageBusy] = useState(false)
+  const [messageError, setMessageError] = useState('')
+  const messagesEndRef = useRef<HTMLDivElement>(null)
 
   const load = () => {
     if (!id) return
@@ -78,11 +90,36 @@ export default function VerificationRequestDetail() {
         } else {
           setQuotes([])
         }
+        // The conversation only opens once a professional is assigned
+        // (backend enforces this too) — no point polling it before then.
+        if (res.request.assignedSeller || res.request.status !== 'OPEN') {
+          const messagesRes = await getVerificationMessages(id).catch(() => null)
+          if (messagesRes) setMessages(messagesRes.messages)
+        }
       })
       .catch((err) => setError(errorMessage(err, "Couldn't load this request.")))
   }
 
   useEffect(load, [id])
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ block: 'nearest' })
+  }, [messages.length])
+
+  const handleSendMessage = async () => {
+    if (!id || messageDraft.trim().length === 0) return
+    setMessageBusy(true)
+    setMessageError('')
+    try {
+      const res = await sendVerificationMessage(id, messageDraft.trim())
+      setMessages((prev) => [...prev, res.message])
+      setMessageDraft('')
+    } catch (err) {
+      setMessageError(errorMessage(err, 'Could not send your message.'))
+    } finally {
+      setMessageBusy(false)
+    }
+  }
 
   const handleAcceptQuote = async (quoteId: string) => {
     if (!id) return
@@ -362,18 +399,101 @@ export default function VerificationRequestDetail() {
           </SectionCard>
         ) : null}
 
+        {/* Buyer Verification Experience enhancement — the minimum
+            conversation with the assigned professional, open only once
+            request.assignedSeller exists (backend enforces this too). */}
+        {request.assignedSeller && request.status !== 'CANCELLED' ? (() => {
+          const assignedSellerName = request.assignedSeller!.name
+          return (
+          <SectionCard icon="✉️" title={`Chat with ${assignedSellerName}`}>
+            {messageError ? (
+              <div style={{ padding: '4px 0 10px' }}>
+                <InlineNotice tone="warn" message={messageError} />
+              </div>
+            ) : null}
+            <div className="stack" style={{ gap: 8, maxHeight: 320, overflowY: 'auto', padding: '6px 0' }}>
+              {messages.length === 0 ? (
+                <p className="muted" style={{ fontSize: 12, padding: '6px 0' }}>
+                  No messages yet — start the conversation below.
+                </p>
+              ) : (
+                messages.map((m) => (
+                  <div
+                    key={m.id}
+                    style={{
+                      alignSelf: m.senderRole === 'BUYER' ? 'flex-end' : 'flex-start',
+                      background: m.senderRole === 'BUYER' ? 'var(--cc-gold-soft, #f6ead0)' : 'var(--cc-surface-alt, #f1f3f5)',
+                      borderRadius: 10,
+                      padding: '8px 12px',
+                      maxWidth: '85%',
+                    }}
+                  >
+                    <div style={{ fontSize: 12.5, lineHeight: 1.5 }}>{m.body}</div>
+                    <div className="muted" style={{ fontSize: 10, marginTop: 4, textAlign: m.senderRole === 'BUYER' ? 'right' : 'left' }}>
+                      {m.senderRole === 'BUYER' ? 'You' : assignedSellerName} · {formatDate(m.createdAt)}
+                    </div>
+                  </div>
+                ))
+              )}
+              <div ref={messagesEndRef} />
+            </div>
+            <div className="row" style={{ marginTop: 10, gap: 8 }}>
+              <Input
+                label=""
+                placeholder="Type a message…"
+                value={messageDraft}
+                onChange={(e) => setMessageDraft(e.target.value)}
+                style={{ flex: 1 }}
+              />
+              <Button
+                size="sm"
+                loading={messageBusy}
+                disabled={messageDraft.trim().length === 0}
+                onClick={() => void handleSendMessage()}
+              >
+                Send
+              </Button>
+            </div>
+          </SectionCard>
+          )
+        })() : null}
+
         {report ? (
           <SectionCard icon="📄" title="Findings report">
             <p style={{ fontSize: 13, lineHeight: 1.7, padding: '12px 0' }}>{report.findings}</p>
             {report.riskAssessment ? <DetailRow label="Risk assessment" value={report.riskAssessment} /> : null}
             {report.documents.length > 0 ? (
-              <div className="stack" style={{ padding: '10px 0' }}>
-                {report.documents.map((doc, i) => (
-                  <a key={doc} href={doc} target="_blank" rel="noreferrer" className="detail-row" style={{ color: 'var(--cc-blue)' }}>
-                    <span>📄 Document {i + 1}</span>
-                    <span>Open ↗</span>
-                  </a>
-                ))}
+              <>
+                <p className="muted" style={{ fontSize: 11.5, marginTop: 6 }}>📥 Download Report</p>
+                <div className="stack" style={{ padding: '4px 0 10px' }}>
+                  {report.documents.map((doc, i) => (
+                    <a key={doc} href={doc} target="_blank" rel="noreferrer" className="detail-row" style={{ color: 'var(--cc-blue)' }}>
+                      <span>📄 Document {i + 1}</span>
+                      <span>Download ↗</span>
+                    </a>
+                  ))}
+                </div>
+              </>
+            ) : null}
+
+            {/* Buyer Verification Experience enhancement — a clear,
+                non-intrusive nudge toward the existing "Raise a claim"
+                section right below, shown once per page-load, not a modal
+                that blocks the report from being read. */}
+            {!claimPromptDismissed && canRaiseClaim ? (
+              <div className="card" style={{ marginTop: 12, padding: 12, borderColor: 'var(--cc-gold-border)' }}>
+                <p style={{ fontSize: 12.5, fontWeight: 600 }}>Not satisfied with this verification report?</p>
+                <p className="muted" style={{ fontSize: 11.5, marginTop: 4, lineHeight: 1.6 }}>
+                  If you believe the report is incomplete or incorrect, you can submit a claim for review.
+                </p>
+                <div className="row" style={{ marginTop: 8, gap: 8 }}>
+                  <Button size="sm" variant="danger" onClick={() => { setClaimOpen(true); setClaimPromptDismissed(true) }}>
+                    Raise a Claim
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setClaimPromptDismissed(true)}>
+                    Dismiss
+                  </Button>
+                </div>
               </div>
             ) : null}
           </SectionCard>
@@ -439,6 +559,12 @@ export default function VerificationRequestDetail() {
                   Report a problem with this verification
                 </button>
               )
+            ) : null}
+
+            {claims.length > 0 ? (
+              <Link to="/support/new" className="small" style={{ display: 'inline-block', marginTop: 12, color: 'var(--cc-blue)' }}>
+                💬 Contact Support about this claim
+              </Link>
             ) : null}
           </SectionCard>
         ) : null}

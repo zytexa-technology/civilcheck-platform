@@ -5,6 +5,7 @@ import {
   linkDiscoveredListingSchema,
   purchaseVerifySchema,
   verificationCancelSchema,
+  verificationMessageCreateSchema,
   verificationQuoteCreateSchema,
   verificationReportCreateSchema,
   verificationRequestCreateSchema,
@@ -87,6 +88,23 @@ buyerVerificationRouter.get(
   verificationController.getMyClaims
 )
 
+// Buyer Verification Experience enhancement — the minimum conversation
+// capability with the assigned professional (see VerificationMessage,
+// schema.prisma). Opens only once an offer is accepted (enforced in
+// verification.service.ts, not here).
+buyerVerificationRouter.post(
+  '/:id/messages',
+  authMiddleware.authMiddleware,
+  validateBody(verificationMessageCreateSchema),
+  verificationController.postMessage
+)
+
+buyerVerificationRouter.get(
+  '/:id/messages',
+  authMiddleware.authMiddleware,
+  verificationController.getMessages
+)
+
 // ─── EXPERT ROUTES — mounted at /api/seller/verification-marketplace ──────
 export const expertVerificationRouter = Router()
 
@@ -142,6 +160,32 @@ expertVerificationRouter.post(
   expertOnly,
   validateBody(verificationReportCreateSchema),
   verificationController.submitReport
+)
+
+// Buyer Verification Experience enhancement — conversation + claim
+// visibility for the assigned Expert (assertAssigned in
+// verification.service.ts is the real gate; a non-assigned Expert who
+// merely quoted gets a 403 from these same handlers).
+expertVerificationRouter.post(
+  '/:id/messages',
+  authMiddleware.sellerMiddleware,
+  expertOnly,
+  validateBody(verificationMessageCreateSchema),
+  verificationController.postAssignmentMessage
+)
+
+expertVerificationRouter.get(
+  '/:id/messages',
+  authMiddleware.sellerMiddleware,
+  expertOnly,
+  verificationController.getAssignmentMessages
+)
+
+expertVerificationRouter.get(
+  '/:id/claims',
+  authMiddleware.sellerMiddleware,
+  expertOnly,
+  verificationController.getAssignmentClaims
 )
 
 // ─── PROFESSIONAL EARNINGS + PAYOUTS (Phase 4B) ────────────────────────────
@@ -244,4 +288,29 @@ adminMarketplaceRouter.post(
   marketplaceParticipant,
   validateBody(verificationReportCreateSchema),
   verificationController.submitReport
+)
+
+// Buyer Verification Experience enhancement — same conversation + claim
+// visibility as the Expert router above, for an Admin acting as the
+// assigned professional.
+adminMarketplaceRouter.post(
+  '/:id/messages',
+  authMiddleware.adminMiddleware,
+  marketplaceParticipant,
+  validateBody(verificationMessageCreateSchema),
+  verificationController.postAssignmentMessage
+)
+
+adminMarketplaceRouter.get(
+  '/:id/messages',
+  authMiddleware.adminMiddleware,
+  marketplaceParticipant,
+  verificationController.getAssignmentMessages
+)
+
+adminMarketplaceRouter.get(
+  '/:id/claims',
+  authMiddleware.adminMiddleware,
+  marketplaceParticipant,
+  verificationController.getAssignmentClaims
 )

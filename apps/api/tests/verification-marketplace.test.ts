@@ -36,11 +36,10 @@ describe('verification marketplace (Phase 3)', () => {
       .post('/api/seller/properties')
       .set('Authorization', `Bearer ${owner.token}`)
       .send({ title: `VMTest Flat ${Date.now()}`, area: '1000', city: 'Jaipur', documents: docs })
+    // Direct-publish business rule — property-owner.controller.ts now
+    // publishes this property as APPROVED immediately; no separate admin
+    // approval call is needed (or possible — it's already approved).
     propertyId = createRes.body.property.id as string
-
-    await request(app)
-      .post(`/api/admin/properties/${propertyId}/approve`)
-      .set('Authorization', `Bearer ${adminToken}`)
   })
 
   afterAll(async () => {
@@ -58,20 +57,29 @@ describe('verification marketplace (Phase 3)', () => {
     await deleteBuyer(otherBuyer.userId)
   })
 
+  // Direct-publish business rule — Owner listing creation no longer produces
+  // a non-APPROVED property (property-owner.controller.ts publishes it
+  // immediately), so the "not APPROVED" state this guard protects against is
+  // now reached via admin suspension instead of a pre-publish pending state.
   it('rejects a verification request for a source that is not APPROVED', async () => {
-    const pendingRes = await request(app)
+    const notApprovedRes = await request(app)
       .post('/api/seller/properties')
       .set('Authorization', `Bearer ${owner.token}`)
       .send({ title: 'Not Approved Yet', area: '500', documents: Array.from({ length: 8 }, (_, i) => `https://x/${i}.pdf`) })
-    const pendingId = pendingRes.body.property.id as string
+    const notApprovedId = notApprovedRes.body.property.id as string
+
+    await request(app)
+      .post(`/api/admin/properties/${notApprovedId}/suspend`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ reason: 'test — not eligible for verification' })
 
     const res = await request(app)
       .post('/api/verification-requests')
       .set('Authorization', `Bearer ${buyer.token}`)
-      .send({ source: 'PROPERTY', propertyId: pendingId })
+      .send({ source: 'PROPERTY', propertyId: notApprovedId })
     expect(res.status).toBe(404)
 
-    await prisma.property.deleteMany({ where: { id: pendingId } })
+    await prisma.property.deleteMany({ where: { id: notApprovedId } })
   })
 
   let requestId: string

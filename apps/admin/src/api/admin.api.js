@@ -380,6 +380,50 @@ export const submitVerificationQuote = async (id, data) => {
   return response.data
 }
 
+// Buyer Verification Experience enhancement — start work / submit the
+// report once this Admin is the assigned professional on a request.
+export const startVerificationJob = async (id) => {
+  const response = await API.post(`/admin/verification-marketplace/${id}/start`)
+  return response.data
+}
+
+export const submitVerificationReport = async (id, data) => {
+  const response = await API.post(`/admin/verification-marketplace/${id}/report`, data)
+  return response.data
+}
+
+// Buyer<->assigned-professional conversation, scoped to one request. 403
+// server-side if this Admin isn't the assignee.
+export const getVerificationMessages = async (id) => {
+  const response = await API.get(`/admin/verification-marketplace/${id}/messages`)
+  return response.data
+}
+
+export const sendVerificationMessage = async (id, body) => {
+  const response = await API.post(`/admin/verification-marketplace/${id}/messages`, { body })
+  return response.data
+}
+
+// Read-only claims visibility for the assigned professional (resolving a
+// claim only ever happens via the SUPER_ADMIN claims oversight page below).
+export const getVerificationAssignmentClaims = async (id) => {
+  const response = await API.get(`/admin/verification-marketplace/${id}/claims`)
+  return response.data
+}
+
+// ─── CLAIMS — SUPER ADMIN OVERSIGHT (dispute resolution) ───────────────────
+// GET is open to any admin role (server-side); resolve is SUPER_ADMIN only
+// (see canResolveClaims in utils/permissions.js).
+export const getClaims = async (params = {}) => {
+  const response = await API.get('/admin/claims', { params })
+  return response.data
+}
+
+export const resolveClaim = async (id, data) => {
+  const response = await API.post(`/admin/claims/${id}/resolve`, data)
+  return response.data
+}
+
 // ─── Report.jsx DashBoard ─────────────────────────────────────────────────────
 
 export const getRevenueReport = async (params = {}) => {

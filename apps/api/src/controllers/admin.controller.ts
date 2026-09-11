@@ -12,6 +12,7 @@ import {
   PartnerRole,
   VerificationRequestStatus,
   ClaimStatus,
+  type Claim,
 } from '@prisma/client'
 import prisma from '../lib/prisma.js'
 import logger from '../lib/logger.js'
@@ -2713,12 +2714,15 @@ export const getAllClaims = async (req: Request, res: Response) => {
 
 // POST /api/admin/claims/:id/resolve
 // Admin/Super Admin moves a claim through its status machine by hand — never
-// an automatic refund decision (per the brief). A REFUND_APPROVED/
-// REFUND_PROCESSED status here records the decision; actually moving money
-// still goes through the normal Refund flow (executeRefund), which an admin
-// triggers separately via the existing /api/admin/refunds endpoints once a
-// Refund row exists for this — deliberately not auto-wired, so a human always
-// makes the actual money-movement decision.
+// an automatic refund decision (per the brief): the claim is only ever
+// SUPER_ADMIN-resolved (see admin.routes.ts), never buyer- or Sub-Admin-
+// triggered. A REFUND_APPROVED status here records that human decision AND
+// (Buyer Verification Experience enhancement) atomically creates the linked
+// Refund row (status PENDING) so the decision isn't lost to "an admin must
+// remember to separately go create one" — but actually moving money still
+// requires a further, separate call to the existing, unmodified
+// POST /api/admin/refunds/:id/process (executeRefund), so a claim decision
+// alone can never move money by itself.
 export const resolveClaim = async (req: Request, res: Response) => {
   const id = req.params.id as string
   const { status, resolutionNote } = req.body as { status: string; resolutionNote: string }
@@ -2734,21 +2738,65 @@ export const resolveClaim = async (req: Request, res: Response) => {
   }
 
   const isTerminal = status === 'RESOLVED' || status === 'REJECTED' || status === 'REFUND_PROCESSED'
+  // Only create the Refund the FIRST time this claim reaches REFUND_APPROVED
+  // — re-submitting the same status (e.g. a retried request) must never
+  // create a second one. The @unique Refund.claimId is the real, DB-level
+  // guard against a race doing this twice; this is just the fast path.
+  const shouldCreateRefund = status === 'REFUND_APPROVED' && claim.status !== 'REFUND_APPROVED'
 
-  const updated = await prisma.claim.update({
-    where: { id },
-    data: {
-      status: status as ClaimStatus,
-      resolutionNote,
-      assignedAdminId: req.admin!.id,
-      ...(isTerminal ? { resolvedAt: new Date() } : {}),
-    },
-  })
+  let updated: Claim
+  let createdRefund: { id: string; amount: number } | null = null
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      const claimUpdate = await tx.claim.update({
+        where: { id },
+        data: {
+          status: status as ClaimStatus,
+          resolutionNote,
+          assignedAdminId: req.admin!.id,
+          ...(isTerminal ? { resolvedAt: new Date() } : {}),
+        },
+      })
+
+      let refund: { id: string; amount: number } | null = null
+      if (shouldCreateRefund) {
+        const request = await tx.verificationRequest.findUniqueOrThrow({
+          where: { id: claimUpdate.verificationRequestId },
+        })
+        // A claim can only be raised once the request is REPORT_UNLOCKED
+        // (createClaim's own gate), so both the advance and final legs have
+        // already been captured — agreedFee is what the buyer actually paid.
+        const amount = request.agreedFee ?? 0
+        refund = await tx.refund.create({
+          data: {
+            claimId: id,
+            verificationRequestId: request.id,
+            userId: request.userId,
+            amount,
+            reason: `Claim approved: ${claimUpdate.reason}`,
+            status: 'PENDING',
+          },
+        })
+      }
+
+      return { claimUpdate, refund }
+    })
+    updated = result.claimUpdate
+    createdRefund = result.refund
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+      res.status(409).json({ success: false, message: 'A refund has already been created for this claim' })
+      return
+    }
+    throw err
+  }
 
   await recordAudit(req, {
     action: AuditAction.CLAIM_RESOLVE,
     target: `Claim:${id}`,
-    details: `Status → ${status}. Note: ${resolutionNote}`,
+    details: createdRefund
+      ? `Status → ${status}. Note: ${resolutionNote}. Created Refund:${createdRefund.id} for Rs. ${createdRefund.amount}`
+      : `Status → ${status}. Note: ${resolutionNote}`,
   })
 
   // Buyer-facing claim update (Phase 4C) — best-effort, never blocks the
@@ -2766,13 +2814,31 @@ export const resolveClaim = async (req: Request, res: Response) => {
       {
         type: 'claim',
         title: 'Your claim was updated',
-        body: `Status: ${status}. ${resolutionNote}`,
+        body: createdRefund
+          ? `Status: ${status}. ${resolutionNote} A refund of ₹${createdRefund.amount} has been approved and will be processed shortly.`
+          : `Status: ${status}. ${resolutionNote}`,
         data: { verificationRequestId: updated.verificationRequestId, claimId: id },
       }
     ).catch((err) => logger.error(`[admin] buyer claim-update notification failed for claim ${id}: ${err}`))
   }
 
-  res.json({ success: true, message: 'Claim updated', claim: updated })
+  // Buyer Verification Experience enhancement — the assigned professional
+  // should also learn how the dispute against their work was resolved, not
+  // just the buyer. Same "sellers only, no in-app channel for admins"
+  // convention as every other verification-marketplace notification.
+  const request = await prisma.verificationRequest.findUnique({ where: { id: updated.verificationRequestId } })
+  if (request?.assignedSellerId) {
+    const seller = await prisma.seller.findUnique({ where: { id: request.assignedSellerId } })
+    if (seller) {
+      void notifySeller(seller, {
+        type: 'claim',
+        title: 'Claim resolved',
+        body: `A claim against your verification work was resolved — status: ${status}.`,
+      }).catch((err) => logger.error(`[admin] seller claim-update notification failed for claim ${id}: ${err}`))
+    }
+  }
+
+  res.json({ success: true, message: 'Claim updated', claim: updated, refund: createdRefund })
 }
 
 // GET /api/admin/verification-settings
