@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { getComments, postComment, toggleLike, toggleSave } from '../api/feed.api'
 import { useAuth } from '../context/AuthContext'
 import { Badge, Tag } from './Badge'
@@ -37,6 +37,7 @@ function shareUrl(item: FeedItem): string {
  */
 export function FeedCard({ item, onChange }: { item: FeedItem; onChange?: (next: FeedItem) => void }) {
   const { status } = useAuth()
+  const navigate = useNavigate()
   const [authAction, setAuthAction] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -95,6 +96,29 @@ export function FeedCard({ item, onChange }: { item: FeedItem; onChange?: (next:
       // clipboard unavailable — nothing more we can do without a backend
     }
   }
+
+  // Buyer Verification Experience enhancement — a Reporter Post has no
+  // detail route and is informational only (no address/propertyType, no
+  // ownership claim), so "verifying" it reuses the existing Property
+  // Discovery (source: 'DISCOVERY') request flow instead of inventing a new
+  // one: the post's title/city/tehsil are handed off as a starting point on
+  // the same "can't find the property" form BrowseProperty already uses,
+  // and the buyer fills in the rest (address, property type). This never
+  // creates or pretends to create a Property record, and never represents
+  // the Reporter as the owner. Bug fix 2026-09-11: this CTA previously only
+  // existed on ReporterPostCard (PropertyCard.tsx, the standalone
+  // /reporter-feed page) — FeedCard is the component that actually renders
+  // a Reporter Post in the main Home feed, and had no verify action at all.
+  const goVerify = () =>
+    requireAuth('verify this property', () => {
+      navigate('/account/discovery-request/new', {
+        state: {
+          address: item.title ?? '',
+          city: item.city ?? '',
+          tehsil: item.tehsil ?? '',
+        },
+      })
+    })
 
   const openComments = () => {
     setCommentsOpen((open) => !open)
@@ -171,6 +195,10 @@ export function FeedCard({ item, onChange }: { item: FeedItem; onChange?: (next:
           <Link to={href} className="btn btn--primary btn--sm">
             Details
           </Link>
+        ) : item.source === 'REPORTER_POST' ? (
+          <button type="button" className="btn btn--secondary btn--sm" onClick={goVerify}>
+            🔎 Verify This Property
+          </button>
         ) : null}
       </div>
 
