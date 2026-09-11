@@ -17,8 +17,50 @@ import {
 // requests 401 before the redirect to /login has a chance to run.
 void SplashScreen.preventAutoHideAsync()
 
-/** Routes reachable without a session. */
-const PUBLIC_ROUTES = new Set(['login', 'register', 'phone-login', 'verify-email'])
+/**
+ * Auth-flow screens — a dead end for an authenticated buyer, so becoming
+ * authenticated while on one of these always bounces to Home (matches the
+ * original, pre-guest-browsing behaviour exactly).
+ *
+ * Buyer Mobile Final Parity Batch (Task 1) — 'forgot-password' was missing
+ * from the old PUBLIC_ROUTES set entirely, which meant a logged-out buyer
+ * tapping "Forgot password" on Login was immediately bounced back to /login
+ * by this very gate before ForgotPasswordScreen ever rendered. Real,
+ * pre-existing bug, fixed here.
+ */
+const AUTH_FLOW_ROUTES = new Set(['login', 'register', 'phone-login', 'verify-email', 'forgot-password'])
+
+/**
+ * Content Buyer Web serves with no login required (Home, BrowseProperty,
+ * PropertyDetail, OwnerProperties(+detail), ReporterFeed, Coverage — see
+ * apps/buyer-web's App.tsx: all of these sit outside <ProtectedRoute/>).
+ * Unlike AUTH_FLOW_ROUTES, becoming authenticated while already on one of
+ * these must NOT force a navigation away — a guest reading a report who
+ * signs in via an AuthRequiredSheet should stay on that exact report, not
+ * get bounced to Home (see AuthRequiredSheet.tsx / VerifyPropertyCTA.tsx /
+ * PropertyCard.tsx's FeedItemCard for where the sheet is triggered).
+ *
+ * Protected write actions on these same public pages (like/save/comment,
+ * request verification, unlock/pay, watch) are gated inline at the
+ * component level instead of by route — exactly like Buyer Web's own
+ * AuthRequiredModal pattern (FeedCard.tsx, VerifyPropertyCTA.tsx).
+ */
+const PUBLIC_CONTENT_ROUTES = new Set(['coverage', 'owner-properties', 'reporter-feed', 'report'])
+
+/**
+ * The bottom-tab group. Home and Search are public; Alerts and Profile map
+ * to Buyer Web's fully-protected account/alerts and account (Overview)
+ * pages — since all four live behind one persistent tab bar on mobile
+ * (unlike Web's separate route trees), those two screens gate themselves
+ * inline (an in-tab "sign in required" state) rather than the tab bar
+ * hiding/redirecting, which would be jarring on a persistent tab.
+ */
+const TABS_SEGMENT = '(tabs)'
+
+/** /support (ticket-free FAQ/contact) is public; /support/new and
+ * /support/[id] (an actual ticket) are not — mirrors Buyer Web exactly
+ * (`support` outside ProtectedRoute, `account/support*` inside it). */
+const SUPPORT_SEGMENT = 'support'
 
 /**
  * Onboarding gate route. A buyer who signs in via phone-OTP only ever has
@@ -44,11 +86,16 @@ function RootNavigator() {
     void SplashScreen.hideAsync()
 
     const segment = segments[0] ?? ''
-    const onPublicRoute = PUBLIC_ROUTES.has(segment)
+    const subSegment = segments[1]
+    const onAuthRoute = AUTH_FLOW_ROUTES.has(segment)
+    const onPublicContentRoute =
+      segment === TABS_SEGMENT ||
+      PUBLIC_CONTENT_ROUTES.has(segment) ||
+      (segment === SUPPORT_SEGMENT && subSegment === undefined)
     const onProfileRoute = segment === PROFILE_ROUTE
 
     if (status === 'unauthenticated') {
-      if (!onPublicRoute) router.replace('/login')
+      if (!onAuthRoute && !onPublicContentRoute) router.replace('/login')
       return
     }
 
@@ -60,7 +107,10 @@ function RootNavigator() {
       return
     }
 
-    if (!needsProfile && (onPublicRoute || onProfileRoute)) {
+    // A public content route never force-navigates on its own — signing in
+    // from an AuthRequiredSheet while reading a report must leave the buyer
+    // on that exact report (see PUBLIC_CONTENT_ROUTES above).
+    if (!needsProfile && (onAuthRoute || onProfileRoute)) {
       router.replace('/')
     }
   }, [status, user, segments, router])
@@ -78,12 +128,30 @@ function RootNavigator() {
     })()
   }, [status])
 
-  // Tapping a push notification (backgrounded or cold-launched from a tap)
-  // lands the buyer on their alerts list — every push is a case-update alert
-  // for a watched property (see NotificationSettingsScreen).
+  // Notification deep-linking (Final Parity Batch, Task 5) — every buyer
+  // push notification's FCM data payload was audited directly at its send
+  // site (apps/api's notification.service.ts callers: alert.controller.ts,
+  // verification.controller.ts, refund.service.ts, admin.controller.ts,
+  // support.service.ts). The payload only ever carries one of three keys —
+  // `listingId` (the older case-update alert), `verificationRequestId` (the
+  // overwhelming majority: quotes, payments, cancellations, claims,
+  // messages, status changes — there is no separate "quote" or
+  // "conversation" screen, both live inside the verification request detail
+  // screen), or `supportTicketId`. Routing on exactly those three, with the
+  // old unconditional /alerts as the fallback for anything else (or no data
+  // at all), covers every push this backend actually sends — nothing here
+  // is an invented field.
   useEffect(() => {
-    return addNotificationTapListener(() => {
-      router.push('/alerts')
+    return addNotificationTapListener((data) => {
+      const listingId = typeof data.listingId === 'string' ? data.listingId : null
+      const verificationRequestId =
+        typeof data.verificationRequestId === 'string' ? data.verificationRequestId : null
+      const supportTicketId = typeof data.supportTicketId === 'string' ? data.supportTicketId : null
+
+      if (listingId) router.push(`/report/${listingId}`)
+      else if (verificationRequestId) router.push(`/verifications/${verificationRequestId}`)
+      else if (supportTicketId) router.push(`/support/${supportTicketId}`)
+      else router.push('/alerts')
     })
   }, [router])
 

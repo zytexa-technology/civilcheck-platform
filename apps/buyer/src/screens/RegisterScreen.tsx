@@ -48,8 +48,12 @@ export function RegisterScreen() {
   const validate = (): FieldErrors => {
     const errors: FieldErrors = {}
 
-    if (normalizePhone(phone).length !== 10) {
-      errors.phone = 'Enter a valid 10-digit mobile number.'
+    // Signup validation parity (Final Parity Batch, Task 2) — matches
+    // packages/shared's phoneSchema exactly: an Indian mobile number starts
+    // with 6-9, not just "any 10 digits" (the old check here would have
+    // accepted e.g. "0123456789", which the backend rejects).
+    if (!/^[6-9]\d{9}$/.test(normalizePhone(phone))) {
+      errors.phone = 'Enter a valid Indian mobile number.'
     }
     if (name.trim().length < 2) {
       errors.name = 'Enter your name.'
@@ -62,6 +66,11 @@ export function RegisterScreen() {
     }
     if (password.length < 8 || !/[A-Za-z]/.test(password) || !/[0-9]/.test(password)) {
       errors.password = 'At least 8 characters, with a letter and a number.'
+    } else if (password.length > 72) {
+      // packages/shared's passwordSchema caps this at 72 — bcrypt silently
+      // truncates anything longer, so a longer password would compare as
+      // "matching" against a truncated hash. Same cap the backend enforces.
+      errors.password = 'Password must be at most 72 characters.'
     }
     if (password !== confirmPassword) {
       errors.confirmPassword = 'Passwords do not match.'
@@ -93,11 +102,17 @@ export function RegisterScreen() {
       // actually logs the buyer in once the code is confirmed.
       router.replace({ pathname: '/verify-email', params: { email: result.email } })
     } catch (err) {
-      // 409 means the phone or email is already registered (and verified) —
-      // that buyer just needs to log in, so send them there rather than
-      // showing an error they can't fix.
+      // Signup validation parity (Final Parity Batch, Task 2) — this used to
+      // silently router.replace('/login') on a 409 with no explanation at
+      // all, which reads as a broken signup to anyone whose email or phone
+      // is already registered. The backend already returns a precise,
+      // user-friendly message for each case ("This email is already
+      // registered." / "This phone number is already registered." —
+      // auth.controller.ts), so surface that and stay on the form with
+      // every field the buyer already typed still filled in, exactly like
+      // Buyer Web's Register.tsx does for the same 409.
       if (errorStatus(err) === 409) {
-        router.replace('/login')
+        setError(errorMessage(err, 'An account with this email or phone number already exists.'))
         return
       }
       setError(errorMessage(err, "Couldn't create your account. Please try again."))

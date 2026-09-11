@@ -62,6 +62,12 @@ export function VerificationRequestsScreen() {
         <View style={styles.list}>
           {requests.map((request) => {
             const tone = verificationRequestTone(request.status)
+            // Quotes-available indicator mirrors Buyer Web's list (see
+            // apps/buyer-web VerificationRequests.tsx) — it replaces the
+            // normal status pill, it's never shown alongside it, and it
+            // only ever reflects pendingQuoteCount the backend already
+            // returns (no new API data invented here).
+            const hasPendingQuotes = request.status === 'OPEN' && (request.pendingQuoteCount ?? 0) > 0
             return (
               <TouchableOpacity
                 key={request.id}
@@ -71,9 +77,17 @@ export function VerificationRequestsScreen() {
               >
                 <View style={styles.cardTop}>
                   <Text style={styles.source}>
-                    {request.source === 'LISTING' ? 'Expert report' : 'Owner listing'}
+                    {request.source === 'LISTING'
+                      ? 'Expert report'
+                      : request.source === 'DISCOVERY'
+                        ? 'Property discovery'
+                        : 'Owner listing'}
                   </Text>
-                  <Pill tone={tone} />
+                  {hasPendingQuotes ? (
+                    <Pill tone={{ label: 'Quotes available', color: colors.blue, bg: colors.blueDim, border: colors.blueBorder }} />
+                  ) : (
+                    <Pill tone={tone} />
+                  )}
                 </View>
 
                 <View style={styles.cardFoot}>

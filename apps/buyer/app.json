@@ -51,6 +51,12 @@
           "icon": "./assets/images/android-icon-monochrome.png",
           "color": "#f0a500"
         }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "CivilCheck uses your location, only when you tap \"Use my location\", to show the approximate distance to a property. Your location is never stored or sent anywhere."
+        }
       ]
     ],
     "experiments": {

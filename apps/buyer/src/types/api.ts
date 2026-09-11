@@ -658,8 +658,19 @@ export interface DisclaimerResponse extends ApiEnvelope {
 }
 
 // ─── PROPERTY FEED (Phase 2 backend, Phase 4C buyer UI) ──────────────────────
+// Buyer Mobile Phase 2 — this type previously predated the backend's
+// REPORTER_POST source (getPropertyFeed, property.controller.ts) and was
+// never corrected since nothing on mobile called the endpoint. Fixed to
+// match the real, already-live contract Buyer Web consumes (same endpoint):
+// REPORTER_POST added, and propertyType is genuinely nullable — a Reporter
+// Post has no propertyType column at all, the backend always sends null
+// for one.
 
-export type FeedSource = 'EXPERT_REPORT' | 'OWNER_LISTING'
+/** Query param the buyer sends to opt into a source; the response's own
+ * per-item `source` values are the longer FeedSource tags below. */
+export type FeedSourceFilter = 'EXPERT' | 'OWNER' | 'REPORTER'
+
+export type FeedSource = 'EXPERT_REPORT' | 'OWNER_LISTING' | 'REPORTER_POST'
 
 export interface FeedItem {
   id: string
@@ -668,7 +679,7 @@ export interface FeedItem {
   city: string | null
   tehsil: string | null
   address: string | null
-  propertyType: PropertyType
+  propertyType: PropertyType | null
   uploadedBy: PartnerRole
   riskBadge: RiskBadge | null
   price: number | null
@@ -681,6 +692,60 @@ export interface FeedItem {
   sellerBadge: SellerBadge
   views: number
   createdAt: string
+  // Buyer Mobile Phase 3 — Social Engagement. Deliberately not added in
+  // Phase 2 (that phase was explicitly scoped to feed content, not
+  // engagement). Matches Buyer Web's identical FeedItem fields exactly
+  // (apps/buyer-web/src/types/api.ts) — always present on every item,
+  // isLiked/isSaved are false for a viewer who hasn't acted on it yet.
+  likeCount: number
+  saveCount: number
+  commentCount: number
+  isLiked: boolean
+  isSaved: boolean
+}
+
+// ─── SOCIAL ENGAGEMENT (Buyer Mobile Phase 3) ─────────────────────────────────
+// Engagement (like/save/comment) exists ONLY on the merged Home feed
+// (FeedItem/`GET /properties/feed`) in both the backend and Buyer Web — the
+// dedicated Reporter Feed (`GET /reporter-posts`, ReporterPost type) and the
+// Expert/Owner search+detail types (FreePreviewProperty/OwnerProperty) carry
+// no engagement fields and Web's own UI never calls toggleLike/toggleSave
+// from those screens either. Confirmed by reading Web's source directly
+// before writing this — not assumed.
+//
+// FeedTargetType is a DIFFERENT union from FeedItem.source above: the
+// engagement endpoints key on the underlying table name, not the feed's
+// display-oriented source tag. Mapping: EXPERT_REPORT -> LISTING,
+// OWNER_LISTING -> PROPERTY, REPORTER_POST -> REPORTER_POST (unchanged).
+export type FeedTargetType = 'LISTING' | 'PROPERTY' | 'REPORTER_POST'
+
+export interface LikeToggleResponse extends ApiEnvelope {
+  liked: boolean
+  likeCount: number
+}
+
+export interface SaveToggleResponse extends ApiEnvelope {
+  saved: boolean
+  saveCount: number
+}
+
+export interface FeedComment {
+  id: string
+  body: string
+  createdAt: string
+  userId: string
+  userName: string
+}
+
+export interface FeedCommentsResponse extends ApiEnvelope {
+  total: number
+  page: number
+  totalPages: number
+  comments: FeedComment[]
+}
+
+export interface PostCommentResponse extends ApiEnvelope {
+  comment: { id: string; body: string; createdAt: string; userId: string }
 }
 
 export interface PropertyFeedResponse extends ApiEnvelope {

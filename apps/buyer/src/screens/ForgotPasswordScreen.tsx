@@ -87,8 +87,20 @@ export function ForgotPasswordScreen() {
   }
 
   const handleReset = async () => {
-    if (newPassword.length < 8) {
-      setError('Password must be at least 8 characters')
+    // Forgot Password validation parity (Final Parity Batch, Task 3) — this
+    // only checked length before; packages/shared's passwordResetSchema
+    // (which Buyer Web validates against directly) reuses the exact same
+    // passwordSchema as signup: 8-72 characters, at least one letter and one
+    // number. Matching it here means an invalid password is caught before
+    // the OTP round-trip, not after — the OTP itself is still burned
+    // server-side only on a genuinely valid reset request.
+    if (
+      newPassword.length < 8 ||
+      newPassword.length > 72 ||
+      !/[A-Za-z]/.test(newPassword) ||
+      !/[0-9]/.test(newPassword)
+    ) {
+      setError('Password must be 8-72 characters, with a letter and a number.')
       return
     }
     if (newPassword !== confirmPassword) {
@@ -168,6 +180,7 @@ export function ForgotPasswordScreen() {
             secureTextEntry
             editable={!loading}
             returnKeyType="next"
+            hint="At least 8 characters, with a letter and a number."
           />
           <TextField
             label="Confirm Password"

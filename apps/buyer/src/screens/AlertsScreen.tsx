@@ -7,6 +7,7 @@ import {
   getMySubscriptions,
   subscribeToAlerts,
 } from '../api/subscription.api'
+import { useAuth } from '../context/AuthContext'
 import { errorMessage, errorStatus } from '../lib/errors'
 import { formatDate, formatPaise, riskBanner, subscriptionTone } from '../lib/format'
 import { colors, radius, SCREEN_PADDING, spacing } from '../theme'
@@ -31,6 +32,7 @@ const TABS: { id: Tab; label: string }[] = [
 
 export function AlertsScreen() {
   const router = useRouter()
+  const { status } = useAuth()
 
   const [tab, setTab] = useState<Tab>('watching')
   const [watching, setWatching] = useState<MyAlertsResponse['alerts']>([])
@@ -43,6 +45,12 @@ export function AlertsScreen() {
   const [busy, setBusy] = useState(false)
 
   const load = useCallback(async () => {
+    // Guest browsing (Final Parity Batch, Task 1) — Alerts is 100% personal
+    // content (watched properties, subscription) with no public equivalent
+    // on Buyer Web either (account/alerts sits fully behind ProtectedRoute),
+    // so this renders a plain sign-in prompt below instead of fetching.
+    if (status !== 'authenticated') return
+
     setError('')
     try {
       const [alertsResult, historyResult, subscriptionsResult] = await Promise.allSettled([
@@ -63,7 +71,7 @@ export function AlertsScreen() {
     } catch (err) {
       setError(errorMessage(err, "Couldn't load your alerts."))
     }
-  }, [])
+  }, [status])
 
   useFocusEffect(
     useCallback(() => {
@@ -150,6 +158,29 @@ export function AlertsScreen() {
   const activeSubscription = subscriptions.find(
     (s) => s.status === 'CREATED' || s.status === 'ACTIVE',
   )
+
+  if (status !== 'authenticated') {
+    return (
+      <Screen scroll>
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>Alerts</Text>
+        </View>
+        <EmptyState
+          icon="🔒"
+          title="Sign in to see your alerts"
+          description="Watch a property's case status and manage your case-update subscription once you're signed in."
+          actionLabel="Log In"
+          onAction={() => router.push('/login')}
+        />
+        <Button
+          label="Create Account"
+          variant="secondary"
+          onPress={() => router.push('/register')}
+          style={styles.guestCreateBtn}
+        />
+      </Screen>
+    )
+  }
 
   return (
     <Screen scroll refreshing={refreshing} onRefresh={() => void handleRefresh()}>
@@ -380,6 +411,7 @@ const styles = StyleSheet.create({
   },
   headerTitle: { fontSize: 16, fontWeight: '700', color: colors.text },
   settingsGlyph: { fontSize: 17 },
+  guestCreateBtn: { marginHorizontal: SCREEN_PADDING },
   tabs: {
     flexDirection: 'row',
     gap: 6,

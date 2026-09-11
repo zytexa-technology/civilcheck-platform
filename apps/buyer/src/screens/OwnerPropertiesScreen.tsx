@@ -13,11 +13,14 @@ import {
 import { useRouter } from 'expo-router'
 import { searchOwnerProperties } from '../api/ownerProperty.api'
 import { errorMessage } from '../lib/errors'
+import { getBuyerLocation, geolocationErrorMessage, type Coordinates, type GeolocationErrorReason } from '../lib/geolocation'
 import { colors, radius, SCREEN_PADDING, spacing } from '../theme'
+import { Button } from '../components/Button'
 import { OwnerPropertyCard } from '../components/PropertyCard'
 import { Screen } from '../components/Screen'
 import { ScreenHeader } from '../components/ScreenHeader'
 import { EmptyState, ErrorState, LoadingState } from '../components/States'
+import { TextField } from '../components/TextField'
 import type { OwnerProperty, PropertyType } from '../types/api'
 
 const PAGE_SIZE = 10
@@ -45,6 +48,14 @@ export function OwnerPropertiesScreen() {
   const [query, setQuery] = useState('')
   const [type, setType] = useState<PropertyType | null>(null)
 
+  // Buyer Mobile Phase 4C — structured City/Tehsil fields matching Buyer
+  // Web's BrowseProperty.tsx, which sends city/tehsil to searchOwnerProperties
+  // alongside searchProperties. Kept in the same collapsible-panel pattern as
+  // SearchScreen.tsx.
+  const [city, setCity] = useState('')
+  const [tehsil, setTehsil] = useState('')
+  const [filtersOpen, setFiltersOpen] = useState(false)
+
   const [results, setResults] = useState<OwnerProperty[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
@@ -57,10 +68,28 @@ export function OwnerPropertiesScreen() {
 
   const requestId = useRef(0)
 
+  // Buyer Mobile Phase 4B — same one-shared-fetch-per-screen pattern as
+  // SearchScreen.tsx / Buyer Web's BrowseProperty.tsx. Local only, never
+  // persisted, never sent anywhere.
+  const [buyerCoords, setBuyerCoords] = useState<Coordinates | null>(null)
+  const [locating, setLocating] = useState(false)
+  const [geoError, setGeoError] = useState<GeolocationErrorReason | null>(null)
+
+  const handleLocate = async () => {
+    setLocating(true)
+    setGeoError(null)
+    const result = await getBuyerLocation()
+    setLocating(false)
+    if (result.coords) setBuyerCoords(result.coords)
+    else setGeoError(result.error)
+  }
+
   const run = useCallback(
     async (options: {
       query: string
       type: PropertyType | null
+      city: string
+      tehsil: string
       page: number
       append: boolean
     }) => {
@@ -69,6 +98,8 @@ export function OwnerPropertiesScreen() {
       try {
         const response = await searchOwnerProperties({
           query: options.query.trim() || undefined,
+          city: options.city.trim() || undefined,
+          tehsil: options.tehsil.trim() || undefined,
           propertyType: options.type ?? undefined,
           page: options.page,
           limit: PAGE_SIZE,
@@ -94,18 +125,27 @@ export function OwnerPropertiesScreen() {
 
   useEffect(() => {
     void (async () => {
-      await run({ query: '', type: null, page: 1, append: false })
+      await run({ query: '', type: null, city: '', tehsil: '', page: 1, append: false })
       setLoading(false)
     })()
   }, [run])
 
-  const search = async (next: { query?: string; type?: PropertyType | null }) => {
+  const search = async (next: {
+    query?: string
+    type?: PropertyType | null
+    city?: string
+    tehsil?: string
+  }) => {
     const merged = {
       query: next.query ?? query,
       type: next.type !== undefined ? next.type : type,
+      city: next.city ?? city,
+      tehsil: next.tehsil ?? tehsil,
     }
     setQuery(merged.query)
     setType(merged.type)
+    setCity(merged.city)
+    setTehsil(merged.tehsil)
     setLoading(true)
     await run({ ...merged, page: 1, append: false })
     setLoading(false)
@@ -114,15 +154,17 @@ export function OwnerPropertiesScreen() {
   const loadMore = async () => {
     if (loadingMore || loading || page >= totalPages) return
     setLoadingMore(true)
-    await run({ query, type, page: page + 1, append: true })
+    await run({ query, type, city, tehsil, page: page + 1, append: true })
     setLoadingMore(false)
   }
 
   const handleRefresh = async () => {
     setRefreshing(true)
-    await run({ query, type, page: 1, append: false })
+    await run({ query, type, city, tehsil, page: 1, append: false })
     setRefreshing(false)
   }
+
+  const hasStructuredFilters = Boolean(city.trim() || tehsil.trim())
 
   const header = (
     <View>
@@ -160,6 +202,50 @@ export function OwnerPropertiesScreen() {
         ) : null}
       </View>
 
+      <TouchableOpacity
+        style={styles.filtersToggle}
+        onPress={() => setFiltersOpen((open) => !open)}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: filtersOpen }}
+      >
+        <Text style={styles.filtersToggleText}>
+          {filtersOpen ? '▲ Fewer filters' : hasStructuredFilters ? '🔧 More filters •' : '🔧 More filters'}
+        </Text>
+      </TouchableOpacity>
+
+      {filtersOpen ? (
+        <View style={styles.filtersPanel}>
+          <View style={styles.filtersRow}>
+            <TextField
+              label="City"
+              value={city}
+              onChangeText={setCity}
+              placeholder="e.g. Jaipur"
+              onSubmitEditing={() => void search({})}
+              returnKeyType="search"
+              style={styles.filtersField}
+            />
+            <TextField
+              label="Tehsil"
+              value={tehsil}
+              onChangeText={setTehsil}
+              placeholder="e.g. Sanganer"
+              onSubmitEditing={() => void search({})}
+              returnKeyType="search"
+              style={styles.filtersField}
+            />
+          </View>
+          <View style={styles.filtersActions}>
+            <Button label="Apply filters" size="md" onPress={() => void search({})} />
+            {hasStructuredFilters ? (
+              <TouchableOpacity onPress={() => void search({ city: '', tehsil: '' })}>
+                <Text style={styles.filtersClearText}>Clear filters</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        </View>
+      ) : null}
+
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -189,6 +275,23 @@ export function OwnerPropertiesScreen() {
           {total} listing{total === 1 ? '' : 's'}
         </Text>
       ) : null}
+
+      {!loading && !error && results.length > 0 ? (
+        <View style={styles.locateRow}>
+          {buyerCoords ? (
+            <Text style={styles.locateHint}>📍 Showing distance from your current location</Text>
+          ) : (
+            <Button
+              label="📍 Use my location to show distance"
+              variant="secondary"
+              loading={locating}
+              onPress={() => void handleLocate()}
+              style={styles.locateBtn}
+            />
+          )}
+          {geoError ? <Text style={styles.locateError}>{geolocationErrorMessage(geoError)}</Text> : null}
+        </View>
+      ) : null}
     </View>
   )
 
@@ -204,6 +307,7 @@ export function OwnerPropertiesScreen() {
             <OwnerPropertyCard
               property={item}
               onPress={() => router.push(`/owner-properties/${item.id}`)}
+              buyerCoords={buyerCoords}
             />
           </View>
         )}
@@ -241,6 +345,8 @@ export function OwnerPropertiesScreen() {
                     pathname: '/discovery-request/new',
                     params: {
                       ...(query.trim() ? { address: query.trim() } : {}),
+                      ...(city.trim() ? { city: city.trim() } : {}),
+                      ...(tehsil.trim() ? { tehsil: tehsil.trim() } : {}),
                       ...(type ? { propertyType: type } : {}),
                     },
                   })
@@ -293,6 +399,21 @@ const styles = StyleSheet.create({
   searchIcon: { fontSize: 14 },
   searchInput: { flex: 1, color: colors.text, fontSize: 13, paddingVertical: 12 },
   clearGlyph: { fontSize: 13, color: colors.muted, padding: 4 },
+  filtersToggle: { alignSelf: 'flex-start', marginHorizontal: SCREEN_PADDING, marginBottom: spacing.sm },
+  filtersToggleText: { fontSize: 11.5, fontWeight: '600', color: colors.gold },
+  filtersPanel: {
+    marginHorizontal: SCREEN_PADDING,
+    marginBottom: spacing.md,
+    padding: spacing.md,
+    backgroundColor: colors.surface2,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+  },
+  filtersRow: { flexDirection: 'row', gap: spacing.sm },
+  filtersField: { flex: 1 },
+  filtersActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.lg },
+  filtersClearText: { fontSize: 11.5, fontWeight: '600', color: colors.muted },
   filterRow: { marginBottom: spacing.sm },
   filterContent: { paddingHorizontal: SCREEN_PADDING, gap: 7 },
   chip: {
@@ -313,6 +434,10 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
     marginBottom: spacing.md,
   },
+  locateRow: { marginHorizontal: SCREEN_PADDING, marginBottom: spacing.md, gap: spacing.xs },
+  locateBtn: { alignSelf: 'flex-start' },
+  locateHint: { fontSize: 11.5, color: colors.muted },
+  locateError: { fontSize: 11, color: colors.muted },
   footerSpinner: { marginVertical: spacing.lg },
   discoveryLink: { alignItems: 'center', paddingHorizontal: spacing.xl, paddingBottom: spacing.lg },
   discoveryLinkText: { fontSize: 12, fontWeight: '600', color: colors.gold, textAlign: 'center' },

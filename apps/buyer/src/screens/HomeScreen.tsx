@@ -2,18 +2,17 @@ import { useCallback, useEffect, useState } from 'react'
 import { StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
 import { useRouter } from 'expo-router'
 import { getBanners } from '../api/content.api'
-import { freeCaseCheck, getTrending } from '../api/property.api'
-import { getTrendingOwnerProperties } from '../api/ownerProperty.api'
+import { freeCaseCheck, getPropertyFeed } from '../api/property.api'
 import { useAuth } from '../context/AuthContext'
 import { errorMessage } from '../lib/errors'
 import { initial } from '../lib/format'
 import { colors, radius, SCREEN_PADDING, spacing } from '../theme'
 import { Button } from '../components/Button'
-import { PropertyCard, OwnerPropertyCard } from '../components/PropertyCard'
+import { FeedItemCard } from '../components/PropertyCard'
 import { Screen } from '../components/Screen'
 import { SectionTitle } from '../components/Card'
 import { EmptyState, ErrorState, LoadingState } from '../components/States'
-import type { Banner, FreePreviewProperty, OwnerProperty } from '../types/api'
+import type { Banner, FeedItem } from '../types/api'
 
 const QUICK_ACTIONS = [
   { icon: '🔍', label: 'Search reports', href: '/search' },
@@ -28,8 +27,11 @@ export function HomeScreen() {
   const { user } = useAuth()
 
   const [banners, setBanners] = useState<Banner[]>([])
-  const [trending, setTrending] = useState<FreePreviewProperty[]>([])
-  const [ownerListings, setOwnerListings] = useState<OwnerProperty[]>([])
+  // Buyer Mobile Phase 2 — one merged feed (Expert + Owner + Reporter),
+  // matching Buyer Web's Home exactly, replacing the old two-separate-lists
+  // approach so Reporter Posts (and their Verify This Property CTA) are
+  // actually reachable from Home.
+  const [feedItems, setFeedItems] = useState<FeedItem[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
@@ -41,22 +43,20 @@ export function HomeScreen() {
   const load = useCallback(async () => {
     setError('')
     try {
-      // Banners and owner listings are supporting content — a failure in
-      // either must not blank out the whole home screen, so only the trending
-      // call is allowed to decide the error state.
-      const [trendingResult, bannersResult, ownerResult] = await Promise.allSettled([
-        getTrending(undefined, 6),
+      // Banners are supporting content — a failure there must not blank out
+      // the whole home screen, so only the feed call is allowed to decide
+      // the error state.
+      const [feedResult, bannersResult] = await Promise.allSettled([
+        getPropertyFeed({ sources: ['EXPERT', 'OWNER', 'REPORTER'], limit: 10 }),
         getBanners('BUYERS'),
-        getTrendingOwnerProperties(undefined, 4),
       ])
 
-      if (trendingResult.status === 'rejected') {
-        throw trendingResult.reason
+      if (feedResult.status === 'rejected') {
+        throw feedResult.reason
       }
-      setTrending(trendingResult.value.results)
+      setFeedItems(feedResult.value.results)
 
       setBanners(bannersResult.status === 'fulfilled' ? bannersResult.value.banners : [])
-      setOwnerListings(ownerResult.status === 'fulfilled' ? ownerResult.value.results : [])
     } catch (err) {
       setError(errorMessage(err, "Couldn't load properties right now."))
     }
@@ -179,62 +179,52 @@ export function HomeScreen() {
         ))}
       </View>
 
-      <SectionTitle
-        action={
-          <TouchableOpacity onPress={() => router.push('/search')}>
-            <Text style={styles.link}>See all</Text>
-          </TouchableOpacity>
-        }
-      >
-        Recently verified
-      </SectionTitle>
+      {/* Buyer Mobile Phase 2 — one merged section (Expert + Owner + Reporter),
+          matching Buyer Web's Home feed. Titled "Latest properties" rather
+          than the old "Recently verified": that label was only ever
+          accurate for Expert reports — Owner listings and Reporter Posts
+          must never be presented as a "Verified" claim (see
+          PropertyCard.tsx's own OwnerPropertyCard/ReporterPostCard
+          comments), so keeping "verified" in a title covering all three
+          would be misleading. No single "See all" destination exists for a
+          merged feed on mobile (Search/Owner-properties/Reporter-feed stay
+          separate screens, reached via the quick actions above) — same
+          reasoning Web's own Home has no "see all" link either, since Home
+          already is the full feed there. */}
+      <SectionTitle>Latest properties</SectionTitle>
 
       <View style={styles.list}>
         {loading ? (
           <LoadingState />
         ) : error ? (
           <ErrorState message={error} onRetry={() => void handleRefresh()} />
-        ) : trending.length === 0 ? (
+        ) : feedItems.length === 0 ? (
           <EmptyState
             icon="🏘️"
-            title="No reports published yet"
-            description="Once experts publish verified reports for your area, they'll show up here."
+            title="Nothing published yet"
+            description="Once experts, owners or reporters publish content for your area, it'll show up here."
             actionLabel="Request a custom check"
             onAction={() => router.push('/requests/new')}
           />
         ) : (
-          trending.map((property) => (
-            <PropertyCard
-              key={property.id}
-              property={property}
-              onPress={() => router.push(`/report/${property.id}`)}
+          feedItems.map((item) => (
+            <FeedItemCard
+              key={item.id}
+              item={item}
+              onPress={() =>
+                item.source === 'EXPERT_REPORT'
+                  ? router.push(`/report/${item.id}`)
+                  : item.source === 'OWNER_LISTING'
+                    ? router.push(`/owner-properties/${item.id}`)
+                    : undefined
+              }
+              onChange={(next) =>
+                setFeedItems((prev) => prev.map((existing) => (existing.id === next.id ? next : existing)))
+              }
             />
           ))
         )}
       </View>
-
-      {ownerListings.length > 0 ? (
-        <>
-          <SectionTitle
-            action={
-              <TouchableOpacity onPress={() => router.push('/owner-properties')}>
-                <Text style={styles.link}>See all</Text>
-              </TouchableOpacity>
-            }
-          >
-            Owner listings · Free
-          </SectionTitle>
-          <View style={styles.list}>
-            {ownerListings.map((property) => (
-              <OwnerPropertyCard
-                key={property.id}
-                property={property}
-                onPress={() => router.push(`/owner-properties/${property.id}`)}
-              />
-            ))}
-          </View>
-        </>
-      ) : null}
     </Screen>
   )
 }

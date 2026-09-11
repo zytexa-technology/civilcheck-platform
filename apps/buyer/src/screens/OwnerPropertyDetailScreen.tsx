@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Linking, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { StyleSheet, Text, View } from 'react-native'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { getOwnerPropertyById } from '../api/ownerProperty.api'
 import { errorMessage, errorStatus } from '../lib/errors'
@@ -7,6 +7,7 @@ import { formatDate, humanize, sellerBadgeLabel } from '../lib/format'
 import { colors, radius, SCREEN_PADDING, spacing } from '../theme'
 import { Button } from '../components/Button'
 import { Card, DetailRow, SectionCard } from '../components/Card'
+import { LocationMapSection } from '../components/LocationMapSection'
 import { MediaGallery } from '../components/MediaGallery'
 import { Screen } from '../components/Screen'
 import { ScreenHeader } from '../components/ScreenHeader'
@@ -130,22 +131,13 @@ export function OwnerPropertyDetailScreen() {
         <MediaGallery images={property.images} videos={property.videos} />
       ) : null}
 
-      {property.mapUrl ? (
-        <SectionCard icon="📍" iconBackground={colors.blueDim} title="Location">
-          <TouchableOpacity
-            style={[styles.mediaRow, styles.mediaRowLast]}
-            onPress={() => void Linking.openURL(property.mapUrl!)}
-            accessibilityRole="link"
-          >
-            <Text style={styles.mediaIcon}>🗺️</Text>
-            <View style={styles.grow}>
-              <Text style={styles.mediaName}>View on Map</Text>
-              <Text style={styles.mediaHint}>Opens in Google Maps</Text>
-            </View>
-            <Text style={styles.mediaGlyph}>↗</Text>
-          </TouchableOpacity>
-        </SectionCard>
-      ) : null}
+      <LocationMapSection
+        latitude={property.latitude}
+        longitude={property.longitude}
+        mapUrl={property.mapUrl}
+        address={property.address}
+        locationLabel={property.city ?? 'the property'}
+      />
 
       {id ? <VerifyPropertyCTA source="PROPERTY" targetId={id} /> : null}
 

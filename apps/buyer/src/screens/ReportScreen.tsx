@@ -4,14 +4,17 @@ import { useLocalSearchParams } from 'expo-router'
 import { cancelAlert, getMyAlerts, subscribeAlert } from '../api/alert.api'
 import { getPropertyById } from '../api/property.api'
 import { getMyPurchases, unlockReport, verifyPurchase } from '../api/purchase.api'
+import { useAuth } from '../context/AuthContext'
 import { errorMessage, errorStatus } from '../lib/errors'
 import { openCertificate, openInvoice, PdfError } from '../lib/pdf'
 import { formatDate, formatRupees, humanize, riskBanner, sellerBadgeLong } from '../lib/format'
 import { colors, radius, SCREEN_PADDING, spacing } from '../theme'
+import { AuthRequiredSheet } from '../components/AuthRequiredSheet'
 import { Button } from '../components/Button'
 import { Card, DetailRow, InfoGrid, SectionCard } from '../components/Card'
 import { Disclaimer } from '../components/Disclaimer'
 import { FlagSheet } from '../components/FlagSheet'
+import { LocationMapSection } from '../components/LocationMapSection'
 import { MediaGallery } from '../components/MediaGallery'
 import { Pill } from '../components/Pill'
 import { ReviewSheet } from '../components/ReviewSheet'
@@ -55,6 +58,7 @@ const UNLOCK_FEATURES = [
  */
 export function ReportScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
+  const { status } = useAuth()
 
   const [property, setProperty] = useState<ReportProperty | null>(null)
   const [hasPurchased, setHasPurchased] = useState(false)
@@ -72,6 +76,13 @@ export function ReportScreen() {
   const [showReview, setShowReview] = useState(false)
   const [showFlag, setShowFlag] = useState(false)
   const [busyAction, setBusyAction] = useState<string | null>(null)
+  // Guest browsing (Final Parity Batch, Task 1) — Unlock (payment) and Watch
+  // are account-linked writes; Buyer Web's own PropertyDetail.tsx has no
+  // equivalent gate on its Unlock button (it just lets a guest's request
+  // 401), which this deliberately does NOT copy — "Guests must NOT be able
+  // to ... make payments" is explicit and non-negotiable, so both actions
+  // get the same AuthRequiredSheet treatment as Like/Save/Comment/Verify.
+  const [authAction, setAuthAction] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     if (!id) {
@@ -99,11 +110,17 @@ export function ReportScreen() {
         }
       }
 
-      try {
-        const alerts = await getMyAlerts()
-        setAlertId(alerts.alerts.find((a) => a.property.id === id)?.alertId ?? null)
-      } catch {
-        // Watch state is a nicety; treat an unknown state as "not watching".
+      // Guest browsing (Final Parity Batch, Task 1) — this screen is now
+      // public (see app/_layout.tsx's PUBLIC_CONTENT_ROUTES), so a guest has
+      // no watch state to fetch and no token to fetch it with; skipping
+      // avoids a pointless 401 on every guest page load.
+      if (status === 'authenticated') {
+        try {
+          const alerts = await getMyAlerts()
+          setAlertId(alerts.alerts.find((a) => a.property.id === id)?.alertId ?? null)
+        } catch {
+          // Watch state is a nicety; treat an unknown state as "not watching".
+        }
       }
     } catch (err) {
       setError(
@@ -112,7 +129,7 @@ export function ReportScreen() {
           : errorMessage(err, "Couldn't load this report."),
       )
     }
-  }, [id])
+  }, [id, status])
 
   useEffect(() => {
     void (async () => {
@@ -123,6 +140,10 @@ export function ReportScreen() {
 
   const handleUnlock = async () => {
     if (!id) return
+    if (status !== 'authenticated') {
+      setAuthAction('unlock this report')
+      return
+    }
 
     setStartingOrder(true)
     try {
@@ -147,6 +168,10 @@ export function ReportScreen() {
 
   const handleToggleWatch = async () => {
     if (!id) return
+    if (status !== 'authenticated') {
+      setAuthAction('watch this property')
+      return
+    }
 
     setBusyAction('watch')
     try {
@@ -289,22 +314,13 @@ export function ReportScreen() {
         <MediaGallery images={property.images} videos={property.videos} />
       ) : null}
 
-      {property.mapUrl ? (
-        <SectionCard icon="📍" iconBackground={colors.blueDim} title="Location">
-          <TouchableOpacity
-            style={[styles.documentRow, styles.documentRowLast]}
-            onPress={() => void Linking.openURL(property.mapUrl!)}
-            accessibilityRole="link"
-          >
-            <Text style={styles.documentIcon}>🗺️</Text>
-            <View style={styles.grow}>
-              <Text style={styles.documentName}>View on Map</Text>
-              <Text style={styles.documentHint}>Opens in Google Maps</Text>
-            </View>
-            <Text style={styles.documentGlyph}>↗</Text>
-          </TouchableOpacity>
-        </SectionCard>
-      ) : null}
+      <LocationMapSection
+        latitude={property.latitude}
+        longitude={property.longitude}
+        mapUrl={property.mapUrl}
+        address={property.address}
+        locationLabel={[property.tehsil, property.city].filter(Boolean).join(', ') || 'the property'}
+      />
 
       <Text style={styles.freeHeading}>✓ Free — shown to everyone</Text>
       <Card>
@@ -351,6 +367,8 @@ export function ReportScreen() {
       {id ? <VerifyPropertyCTA source="LISTING" targetId={id} /> : null}
 
       <Disclaimer disclaimerKey="report" />
+
+      <AuthRequiredSheet visible={authAction !== null} onClose={() => setAuthAction(null)} action={authAction ?? 'continue'} />
 
       <PaymentSheet
         visible={showPayment}

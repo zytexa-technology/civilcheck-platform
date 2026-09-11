@@ -2,9 +2,11 @@ import { useEffect, useState } from 'react'
 import { Alert, StyleSheet, Text, View } from 'react-native'
 import { useRouter } from 'expo-router'
 import { createVerificationRequest, getVerificationConfig } from '../api/verification.api'
+import { useAuth } from '../context/AuthContext'
 import { errorMessage, errorStatus } from '../lib/errors'
 import { formatRupees } from '../lib/format'
 import { colors, radius, spacing } from '../theme'
+import { AuthRequiredSheet } from './AuthRequiredSheet'
 import { Button, ButtonRow } from './Button'
 import { TextField } from './TextField'
 
@@ -30,10 +32,24 @@ export function VerifyPropertyCTA({
   targetId: string
 }) {
   const router = useRouter()
+  const { status } = useAuth()
   const [minFee, setMinFee] = useState<number | null>(null)
   const [offerOpen, setOfferOpen] = useState(false)
   const [offerAmount, setOfferAmount] = useState('')
   const [busy, setBusy] = useState(false)
+  // Guest browsing (Final Parity Batch, Task 1) — this CTA now also renders
+  // on otherwise-public detail pages (ReportScreen/OwnerPropertyDetailScreen),
+  // so requesting verification needs the same account gate Buyer Web's own
+  // VerifyPropertyCTA.tsx applies via AuthRequiredModal.
+  const [authOpen, setAuthOpen] = useState(false)
+
+  const handleStart = () => {
+    if (status !== 'authenticated') {
+      setAuthOpen(true)
+      return
+    }
+    setOfferOpen(true)
+  }
 
   useEffect(() => {
     let live = true
@@ -106,8 +122,14 @@ export function VerifyPropertyCTA({
           </ButtonRow>
         </>
       ) : (
-        <Button label="🔎 Request Verification" onPress={() => setOfferOpen(true)} block />
+        <Button label="🔎 Request Verification" onPress={handleStart} block />
       )}
+
+      <AuthRequiredSheet
+        visible={authOpen}
+        onClose={() => setAuthOpen(false)}
+        action="request property verification"
+      />
     </View>
   )
 }

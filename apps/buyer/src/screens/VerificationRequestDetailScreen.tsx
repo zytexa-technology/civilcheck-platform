@@ -207,7 +207,11 @@ export function VerificationRequestDetailScreen() {
 
   const handleSubmitClaim = async () => {
     if (!id) return
-    if (claimReason.trim().length < 3 || claimDescription.trim().length < 10) return
+    // 20 chars, not 10 — matches the backend's actual claimCreateSchema
+    // (packages/shared/src/validation.ts) and Buyer Web's own client-side
+    // check (VerificationRequestDetail.tsx), which this previously
+    // under-validated against, risking a late server-side 400.
+    if (claimReason.trim().length < 3 || claimDescription.trim().length < 20) return
 
     setClaimSubmitting(true)
     try {
@@ -630,7 +634,7 @@ export function VerificationRequestDetailScreen() {
                   placeholder="Explain what's wrong in detail"
                   multiline
                   editable={!claimSubmitting}
-                  hint="Minimum 10 characters."
+                  hint="Minimum 20 characters."
                 />
                 <ButtonRow>
                   <Button
@@ -644,7 +648,7 @@ export function VerificationRequestDetailScreen() {
                     label="Submit claim"
                     onPress={() => void handleSubmitClaim()}
                     loading={claimSubmitting}
-                    disabled={claimReason.trim().length < 3 || claimDescription.trim().length < 10}
+                    disabled={claimReason.trim().length < 3 || claimDescription.trim().length < 20}
                     style={styles.flexButton}
                   />
                 </ButtonRow>

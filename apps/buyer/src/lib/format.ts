@@ -315,3 +315,81 @@ export function initial(...candidates: (string | null | undefined)[]): string {
   }
   return 'U'
 }
+
+// ─── LOCATION / DISTANCE (Buyer Mobile Phase 4B) ──────────────────────────────
+// Ported directly from Buyer Web's identical helpers
+// (apps/buyer-web/src/lib/format.ts) — same math, same rounding, same
+// wording. Note what's deliberately NOT duplicated here: Web's
+// buildGoogleMapsUrl (coords -> address -> city/tehsil priority) isn't
+// needed on Mobile because every relevant type (FreePreviewProperty,
+// OwnerProperty, FeedItem) already carries a pre-built `mapUrl` from the
+// backend's own identical-algorithm buildMapUrl() — reusing that existing
+// field is more consistent with this app's existing pattern (already used
+// via Linking.openURL(property.mapUrl) in ReportScreen/OwnerPropertyDetailScreen)
+// than re-deriving the same URL a second, independent way. Distance and
+// Directions genuinely need a client-side implementation here, since only
+// the buyer's own device ever knows the buyer's own coordinates.
+
+function isValidLatLng(lat: unknown, lng: unknown): boolean {
+  return (
+    typeof lat === 'number' &&
+    typeof lng === 'number' &&
+    Number.isFinite(lat) &&
+    Number.isFinite(lng) &&
+    lat >= -90 &&
+    lat <= 90 &&
+    lng >= -180 &&
+    lng <= 180
+  )
+}
+
+/** Straight-line (great-circle) distance in km between two points. */
+export function haversineDistanceKm(
+  buyerLatitude: number | null | undefined,
+  buyerLongitude: number | null | undefined,
+  propertyLatitude: number | null | undefined,
+  propertyLongitude: number | null | undefined,
+): number | null {
+  if (!isValidLatLng(buyerLatitude, buyerLongitude) || !isValidLatLng(propertyLatitude, propertyLongitude)) {
+    return null
+  }
+  const lat1 = buyerLatitude as number
+  const lng1 = buyerLongitude as number
+  const lat2 = propertyLatitude as number
+  const lng2 = propertyLongitude as number
+
+  const toRad = (deg: number) => (deg * Math.PI) / 180
+  const earthRadiusKm = 6371
+  const dLat = toRad(lat2 - lat1)
+  const dLng = toRad(lng2 - lng1)
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+  return earthRadiusKm * c
+}
+
+/** "650 m away" under 1 km, otherwise "4.8 km away" (whole km once ≥ 10 km). */
+export function formatDistance(km: number | null | undefined): string | null {
+  if (km == null || !Number.isFinite(km) || km < 0) return null
+  if (km < 1) return `${Math.round(km * 1000)} m away`
+  const rounded = km < 10 ? Math.round(km * 10) / 10 : Math.round(km)
+  return `${rounded} km away`
+}
+
+/**
+ * Google Maps Directions deep link — free `maps/dir` URL API, no key. Origin
+ * is included only when the buyer's own coordinates are known; otherwise
+ * Google Maps itself prompts for a starting point once opened. Destination
+ * requires real property coordinates.
+ */
+export function buildDirectionsUrl(
+  destination: { latitude: number | null | undefined; longitude: number | null | undefined },
+  origin?: { latitude: number | null | undefined; longitude: number | null | undefined } | null,
+): string | null {
+  if (!isValidLatLng(destination.latitude, destination.longitude)) return null
+  const dest = encodeURIComponent(`${destination.latitude},${destination.longitude}`)
+  if (origin && isValidLatLng(origin.latitude, origin.longitude)) {
+    const orig = encodeURIComponent(`${origin.latitude},${origin.longitude}`)
+    return `https://www.google.com/maps/dir/?api=1&origin=${orig}&destination=${dest}`
+  }
+  return `https://www.google.com/maps/dir/?api=1&destination=${dest}`
+}

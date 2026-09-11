@@ -1,5 +1,6 @@
 import client from './client'
 import type {
+  FeedSourceFilter,
   FreeCheckResponse,
   PropertyDetailResponse,
   PropertyFeedResponse,
@@ -86,14 +87,38 @@ export async function getSearchHistory(): Promise<SearchHistoryResponse> {
  * The unified, media-first discovery feed — Owner/Reporter self-listed
  * Properties and Expert-verified Listings merged into one array, each
  * already carrying `uploadedBy` and (Expert-only) `riskBadge`. Only
- * APPROVED rows from either source table are ever included — rejected,
- * suspended, pending, and deleted properties never reach this endpoint.
+ * APPROVED (PUBLISHED for a Reporter Post) rows are ever included —
+ * rejected, suspended, pending, and deleted properties never reach this
+ * endpoint.
+ *
+ * `sources` defaults server-side to EXPERT+OWNER only (property.controller.ts)
+ * — REPORTER never joins unless explicitly requested, so Buyer Mobile's Home
+ * feed (Phase 2) must always pass all three explicitly to see Reporter Posts,
+ * exactly like Buyer Web's own `getFeed()` already does.
  */
 export async function getPropertyFeed(params: {
+  sources?: FeedSourceFilter[]
   city?: string
   propertyType?: PropertyType
   limit?: number
 } = {}): Promise<PropertyFeedResponse> {
-  const { data } = await client.get<PropertyFeedResponse>('/properties/feed', { params })
+  const { sources, ...rest } = params
+  const { data } = await client.get<PropertyFeedResponse>('/properties/feed', {
+    params: { ...rest, sources: sources?.join(',') },
+  })
+  return data
+}
+
+/**
+ * GET /api/properties/mine?kind=saved|liked — Buyer Mobile Phase 4A.
+ * Same endpoint Buyer Web's SavedProperties.tsx already calls
+ * (getMyEngagedProperties in its own property.api.ts) — the buyer's saved
+ * or liked items, spanning all three feed sources, keyed off the
+ * authenticated token server-side (no buyerId is ever passed from the
+ * client). Returns the identical FeedItem shape as getPropertyFeed, so the
+ * existing FeedItemCard renders these with no adaptation needed.
+ */
+export async function getMyEngagedProperties(kind: 'saved' | 'liked'): Promise<PropertyFeedResponse> {
+  const { data } = await client.get<PropertyFeedResponse>('/properties/mine', { params: { kind } })
   return data
 }

@@ -7,6 +7,7 @@ import { getMySpecialRequests } from '../api/specialRequest.api'
 import { useAuth } from '../context/AuthContext'
 import { formatPhone, initial } from '../lib/format'
 import { colors, radius, SCREEN_PADDING, spacing } from '../theme'
+import { Button } from '../components/Button'
 import { Screen } from '../components/Screen'
 import type { Href } from 'expo-router'
 
@@ -20,7 +21,7 @@ interface MenuItem {
 
 export function ProfileScreen() {
   const router = useRouter()
-  const { user, signOut, refreshUser } = useAuth()
+  const { status, user, signOut, refreshUser } = useAuth()
 
   const [reportCount, setReportCount] = useState(0)
   const [watchingCount, setWatchingCount] = useState(0)
@@ -31,6 +32,11 @@ export function ProfileScreen() {
   // to stay usable (specifically: log out has to stay reachable) when the API
   // is down.
   const load = useCallback(async () => {
+    // Guest browsing (Final Parity Batch, Task 1) — the Profile tab is now
+    // reachable without a session (see app/_layout.tsx), so this guards the
+    // account-only fetches below rather than letting them 401.
+    if (status !== 'authenticated') return
+
     // A session restored while offline leaves the profile unfetched (see
     // AuthContext: a network failure keeps the token rather than logging the
     // buyer out). This is where that gets retried, so the screen stops showing
@@ -46,7 +52,7 @@ export function ProfileScreen() {
     if (purchases.status === 'fulfilled') setReportCount(purchases.value.total)
     if (alerts.status === 'fulfilled') setWatchingCount(alerts.value.total)
     if (requests.status === 'fulfilled') setRequestCount(requests.value.total)
-  }, [user, refreshUser])
+  }, [status, user, refreshUser])
 
   useFocusEffect(
     useCallback(() => {
@@ -66,19 +72,32 @@ export function ProfileScreen() {
     ])
   }
 
-  const MENU: MenuItem[] = [
-    { icon: '📖', title: 'My reports', href: '/reports' },
-    { icon: '🔎', title: 'My verifications', href: '/verifications' },
-    { icon: '📝', title: 'My research requests', href: '/requests' },
-    { icon: '🔔', title: 'Alerts & subscription', href: '/alerts' },
+  // Guest browsing (Final Parity Batch, Task 1) — split so a logged-out
+  // buyer still sees the menu items Buyer Web keeps public (Owner listings,
+  // Property Updates, Coverage, Support all sit outside <ProtectedRoute/>),
+  // while every account-only destination (reports, verifications, saved
+  // properties, requests, alerts, notification inbox/settings, log out)
+  // only appears once signed in — matching Web's account/* split exactly.
+  const PUBLIC_MENU: MenuItem[] = [
     { icon: '🏠', title: 'Owner listings', href: '/owner-properties' },
     { icon: '📰', title: 'Property Updates', href: '/reporter-feed' },
     { icon: '📍', title: 'Where we operate', href: '/coverage' },
     { icon: '💬', title: 'Support', href: '/support' },
+  ]
+
+  const ACCOUNT_MENU: MenuItem[] = [
+    { icon: '📖', title: 'My reports', href: '/reports' },
+    { icon: '🔎', title: 'My verifications', href: '/verifications' },
+    { icon: '🔖', title: 'Saved properties', href: '/saved-properties' },
+    { icon: '📝', title: 'My research requests', href: '/requests' },
+    { icon: '🔔', title: 'Alerts & subscription', href: '/alerts' },
+    ...PUBLIC_MENU,
     { icon: '📥', title: 'Notification inbox', href: '/inbox' },
     { icon: '⚙️', title: 'Notification settings', href: '/notifications' },
     { icon: '🚪', title: 'Log out', destructive: true, onPress: handleLogout },
   ]
+
+  const MENU = status === 'authenticated' ? ACCOUNT_MENU : PUBLIC_MENU
 
   return (
     <Screen scroll>
@@ -86,19 +105,52 @@ export function ProfileScreen() {
         <Text style={styles.headerTitle}>Profile</Text>
       </View>
 
-      <View style={styles.identity}>
-        <View style={styles.avatar}>
-          <Text style={styles.avatarText}>{initial(user?.name, user?.phone)}</Text>
-        </View>
-        <Text style={styles.name}>{user?.name || 'CivilCheck user'}</Text>
-        {user?.phone ? <Text style={styles.phone}>{formatPhone(user.phone)}</Text> : null}
-      </View>
+      {status === 'authenticated' ? (
+        <>
+          <View style={styles.identity}>
+            <View style={styles.avatar}>
+              <Text style={styles.avatarText}>{initial(user?.name, user?.phone)}</Text>
+            </View>
+            <Text style={styles.name}>{user?.name || 'CivilCheck user'}</Text>
+            {user?.phone ? <Text style={styles.phone}>{formatPhone(user.phone)}</Text> : null}
+            {/* Buyer Mobile Phase 1 parity fix — mirrors Buyer Web's
+                AccountOverview.tsx "Edit profile" button, placed directly under
+                identity the same way. Profile was previously editable only once,
+                during onboarding (CompleteProfileScreen), with no way back in. */}
+            <Button
+              label="✏️ Edit Profile"
+              variant="secondary"
+              onPress={() => router.push('/edit-profile')}
+              style={styles.editButton}
+            />
+          </View>
 
-      <View style={styles.stats}>
-        <Stat value={reportCount} label="Reports" />
-        <Stat value={watchingCount} label="Watching" />
-        <Stat value={requestCount} label="Requests" />
-      </View>
+          <View style={styles.stats}>
+            <Stat value={reportCount} label="Reports" />
+            <Stat value={watchingCount} label="Watching" />
+            <Stat value={requestCount} label="Requests" />
+          </View>
+        </>
+      ) : (
+        <View style={styles.identity}>
+          <View style={styles.avatar}>
+            <Text style={styles.avatarText}>🔒</Text>
+          </View>
+          <Text style={styles.name}>Sign in to your account</Text>
+          <Text style={styles.guestBody}>
+            Browsing CivilCheck is always free — sign in to save, like, comment and track requests.
+          </Text>
+          <View style={styles.guestActions}>
+            <Button label="Create Account" onPress={() => router.push('/register')} style={styles.editButton} />
+            <Button
+              label="Log In"
+              variant="secondary"
+              onPress={() => router.push('/login')}
+              style={styles.editButton}
+            />
+          </View>
+        </View>
+      )}
 
       <View style={styles.menu}>
         {MENU.map((item, index) => (
@@ -164,6 +216,9 @@ const styles = StyleSheet.create({
   avatarText: { fontSize: 28, fontWeight: '700', color: colors.onGold },
   name: { fontSize: 18, fontWeight: '700', color: colors.text },
   phone: { fontSize: 11.5, color: colors.muted },
+  editButton: { marginTop: spacing.sm, minWidth: 160 },
+  guestActions: { gap: spacing.sm, alignItems: 'center', width: '100%' },
+  guestBody: { fontSize: 11.5, color: colors.muted, textAlign: 'center', lineHeight: 17, maxWidth: 280 },
   stats: {
     flexDirection: 'row',
     gap: spacing.sm,
