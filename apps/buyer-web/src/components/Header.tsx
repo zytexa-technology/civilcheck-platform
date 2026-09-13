@@ -61,7 +61,7 @@ export function Header() {
   return (
     <>
       <header className="site-header">
-        <div className="container row" style={{ gap: 20 }}>
+        <div className="container row site-header__inner">
           <button
             type="button"
             className="menu-toggle"
@@ -76,7 +76,7 @@ export function Header() {
             <span className="brand__mark" aria-hidden="true">
               C
             </span>
-            CivilCheck
+            <span className="brand__text">CivilCheck</span>
           </Link>
 
           <nav className="nav-links" aria-label="Primary">

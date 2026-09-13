@@ -96,7 +96,8 @@ textarea.control{resize:vertical;min-height:88px}
 
 /* ============ STAT GRID ============ */
 .grid{display:grid;gap:14px}
-.g4{grid-template-columns:repeat(4,1fr)} .g3{grid-template-columns:repeat(3,1fr)} .g2{grid-template-columns:repeat(2,1fr)}
+.grid>*{min-width:0}   /* grid items default to min-width:auto — without this, one long unbreakable string (an id, email, filename) in a cell forces the whole row wider than the viewport instead of wrapping */
+.g4{grid-template-columns:repeat(4,1fr)} .g3{grid-template-columns:repeat(3,1fr)} .g2{grid-template-columns:repeat(2,1fr)} .g5{grid-template-columns:repeat(5,1fr)}
 .stat{padding:18px 20px}
 .stat .top{display:flex;align-items:center;justify-content:space-between}
 .stat .ic{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;font-size:16px}
@@ -175,13 +176,21 @@ textarea.control{resize:vertical;min-height:88px}
 .admin-hamburger{display:none;width:38px;height:38px;border-radius:9px;background:var(--surface-2);border:1px solid var(--border-2);align-items:center;justify-content:center;flex-shrink:0}
 .admin-content{padding:24px;max-width:1320px;width:100%}
 
+/* ============ DASHBOARD CHART ROW — bar chart + pie chart ============ */
+/* Used to be an inline gridTemplateColumns:'minmax(0,1.4fr) minmax(0,1fr)'
+   style. The minmax(0,...) tracks meant it never technically overflowed —
+   they'd just shrink both charts to illegible slivers side by side on
+   mobile instead. Stack them below 900px like everything else. */
+.dash-chart-grid{grid-template-columns:minmax(0,1.4fr) minmax(0,1fr)}
+
 /* ============ RESPONSIVE ============ */
 @media(max-width:900px){
   .admin-hamburger{display:flex}
   .admin-sidebar{transform:translateX(-100%)}
   .admin-sidebar.open{transform:translateX(0)}
   .admin-main{margin-left:0}
-  .g4{grid-template-columns:repeat(2,1fr)} .g3{grid-template-columns:repeat(2,1fr)}
+  .g4{grid-template-columns:repeat(2,1fr)} .g3{grid-template-columns:repeat(2,1fr)} .g5{grid-template-columns:repeat(2,1fr)}
+  .dash-chart-grid{grid-template-columns:1fr}
   /* Tables become stacked cards below 900px — see <ResponsiveTable> */
   .tbl-wrap{display:none}
   .tbl-cards{display:flex;flex-direction:column;gap:10px}
@@ -189,7 +198,7 @@ textarea.control{resize:vertical;min-height:88px}
 @media(max-width:560px){
   .admin-content{padding:16px}
   .admin-topbar{padding:12px 16px}
-  .g4,.g3,.g2{grid-template-columns:1fr}
+  .g4,.g3,.g2,.g5{grid-template-columns:1fr}
   .row{flex-direction:column}
   .row>*{min-width:0}
   .page-head{flex-direction:column}

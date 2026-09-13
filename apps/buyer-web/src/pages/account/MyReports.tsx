@@ -36,7 +36,7 @@ export default function MyReports() {
       </h1>
 
       {purchases.length > 0 ? (
-        <div className="grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)', marginBottom: 24 }}>
+        <div className="grid grid--cols-3" style={{ marginBottom: 24 }}>
           <StatTile label="Reports unlocked" value={purchases.length} />
           <StatTile label="Total spent" value={formatRupees(totalSpent)} />
           <StatTile label="High risk found" value={highRisk} color="var(--cc-red)" />

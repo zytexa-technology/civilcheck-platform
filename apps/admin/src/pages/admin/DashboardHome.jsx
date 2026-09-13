@@ -175,7 +175,7 @@ export default function DashboardHome() {
         <MetricCard icon="🏆" value={overview?.users?.approvedSellers || 0} label="Active verified sellers" />
       </div>
 
-      <div className="grid" style={{ gridTemplateColumns: 'minmax(0,1.4fr) minmax(0,1fr)', marginBottom: 16 }}>
+      <div className="grid dash-chart-grid" style={{ marginBottom: 16 }}>
         <Card style={{ padding: 20, minWidth: 0 }}>
           <SectionLabel>Monthly revenue trend (₹)</SectionLabel>
           <ResponsiveContainer width="100%" height={240}>

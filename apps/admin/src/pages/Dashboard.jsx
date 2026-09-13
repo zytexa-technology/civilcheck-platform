@@ -145,7 +145,10 @@ export default function Dashboard() {
               <button
                 key={n.id || 'home'}
                 type="button"
-                onClick={() => navigate(n.id ? `/dashboard/${n.id}` : '/dashboard')}
+                onClick={() => {
+                  navigate(n.id ? `/dashboard/${n.id}` : '/dashboard')
+                  setSidebarOpen(false)
+                }}
                 className={`admin-nav-item ${active ? 'on' : ''}`}
                 style={{ width: '100%', textAlign: 'left' }}
                 aria-current={active ? 'page' : undefined}

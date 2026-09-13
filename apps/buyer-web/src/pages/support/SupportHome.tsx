@@ -34,7 +34,7 @@ export default function SupportHome() {
         </div>
       </div>
 
-      <div className="grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)', marginBottom: 32 }}>
+      <div className="grid grid--cols-3" style={{ marginBottom: 32 }}>
         {CATEGORIES.map((c) => (
           <Card key={c.label}>
             <div style={{ fontSize: 22, marginBottom: 8 }} aria-hidden="true">

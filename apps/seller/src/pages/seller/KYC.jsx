@@ -257,7 +257,7 @@ export default function KYC() {
         }
       />
 
-      <div style={S.mainGrid}>
+      <div className="kyc-main-grid">
         {/* LEFT COLUMN */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
@@ -719,7 +719,6 @@ const DocSlot = ({ label, required, picked, busy, onPick, onClear }) => (
 )
 
 const S = {
-  mainGrid: { display: 'grid', gridTemplateColumns: '1fr 300px', gap: 18, alignItems: 'start' },
   cardHd: { padding: '14px 18px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 12 },
   cardHdIco: { width: 36, height: 36, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, flexShrink: 0 },
   cardHdTitle: { fontSize: 14, fontWeight: 600, color: 'var(--ink)' },

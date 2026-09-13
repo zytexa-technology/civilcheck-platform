@@ -40,7 +40,7 @@ export default function Coverage() {
       ) : areas.length === 0 ? (
         <EmptyState icon="🗺️" title="Coverage areas coming soon" />
       ) : (
-        <div className="grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
+        <div className="grid grid--cols-3">
           {areas.map((area) => (
             <Card key={`${area.state}-${area.city}`}>
               <h3 style={{ fontWeight: 700, fontSize: 14, marginBottom: 4 }}>{area.city}</h3>

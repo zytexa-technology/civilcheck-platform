@@ -170,6 +170,7 @@ textarea.control{resize:vertical}
 
 /* ============ STAT GRID ============ */
 .grid{display:grid;gap:16px}
+.grid>*{min-width:0}   /* grid items default to min-width:auto — without this, one long unbreakable string (an id, email, filename) in a cell forces the whole row wider than the viewport instead of wrapping */
 .g4{grid-template-columns:repeat(4,1fr)} .g3{grid-template-columns:repeat(3,1fr)} .g2{grid-template-columns:repeat(2,1fr)}
 .stat{padding:18px 20px}
 .stat .top{display:flex;align-items:center;justify-content:space-between}
@@ -264,6 +265,13 @@ textarea.control{resize:vertical}
 .overlay{position:fixed;inset:0;background:rgba(13,24,38,.5);z-index:39;display:none}
 .overlay.show{display:block}
 
+/* ============ KYC PAGE — content + fixed-width side panel ============ */
+/* Used to be an inline gridTemplateColumns:'1fr 300px' style — a plain
+   (non-minmax) 300px track doesn't shrink, so the row overflowed on any
+   viewport it couldn't fit both tracks into. */
+.kyc-main-grid{display:grid;grid-template-columns:1fr 300px;gap:18px;align-items:start}
+.kyc-main-grid>*{min-width:0}
+
 /* ============ RESPONSIVE ============ */
 @media(max-width:900px){
   .portal{grid-template-columns:1fr}
@@ -271,6 +279,7 @@ textarea.control{resize:vertical}
   .sidebar.open{transform:none}
   .topbar .menu-btn{display:grid;place-items:center}
   .g4{grid-template-columns:repeat(2,1fr)} .g3{grid-template-columns:1fr}
+  .kyc-main-grid{grid-template-columns:1fr}
 }
 @media(max-width:560px){
   .content{padding:18px} .topbar{padding:12px 16px}

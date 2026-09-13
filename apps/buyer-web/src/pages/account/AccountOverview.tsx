@@ -138,7 +138,7 @@ export default function AccountOverview() {
         )}
       </Card>
 
-      <div className="grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
+      <div className="grid">
         <StatTile label="Reports" value={stats?.reports} />
         <StatTile label="Watching" value={stats?.watching} />
         <StatTile label="Verifications" value={stats?.verifications} />

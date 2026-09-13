@@ -110,7 +110,7 @@ export default function Analytics() {
       </div>
 
       {/* ── Top Stats ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: 24 }}>
+      <div className="grid g4" style={{ marginBottom: 24 }}>
         <StatCard icon="💰" label="Total GMV"
           value={`₹${(overview?.revenue?.totalGMV || 0).toLocaleString('en-IN')}`}
           color="#f59e0b"
@@ -134,7 +134,7 @@ export default function Analytics() {
       </div>
 
       {/* ── Row 2: Users + Listings ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
+      <div className="grid g2" style={{ marginBottom: 16 }}>
 
         {/* Users Breakdown */}
         <div style={s.card}>
@@ -192,7 +192,7 @@ export default function Analytics() {
           Conversion Funnel
           <Badge color="blue">{funnel?.conversionRate || '0%'} conversion</Badge>
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12, marginBottom: 20 }}>
+        <div className="grid g3" style={{ marginBottom: 20 }}>
           {[
             { icon: '🔍', label: 'Free Case Checks',     value: funnel?.step1_freeChecks || 0,          color: '#3b82f6' },
             { icon: '💳', label: 'Paid Report Unlocks',  value: funnel?.step2_paidUnlocks || 0,         color: '#22c55e' },
@@ -217,55 +217,57 @@ export default function Analytics() {
       </div>
 
       {/* ── Top Sellers + Top Cities ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+      <div className="grid g2">
 
         {/* Top Sellers */}
         <div style={{ ...s.card, padding: 0, overflow: 'hidden' }}>
           <div style={{ padding: '14px 18px', borderBottom: '1px solid #1f2535', ...s.cardTitle }}>
             Top Sellers by Earnings
           </div>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-            <thead>
-              <tr style={{ background: '#0e1016' }}>
-                {['#', 'Seller', 'Badge', 'Earnings', 'Accuracy'].map(h => (
-                  <th key={h} style={{ ...s.th, padding: '9px 14px' }}>{h}</th>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+              <thead>
+                <tr style={{ background: '#0e1016' }}>
+                  {['#', 'Seller', 'Badge', 'Earnings', 'Accuracy'].map(h => (
+                    <th key={h} style={{ ...s.th, padding: '9px 14px', whiteSpace: 'nowrap' }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {topSellers.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} style={{ padding: 24, textAlign: 'center', color: '#9ca3af', fontSize: 12 }}>
+                      No sellers yet
+                    </td>
+                  </tr>
+                ) : topSellers.map((seller, i) => (
+                  <tr key={seller.id}
+                    style={{ borderTop: '1px solid #1f2535' }}
+                    onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,.02)'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                    <td style={{ ...s.td, padding: '10px 14px', color: '#9ca3af', fontWeight: 700 }}>{i + 1}</td>
+                    <td style={{ ...s.td, padding: '10px 14px', whiteSpace: 'nowrap' }}>
+                      <div style={{ fontWeight: 600 }}>{seller.name}</div>
+                      <div style={{ fontSize: 11, color: '#9ca3af' }}>{seller.profession}</div>
+                    </td>
+                    <td style={{ ...s.td, padding: '10px 14px' }}>
+                      <Badge color={seller.badge === 'PLATINUM' || seller.badge === 'GOLD' ? 'gold' : seller.badge === 'SILVER' ? 'blue' : 'gray'}>
+                        {seller.badge}
+                      </Badge>
+                    </td>
+                    <td style={{ ...s.td, padding: '10px 14px', color: '#22c55e', fontWeight: 700, whiteSpace: 'nowrap' }}>
+                      ₹{(seller.totalEarnings || 0).toLocaleString('en-IN')}
+                    </td>
+                    <td style={{ ...s.td, padding: '10px 14px' }}>
+                      <span style={{ color: seller.accuracyScore >= 95 ? '#22c55e' : seller.accuracyScore >= 90 ? '#f59e0b' : '#ef4444', fontWeight: 600 }}>
+                        {seller.accuracyScore}%
+                      </span>
+                    </td>
+                  </tr>
                 ))}
-              </tr>
-            </thead>
-            <tbody>
-              {topSellers.length === 0 ? (
-                <tr>
-                  <td colSpan={5} style={{ padding: 24, textAlign: 'center', color: '#9ca3af', fontSize: 12 }}>
-                    No sellers yet
-                  </td>
-                </tr>
-              ) : topSellers.map((seller, i) => (
-                <tr key={seller.id}
-                  style={{ borderTop: '1px solid #1f2535' }}
-                  onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,.02)'}
-                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                  <td style={{ ...s.td, padding: '10px 14px', color: '#9ca3af', fontWeight: 700 }}>{i + 1}</td>
-                  <td style={{ ...s.td, padding: '10px 14px' }}>
-                    <div style={{ fontWeight: 600 }}>{seller.name}</div>
-                    <div style={{ fontSize: 11, color: '#9ca3af' }}>{seller.profession}</div>
-                  </td>
-                  <td style={{ ...s.td, padding: '10px 14px' }}>
-                    <Badge color={seller.badge === 'PLATINUM' || seller.badge === 'GOLD' ? 'gold' : seller.badge === 'SILVER' ? 'blue' : 'gray'}>
-                      {seller.badge}
-                    </Badge>
-                  </td>
-                  <td style={{ ...s.td, padding: '10px 14px', color: '#22c55e', fontWeight: 700 }}>
-                    ₹{(seller.totalEarnings || 0).toLocaleString('en-IN')}
-                  </td>
-                  <td style={{ ...s.td, padding: '10px 14px' }}>
-                    <span style={{ color: seller.accuracyScore >= 95 ? '#22c55e' : seller.accuracyScore >= 90 ? '#f59e0b' : '#ef4444', fontWeight: 600 }}>
-                      {seller.accuracyScore}%
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+              </tbody>
+            </table>
+          </div>
         </div>
 
         {/* Top Cities */}
@@ -311,7 +313,7 @@ export default function Analytics() {
           <div style={{ padding: 20, textAlign: 'center', color: '#9ca3af', fontSize: 13 }}>No data available</div>
         ) : (
           <>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 14, marginTop: 14 }}>
+            <div className="grid g5" style={{ marginTop: 14 }}>
               <MiniStat label="Active" value={subs.activeSubscriptions} color="#22c55e" />
               <MiniStat label="Inactive" value={subs.inactiveSubscriptions} color="#6b7280" />
               <MiniStat label="Unique Subscribers" value={subs.uniqueActiveSubscribers} color="#3b82f6" />

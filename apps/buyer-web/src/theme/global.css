@@ -154,6 +154,17 @@ ul {
   gap: 10px;
 }
 
+@media (max-width: 767px) {
+  /* .row is used both for small inline groups (icon + label, which never
+     need to wrap) and for CTA button pairs (e.g. Support's "Start a
+     conversation" / "View my tickets"), which are too wide side-by-side on
+     mobile. Wrapping is a no-op for the former and fixes the latter without
+     a mobile-only markup change. */
+  .row {
+    flex-wrap: wrap;
+  }
+}
+
 .spread {
   display: flex;
   align-items: center;
@@ -165,6 +176,13 @@ ul {
   display: grid;
   gap: 20px;
   grid-template-columns: repeat(4, 1fr);
+}
+
+.grid > * {
+  /* Grid items default to min-width:auto — without this, one long
+     unbreakable string (an id, email, filename) in a cell forces the whole
+     row wider than the viewport instead of wrapping. */
+  min-width: 0;
 }
 
 @media (max-width: 1023px) {
@@ -186,11 +204,27 @@ ul {
   }
 }
 
+/* Desktop-only column-count override for pages that want 3 (not .grid's
+   default 4) at >=1024px — .grid's own <=1023/<=767/<=430 breakpoints above
+   still apply below that, so this never needs its own mobile rules. Pages
+   used to hardcode gridTemplateColumns inline instead, which — being inline
+   — permanently pinned the column count and defeated .grid's responsive
+   breakpoints at every width, not just desktop. */
+@media (min-width: 1024px) {
+  .grid--cols-3 {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
 .two-col {
   display: grid;
   grid-template-columns: 1.7fr 1fr;
   gap: 28px;
   align-items: start;
+}
+
+.two-col > * {
+  min-width: 0;
 }
 
 @media (max-width: 1023px) {
@@ -204,6 +238,10 @@ ul {
   grid-template-columns: 260px 1fr;
   gap: 28px;
   align-items: start;
+}
+
+.account-layout > * {
+  min-width: 0;
 }
 
 @media (max-width: 1023px) {
@@ -774,6 +812,10 @@ textarea.field__control {
   cursor: pointer;
 }
 
+.site-header__inner {
+  gap: 20px;
+}
+
 @media (max-width: 1023px) {
   .nav-links {
     display: none;
@@ -783,6 +825,26 @@ textarea.field__control {
   }
   .menu-toggle {
     display: flex;
+  }
+}
+
+@media (max-width: 400px) {
+  /* At the narrowest phones (320-390px) the hamburger + full wordmark +
+     guest "Log in"/"Sign up" buttons don't fit on one row (measured ~39px
+     overflow at 320px). Drop the wordmark text (the "C" mark alone stays a
+     recognizable, tappable home link) and tighten spacing rather than
+     truncating or wrapping the header. */
+  .site-header__inner {
+    gap: 10px;
+  }
+  .brand__text {
+    display: none;
+  }
+  .header-actions {
+    gap: 6px;
+  }
+  .header-actions .btn--sm {
+    padding: 8px 10px;
   }
 }
 
