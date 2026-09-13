@@ -21,6 +21,15 @@ export const getKycStatus = async () => {
   return response.data
 }
 
+// Mandatory Terms & Conditions / Privacy Policy re-acceptance — the one
+// route sellerMiddleware's TERMS_ACCEPTANCE_REQUIRED gate exempts. Server
+// determines the current Terms version and timestamp; this only ever
+// communicates explicit consent.
+export const acceptSellerTerms = async () => {
+  const response = await API.post('/seller/terms/accept', { accept: true })
+  return response.data
+}
+
 // selfieUrl is optional in kycUploadSchema — send it only when we have one,
 // since an empty string would fail the z.url() check.
 export const uploadCertificate = async (certificateUrl, selfieUrl) => {
@@ -177,6 +186,14 @@ export const createRedeemRequest = async (data) => {
 // Marketplace (apps/api's verification.routes.ts expertVerificationRouter).
 // A quote submitted here is a non-binding PENDING offer — the buyer alone
 // picks a winner (Buyer Web); nothing here can accept/lock a request.
+// Public endpoint (no auth) — the ONE place minVerificationFee AND the
+// current 30/70 commission split come from. Never hardcode 30%/70%
+// anywhere in this app; every earning-preview computation reads this.
+export const getVerificationMarketplaceConfig = async () => {
+  const response = await API.get('/verification-requests/config')
+  return response.data
+}
+
 export const getVerificationMarketplace = async () => {
   const response = await API.get('/seller/verification-marketplace')
   return response.data

@@ -9,13 +9,42 @@ import {
   resolveReconciliationIssue,
   getVerificationSettings,
   updateVerificationSettings,
+  getExpertVerificationPayouts,
+  initiateExpertVerificationPayout,
 } from '../../api/admin.api'
 import { useAuth } from '../../context/AuthContext'
 import { canManageFinance } from '../../utils/permissions'
 import { Badge, Button, Card, Field, LoadingState, PageHead, ResponsiveTable, Tabs, Toast } from '../../components/ui'
 
 const inr = (n) => '₹' + Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })
-const payoutTone = { PAYOUT_REQUESTED: 'amber', PROCESSING: 'amber', PAID: 'green', FAILED: 'red', RETRYABLE: 'amber', MANUAL_REVIEW: 'red', REVERSED: 'red' }
+const payoutTone = { PAYOUT_REQUESTED: 'amber', PROCESSING: 'amber', PAID: 'green', FAILED: 'red', RETRYABLE: 'amber', MANUAL_REVIEW: 'red', REVERSED: 'red', FROZEN: 'red' }
+const fmtDateTime = (d) => (d ? new Date(d).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—')
+
+// Expert Verification Payouts — the "worst-case earning status" label
+// admin.controller.ts's getExpertVerificationPayouts derives per request,
+// humanized for this table. This dashboard shows ONLY Expert-performed
+// verifications (a ProfessionalEarning can only exist for an EXPERT-role
+// Seller — see ledger.service.ts) — an Admin- or SuperAdmin-performed
+// verification never appears here, by construction, not by a filter.
+const EXPERT_PAYOUT_LABEL = {
+  EARNED: 'On Hold',
+  PENDING_SETTLEMENT: 'On Hold',
+  FROZEN: 'Frozen (Claim)',
+  AVAILABLE_FOR_PAYOUT: 'Eligible',
+  PAYOUT_REQUESTED: 'Processing',
+  PROCESSING: 'Processing',
+  PAID: 'Paid',
+  FAILED: 'Failed',
+  RETRYABLE: 'Failed (Retryable)',
+  MANUAL_REVIEW: 'Failed (Manual Review)',
+  REVERSED: 'Refunded',
+  NONE: '—',
+}
+const EXPERT_PAYOUT_TONE = {
+  EARNED: 'amber', PENDING_SETTLEMENT: 'amber', FROZEN: 'red', AVAILABLE_FOR_PAYOUT: 'green',
+  PAYOUT_REQUESTED: 'amber', PROCESSING: 'amber', PAID: 'green', FAILED: 'red', RETRYABLE: 'amber',
+  MANUAL_REVIEW: 'red', REVERSED: 'grey', NONE: 'grey',
+}
 
 export default function FinancialDashboard() {
   const { admin } = useAuth()
@@ -34,7 +63,8 @@ export default function FinancialDashboard() {
           onChange={setTab}
           options={[
             { value: 'overview', label: 'Overview' },
-            { value: 'payouts', label: 'Payouts' },
+            { value: 'expert-payouts', label: 'Expert Verification Payouts' },
+            { value: 'payouts', label: 'Payout Batches' },
             { value: 'reconciliation', label: 'Reconciliation' },
             { value: 'settings', label: 'Commission settings' },
           ]}
@@ -42,6 +72,7 @@ export default function FinancialDashboard() {
       </div>
 
       {tab === 'overview' && <OverviewTab showToast={showToast} />}
+      {tab === 'expert-payouts' && <ExpertVerificationPayoutsTab canManage={canManage} showToast={showToast} />}
       {tab === 'payouts' && <PayoutsTab canManage={canManage} showToast={showToast} />}
       {tab === 'reconciliation' && <ReconciliationTab canManage={canManage} showToast={showToast} />}
       {tab === 'settings' && <SettingsTab canManage={canManage} showToast={showToast} />}
@@ -82,6 +113,117 @@ function OverviewTab({ showToast }) {
           <div style={{ fontFamily: 'var(--disp)', fontSize: 21, fontWeight: 800, color }}>{label.includes('issues') ? value : inr(value)}</div>
         </Card>
       ))}
+    </div>
+  )
+}
+
+// Expert Verification Payouts — Buyer / Property / Expert / amount / 30-70
+// split / report completed / claim deadline / buyer acceptance / claim
+// status / payout status, with a Super Admin-only "Initiate Eligible
+// Payout" action that never shows once a request is frozen, already paid,
+// or not yet eligible. This table ONLY ever contains Expert-performed
+// verifications — an Admin- or SuperAdmin-performed verification never
+// creates a ProfessionalEarning row at all (see ledger.service.ts), so it
+// structurally cannot appear here, not merely by a filter choice.
+const EXPERT_PAYOUT_FILTERS = [
+  { value: 'all', label: 'All' },
+  { value: 'on_hold', label: 'On Hold' },
+  { value: 'claim_window_open', label: 'Claim Window Open' },
+  { value: 'eligible', label: 'Eligible' },
+  { value: 'processing', label: 'Processing' },
+  { value: 'paid', label: 'Paid' },
+  { value: 'failed', label: 'Failed' },
+  { value: 'frozen', label: 'Frozen' },
+  { value: 'refunded', label: 'Refunded' },
+]
+
+function ExpertVerificationPayoutsTab({ canManage, showToast }) {
+  const [requests, setRequests] = useState([])
+  const [filter, setFilter] = useState('all')
+  const [loading, setLoading] = useState(true)
+  const [busyId, setBusyId] = useState(null)
+
+  const load = async () => {
+    setLoading(true)
+    try {
+      const data = await getExpertVerificationPayouts({ filter })
+      setRequests(data.requests || [])
+    } catch { showToast('❌ Failed to load Expert payouts') } finally { setLoading(false) }
+  }
+  useEffect(() => { load() }, [filter]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const initiate = async (earningId) => {
+    setBusyId(earningId)
+    try {
+      await initiateExpertVerificationPayout(earningId)
+      showToast('✅ Sent to provider — awaiting confirmation')
+      load()
+    } catch (err) { showToast(`❌ ${err.response?.data?.message || 'Error'}`) } finally { setBusyId(null) }
+  }
+
+  const columns = [
+    { key: 'buyer', header: 'Buyer', render: (r) => r.buyer?.name || r.buyer?.phone || '—' },
+    { key: 'property', header: 'Property', render: (r) => r.property?.address || r.property?.title || '—' },
+    { key: 'expert', header: 'Expert', render: (r) => r.expert?.name || '—' },
+    { key: 'amount', header: 'Verification Amount', render: (r) => inr(r.agreedFee) },
+    {
+      key: 'split',
+      header: 'CivilCheck / Expert',
+      render: (r) => r.platformCommissionRate != null
+        ? `${Math.round(r.platformCommissionRate * 100)}% / ${Math.round((1 - r.platformCommissionRate) * 100)}%`
+        : '—',
+    },
+    { key: 'reportCompletedAt', header: 'Report Completed', render: (r) => fmtDateTime(r.reportCompletedAt) },
+    { key: 'claimDeadline', header: 'Claim Deadline', render: (r) => fmtDateTime(r.claimDeadline) },
+    {
+      key: 'acceptance',
+      header: 'Buyer Acceptance',
+      render: (r) => <Badge tone={r.buyerAcceptanceStatus === 'ACCEPTED' ? 'green' : 'grey'}>{r.buyerAcceptanceStatus}</Badge>,
+    },
+    {
+      key: 'claim',
+      header: 'Claim',
+      render: (r) => <Badge tone={r.hasActiveClaim ? 'red' : 'grey'}>{r.hasActiveClaim ? 'Active' : 'None'}</Badge>,
+    },
+    {
+      key: 'payoutStatus',
+      header: 'Payout Status',
+      render: (r) => <Badge tone={EXPERT_PAYOUT_TONE[r.payoutStatus] || 'grey'}>{EXPERT_PAYOUT_LABEL[r.payoutStatus] || r.payoutStatus}</Badge>,
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      render: (r) => {
+        // Never show a payout action when frozen, already paid, or not yet
+        // eligible — only an AVAILABLE_FOR_PAYOUT earning can be initiated.
+        const eligibleEarning = r.earnings?.find((e) => e.status === 'AVAILABLE_FOR_PAYOUT')
+        if (!canManage || !eligibleEarning) return null
+        return (
+          <Button size="sm" variant="soft" disabled={busyId === eligibleEarning.id} onClick={() => initiate(eligibleEarning.id)}>
+            {busyId === eligibleEarning.id ? 'Sending…' : 'Initiate Eligible Payout'}
+          </Button>
+        )
+      },
+    },
+  ]
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+        {EXPERT_PAYOUT_FILTERS.map((f) => (
+          <Button key={f.value} size="sm" variant={filter === f.value ? 'primary' : 'soft'} onClick={() => setFilter(f.value)}>
+            {f.label}
+          </Button>
+        ))}
+      </div>
+      <Card style={{ padding: 0, overflow: 'hidden' }}>
+        <ResponsiveTable
+          columns={columns}
+          rows={loading ? [] : requests}
+          getRowKey={(r) => r.id}
+          emptyState={<div style={{ padding: 32, textAlign: 'center' }} className="muted small">{loading ? '⏳ Loading…' : 'No Expert verification payouts found'}</div>}
+        />
+      </Card>
     </div>
   )
 }

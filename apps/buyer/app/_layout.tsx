@@ -45,7 +45,7 @@ const AUTH_FLOW_ROUTES = new Set(['login', 'register', 'phone-login', 'verify-em
  * component level instead of by route — exactly like Buyer Web's own
  * AuthRequiredModal pattern (FeedCard.tsx, VerifyPropertyCTA.tsx).
  */
-const PUBLIC_CONTENT_ROUTES = new Set(['coverage', 'owner-properties', 'reporter-feed', 'report'])
+const PUBLIC_CONTENT_ROUTES = new Set(['coverage', 'owner-properties', 'reporter-feed', 'report', 'terms', 'privacy', 'browse'])
 
 /**
  * The bottom-tab group. Home and Search are public; Alerts and Profile map
@@ -75,6 +75,16 @@ const SUPPORT_SEGMENT = 'support'
  */
 const PROFILE_ROUTE = 'complete-profile'
 
+/**
+ * Mandatory Terms & Conditions / Privacy Policy re-acceptance gate. Checked
+ * before the profile-completion gate below — a Terms-unaccepted buyer would
+ * fail authMiddleware's TERMS_ACCEPTANCE_REQUIRED check on the profile-save
+ * call anyway, so there is nothing to gain by routing to complete-profile
+ * first. Driven by `AuthContext.user.termsAcceptanceRequired`, which every
+ * login/me/profile response already returns — no separate local flag.
+ */
+const TERMS_ROUTE = 'accept-terms'
+
 function RootNavigator() {
   const { status, user } = useAuth()
   const segments = useSegments()
@@ -93,6 +103,7 @@ function RootNavigator() {
       PUBLIC_CONTENT_ROUTES.has(segment) ||
       (segment === SUPPORT_SEGMENT && subSegment === undefined)
     const onProfileRoute = segment === PROFILE_ROUTE
+    const onTermsRoute = segment === TERMS_ROUTE
 
     if (status === 'unauthenticated') {
       if (!onAuthRoute && !onPublicContentRoute) router.replace('/login')
@@ -100,9 +111,21 @@ function RootNavigator() {
     }
 
     // status === 'authenticated' from here on.
+    // Terms checked first — a Terms-unaccepted buyer would fail
+    // authMiddleware's TERMS_ACCEPTANCE_REQUIRED check on the
+    // profile-save call anyway, so there is nothing to gain by routing to
+    // complete-profile first. /terms and /privacy stay reachable (both are
+    // in PUBLIC_CONTENT_ROUTES) so the gate's own "Review Terms" links work.
+    const needsTerms = user?.termsAcceptanceRequired === true
+
+    if (needsTerms && !onTermsRoute && !onPublicContentRoute) {
+      router.replace('/accept-terms')
+      return
+    }
+
     const needsProfile = user?.profileComplete === false
 
-    if (needsProfile && !onProfileRoute) {
+    if (needsProfile && !onProfileRoute && !onTermsRoute) {
       router.replace('/complete-profile')
       return
     }
@@ -110,7 +133,7 @@ function RootNavigator() {
     // A public content route never force-navigates on its own — signing in
     // from an AuthRequiredSheet while reading a report must leave the buyer
     // on that exact report (see PUBLIC_CONTENT_ROUTES above).
-    if (!needsProfile && (onAuthRoute || onProfileRoute)) {
+    if (!needsTerms && !needsProfile && (onAuthRoute || onProfileRoute || onTermsRoute)) {
       router.replace('/')
     }
   }, [status, user, segments, router])
@@ -172,6 +195,8 @@ function RootNavigator() {
       <Stack.Screen name="verify-email" />
       <Stack.Screen name="phone-login" />
       <Stack.Screen name="complete-profile" options={{ animation: 'fade' }} />
+      <Stack.Screen name="accept-terms" options={{ animation: 'fade' }} />
+      <Stack.Screen name="privacy" />
       <Stack.Screen name="(tabs)" options={{ animation: 'fade' }} />
       <Stack.Screen name="report/[id]" />
       <Stack.Screen name="reports" />
@@ -183,6 +208,7 @@ function RootNavigator() {
       <Stack.Screen name="requests/[id]" />
       <Stack.Screen name="notifications" />
       <Stack.Screen name="coverage" />
+      <Stack.Screen name="browse" />
     </Stack>
   )
 }

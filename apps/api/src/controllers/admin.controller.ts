@@ -13,12 +13,20 @@ import {
   VerificationRequestStatus,
   ClaimStatus,
   type Claim,
+  type ProfessionalEarningStatus,
 } from '@prisma/client'
 import prisma from '../lib/prisma.js'
 import logger from '../lib/logger.js'
 import * as kycService from '../services/kyc.service.js'
 import { generateSignedDownloadUrl, parseCloudinaryUrl } from '../lib/cloudinary.js'
-import { notifySeller, notifyBuyerAlert } from '../services/notification.service.js'
+import {
+  notifySeller,
+  notifyBuyerAlert,
+  resolveVerificationPerformer,
+  notifyPerformerOfClaimResolved,
+  notifyPerformerOfPayoutEligible,
+} from '../services/notification.service.js'
+import { releaseEarningsOnClaimRejected } from '../services/verificationSettlement.service.js'
 import { getSubscriptionMetrics } from '../services/analytics.service.js'
 import { AuditAction, clientIp, recordAudit } from '../services/audit.service.js'
 import { executeRefund } from '../services/refund.service.js'
@@ -2700,7 +2708,27 @@ export const getAllClaims = async (req: Request, res: Response) => {
       where,
       include: {
         user: { select: { id: true, name: true, phone: true } },
-        verificationRequest: { select: { id: true, status: true, agreedFee: true } },
+        verificationRequest: {
+          select: {
+            id: true,
+            status: true,
+            agreedFee: true,
+            // 7-Day Verification Acceptance, Claim & Professional Settlement
+            // System — lets the claim detail modal show the deadline/
+            // acceptance context alongside the dispute itself.
+            reportCompletedAt: true,
+            claimDeadline: true,
+            buyerAcceptanceStatus: true,
+            // Actual verification performer — the claim recipient, a
+            // separate question from who (if anyone) gets an Expert payout.
+            // assignedAdminId has no Prisma relation (admin snapshot — same
+            // reasoning as AuditLog.adminId), so its name is resolved below
+            // in one batch lookup rather than per-row.
+            assignedSellerId: true,
+            assignedSeller: { select: { id: true, name: true, partnerRole: true } },
+            assignedAdminId: true,
+          },
+        },
       },
       orderBy: { createdAt: 'desc' },
       skip: (pageNum - 1) * limitNum,
@@ -2709,7 +2737,26 @@ export const getAllClaims = async (req: Request, res: Response) => {
     prisma.claim.count({ where }),
   ])
 
-  res.json({ success: true, total, page: pageNum, totalPages: Math.ceil(total / limitNum), claims })
+  const adminIds = [...new Set(claims.map((c) => c.verificationRequest?.assignedAdminId).filter((v): v is string => !!v))]
+  const admins = adminIds.length
+    ? await prisma.admin.findMany({ where: { id: { in: adminIds } }, select: { id: true, name: true, role: true } })
+    : []
+  const adminById = new Map(admins.map((a) => [a.id, a]))
+
+  const claimsWithPerformer = claims.map((c) => {
+    const vr = c.verificationRequest
+    const performer = vr?.assignedSeller
+      ? { type: 'EXPERT', name: vr.assignedSeller.name }
+      : vr?.assignedAdminId
+        ? (() => {
+            const admin = adminById.get(vr.assignedAdminId!)
+            return { type: admin?.role === 'SUPER_ADMIN' ? 'SUPER_ADMIN' : 'ADMIN', name: admin?.name ?? vr.assignedAdminId }
+          })()
+        : null
+    return { ...c, verificationPerformer: performer }
+  })
+
+  res.json({ success: true, total, page: pageNum, totalPages: Math.ceil(total / limitNum), claims: claimsWithPerformer })
 }
 
 // POST /api/admin/claims/:id/resolve
@@ -2743,9 +2790,20 @@ export const resolveClaim = async (req: Request, res: Response) => {
   // create a second one. The @unique Refund.claimId is the real, DB-level
   // guard against a race doing this twice; this is just the fast path.
   const shouldCreateRefund = status === 'REFUND_APPROVED' && claim.status !== 'REFUND_APPROVED'
+  // 7-Day Verification Acceptance, Claim & Professional Settlement System —
+  // releases the frozen payout on rejection. No separate "already rejected"
+  // guard is needed here: the early return a few lines up already refuses
+  // any further status change once a claim reaches RESOLVED/REJECTED/
+  // REFUND_PROCESSED, so this can only ever run once per claim. Every other
+  // outcome (REFUND_APPROVED/RESOLVED/PARTIALLY_RESOLVED-equivalent) is
+  // deliberately left FROZEN here — the existing refund pipeline
+  // (recordReversalForRefund, ledger.service.ts) is what resolves those,
+  // once the created Refund is actually PROCESSED.
+  const shouldReleaseOnRejection = status === 'REJECTED'
 
   let updated: Claim
   let createdRefund: { id: string; amount: number } | null = null
+  let payoutReleased = false
   try {
     const result = await prisma.$transaction(async (tx) => {
       const claimUpdate = await tx.claim.update({
@@ -2779,10 +2837,16 @@ export const resolveClaim = async (req: Request, res: Response) => {
         })
       }
 
-      return { claimUpdate, refund }
+      let releasedCount = 0
+      if (shouldReleaseOnRejection) {
+        releasedCount = await releaseEarningsOnClaimRejected(tx, claimUpdate.verificationRequestId)
+      }
+
+      return { claimUpdate, refund, releasedCount }
     })
     updated = result.claimUpdate
     createdRefund = result.refund
+    payoutReleased = result.releasedCount > 0
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
       res.status(409).json({ success: false, message: 'A refund has already been created for this claim' })
@@ -2822,19 +2886,21 @@ export const resolveClaim = async (req: Request, res: Response) => {
     ).catch((err) => logger.error(`[admin] buyer claim-update notification failed for claim ${id}: ${err}`))
   }
 
-  // Buyer Verification Experience enhancement — the assigned professional
-  // should also learn how the dispute against their work was resolved, not
-  // just the buyer. Same "sellers only, no in-app channel for admins"
-  // convention as every other verification-marketplace notification.
+  // The actual verification performer should also learn how the dispute
+  // against their work was resolved — not just the buyer, and not a
+  // role-wide broadcast. Same claim-recipient-vs-payout-beneficiary split as
+  // createClaim: every performer type gets the "claim resolved" notice;
+  // only an Expert additionally gets a "payout eligible" notice when the
+  // rejection actually released a frozen earning (Admin/SuperAdmin never
+  // have a payout to release).
   const request = await prisma.verificationRequest.findUnique({ where: { id: updated.verificationRequestId } })
-  if (request?.assignedSellerId) {
-    const seller = await prisma.seller.findUnique({ where: { id: request.assignedSellerId } })
-    if (seller) {
-      void notifySeller(seller, {
-        type: 'claim',
-        title: 'Claim resolved',
-        body: `A claim against your verification work was resolved — status: ${status}.`,
-      }).catch((err) => logger.error(`[admin] seller claim-update notification failed for claim ${id}: ${err}`))
+  if (request) {
+    const performer = await resolveVerificationPerformer(request)
+    void notifyPerformerOfClaimResolved(performer, { status, resolutionNote }).catch((err) =>
+      logger.error(`[admin] performer claim-resolved notification failed for claim ${id}: ${err}`)
+    )
+    if (payoutReleased) {
+      void notifyPerformerOfPayoutEligible(performer, 'CLAIM_REJECTED')
     }
   }
 
@@ -3236,6 +3302,154 @@ export const getAllPayoutRecords = async (req: Request, res: Response) => {
     totalPages: Math.ceil(total / limitNum),
     payouts: records,
   })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EXPERT VERIFICATION PAYOUTS — GET /api/admin/expert-payouts?filter=&page=&limit=
+//
+// The existing GET /api/admin/payouts above lists ProfessionalPayoutRecord
+// rows — i.e. earnings an Expert has already batched into a payout request.
+// This is the per-VerificationRequest view instead: every request that has
+// started earning at all, regardless of whether anyone has requested a
+// payout yet — covering On Hold (still EARNED/PENDING_SETTLEMENT), Claim
+// Window Open (has a claim), Eligible (AVAILABLE_FOR_PAYOUT), Processing/
+// Paid/Failed (already batched), and Frozen (an active claim froze it).
+//
+// Role-model correction: a ProfessionalEarning row can now only ever exist
+// for an EXPERT-role Seller (see ledger.service.ts's recordCaptureLedgerEntries
+// and ProfessionalEarning's schema comment) — an Admin- or SuperAdmin-
+// performed verification never creates one, so this query structurally can
+// never surface one as an "Expert payout." A request can carry two earnings
+// (advance + final leg) — `payoutStatus` below is the single worst-case
+// label shown per row.
+// ─────────────────────────────────────────────────────────────────────────────
+const EARNING_STATUS_PRIORITY = [
+  'FROZEN',
+  'FAILED',
+  'RETRYABLE',
+  'MANUAL_REVIEW',
+  'PROCESSING',
+  'PAYOUT_REQUESTED',
+  'EARNED',
+  'PENDING_SETTLEMENT',
+  'AVAILABLE_FOR_PAYOUT',
+  'PAID',
+  'REVERSED',
+] as const
+
+function derivePayoutStatus(earnings: { status: string }[]): string {
+  if (earnings.length === 0) return 'NONE'
+  for (const status of EARNING_STATUS_PRIORITY) {
+    if (earnings.some((e) => e.status === status)) return status
+  }
+  return earnings[0]!.status
+}
+
+const FILTER_TO_STATUSES: Record<string, ProfessionalEarningStatus[]> = {
+  on_hold: ['EARNED', 'PENDING_SETTLEMENT'],
+  eligible: ['AVAILABLE_FOR_PAYOUT'],
+  processing: ['PAYOUT_REQUESTED', 'PROCESSING'],
+  paid: ['PAID'],
+  failed: ['FAILED', 'RETRYABLE', 'MANUAL_REVIEW'],
+  frozen: ['FROZEN'],
+  refunded: ['REVERSED'],
+}
+
+export const getExpertVerificationPayouts = async (req: Request, res: Response) => {
+  const { filter = 'all', page = '1', limit = '20' } = req.query as { filter?: string; page?: string; limit?: string }
+  const pageNum = Math.max(1, parseInt(page) || 1)
+  const limitNum = Math.min(100, Math.max(1, parseInt(limit) || 20))
+
+  const where: Prisma.VerificationRequestWhereInput = { professionalEarnings: { some: {} } }
+  if (filter === 'claim_window_open') {
+    where.claims = { some: { status: { in: ['OPEN', 'UNDER_REVIEW'] } } }
+  } else if (FILTER_TO_STATUSES[filter]) {
+    where.professionalEarnings = { some: { status: { in: FILTER_TO_STATUSES[filter] } } }
+  }
+
+  const [requests, total] = await Promise.all([
+    prisma.verificationRequest.findMany({
+      where,
+      include: {
+        user: { select: { id: true, name: true, phone: true } },
+        listing: { select: { id: true, address: true, city: true } },
+        property: { select: { id: true, title: true, city: true } },
+        assignedSeller: { select: { id: true, name: true, partnerRole: true } },
+        professionalEarnings: { select: { id: true, status: true, grossEarningPaise: true } },
+        claims: { select: { id: true, status: true }, where: { status: { in: ['OPEN', 'UNDER_REVIEW'] } } },
+      },
+      orderBy: { updatedAt: 'desc' },
+      skip: (pageNum - 1) * limitNum,
+      take: limitNum,
+    }),
+    prisma.verificationRequest.count({ where }),
+  ])
+
+  res.json({
+    success: true,
+    total,
+    page: pageNum,
+    totalPages: Math.ceil(total / limitNum),
+    requests: requests.map((r) => ({
+      id: r.id,
+      buyer: r.user,
+      property: r.listing ?? r.property ?? null,
+      // Expert-only view — assignedSeller here is always partnerRole EXPERT
+      // (see the comment above this function).
+      expert: r.assignedSeller,
+      agreedFee: r.agreedFee,
+      platformCommissionRate: r.platformCommissionRate,
+      reportCompletedAt: r.reportCompletedAt,
+      claimDeadline: r.claimDeadline,
+      buyerAcceptanceStatus: r.buyerAcceptanceStatus,
+      buyerAcceptedAt: r.buyerAcceptedAt,
+      hasActiveClaim: r.claims.length > 0,
+      payoutStatus: derivePayoutStatus(r.professionalEarnings),
+      earnings: r.professionalEarnings,
+    })),
+  })
+}
+
+// POST /api/admin/expert-payouts/:earningId/initiate
+// Super Admin-triggered payout, on behalf of the Expert, straight from the
+// per-request view above — the Expert does not have to have clicked
+// "Request Payout" themselves first. Reuses payout.service.ts's existing
+// requestPayout + processPayout exactly as the Expert's own self-service
+// flow does (same eligibility checks, same idempotent claim, same "never
+// PAID until a webhook confirms it"); this only chooses WHO initiates it.
+// Note: requestPayout batches every AVAILABLE_FOR_PAYOUT earning for that
+// Expert, not just this one row — the same Expert's other eligible
+// verifications are paid out together too, which is correct (not a bug):
+// nothing here ever creates a second payout for an already-claimed earning.
+export const initiateExpertVerificationPayout = async (req: Request, res: Response) => {
+  const earningId = req.params.earningId as string
+
+  const earning = await prisma.professionalEarning.findUnique({ where: { id: earningId } })
+  if (!earning) {
+    res.status(404).json({ success: false, message: 'Earning not found' })
+    return
+  }
+  if (earning.status !== 'AVAILABLE_FOR_PAYOUT') {
+    res.status(400).json({ success: false, message: `This earning is not eligible for payout (status: ${earning.status})` })
+    return
+  }
+
+  try {
+    const record = await payoutService.requestPayout(earning.sellerId)
+    const processed = await payoutService.processPayout(record.id)
+    await recordAudit(req, {
+      action: AuditAction.PAYOUT_PROCESS,
+      target: `ProfessionalEarning:${earningId}`,
+      details: `Super Admin-initiated Expert payout ${processed.id} — ₹${processed.totalAmountPaise / 100} sent to RazorpayX, awaiting webhook confirmation`,
+    })
+    res.json({ success: true, message: 'Payout sent to provider — awaiting confirmation', payout: processed })
+  } catch (err) {
+    if (err instanceof payoutService.PayoutError) {
+      res.status(err.status).json({ success: false, message: err.message })
+      return
+    }
+    throw err
+  }
 }
 
 // POST /api/admin/payouts/:id/process — also covers retry (RETRYABLE → PROCESSING)

@@ -114,6 +114,21 @@ export async function recordCaptureLedgerEntries(
     })
   }
 
+  // Expert-only, by design. A ProfessionalEarning row (and everything
+  // downstream — payout eligibility, the Expert payout account, the Expert
+  // earnings dashboard) exists ONLY for the 30/70 Expert-commission path.
+  // paymentOrder.sellerId is set only when the assigned professional is a
+  // Seller — and structurally, only an EXPERT-role Seller can ever become
+  // assignedSellerId (every quote/assignment route is gated by
+  // requireSellerRole(EXPERT) — see verification.routes.ts) — so this
+  // condition alone is a reliable Expert check, re-verified defensively
+  // before any payout is requested (payout.service.ts's loadBeneficiary).
+  // When the assigned professional is an Admin instead
+  // (verificationRequest.assignedAdminId), no ProfessionalEarning is ever
+  // created — Admin is salaried and never part of the Expert commission
+  // split. Admin still gets the CLAIM notification when relevant (a
+  // completely separate concern — see notification.service.ts's
+  // resolveVerificationPerformer / notifyVerificationPerformer).
   if (paymentOrder.sellerId) {
     await tx.professionalEarning.create({
       data: {
@@ -133,23 +148,56 @@ export async function recordCaptureLedgerEntries(
   )
 }
 
+// 7-day claim/acceptance review window (7-Day Verification Acceptance,
+// Claim & Professional Settlement System) — never hardcode this figure a
+// second time anywhere else; every deadline computation in this codebase
+// reads it from here.
+const CLAIM_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
+
 // ─────────────────────────────────────────────────────────────────────────────
 // PROMOTE — once a request reaches REPORT_UNLOCKED (both legs captured, work
-// delivered), every EARNED/PENDING_SETTLEMENT earning tied to it becomes
-// AVAILABLE_FOR_PAYOUT. A Claim can only be raised AFTER the report is
-// unlocked (see Claim's own model comment), so there is structurally no open
-// claim to check for at the moment this runs.
+// delivered), the report is now "completed and delivered" and the buyer's
+// 7-day review window starts. This used to jump every EARNED/
+// PENDING_SETTLEMENT earning straight to AVAILABLE_FOR_PAYOUT the instant
+// this ran (the comment here used to note "no open claim can exist yet" —
+// true only because nothing previously gated a claim on this same moment).
+// It no longer does that: earnings settle into PENDING_SETTLEMENT ("on
+// hold" during the review window) instead, and only become
+// AVAILABLE_FOR_PAYOUT later via verificationSettlement.service.ts's
+// acceptReport() (buyer accepts) or expireClaimWindowIfEligible() (the
+// window lapses with no claim) — or FROZEN first if a claim is raised
+// (createClaimWithFreeze(), same file).
+//
+// Idempotent: reportCompletedAt/claimDeadline are set via a guarded
+// updateMany keyed on reportCompletedAt being still null, so a retried
+// caller (e.g. a replayed webhook hitting this a second time) can never
+// reset an already-running deadline. The EARNED→PENDING_SETTLEMENT step is
+// naturally idempotent too — a second call simply matches zero rows.
 // ─────────────────────────────────────────────────────────────────────────────
 export async function promoteEarningsOnUnlock(
   tx: Prisma.TransactionClient,
   verificationRequestId: string
 ): Promise<void> {
+  const reportCompletedAt = new Date()
+  const claimDeadline = new Date(reportCompletedAt.getTime() + CLAIM_WINDOW_MS)
+
+  const deadlineSet = await tx.verificationRequest.updateMany({
+    where: { id: verificationRequestId, reportCompletedAt: null },
+    data: { reportCompletedAt, claimDeadline },
+  })
+  if (deadlineSet.count > 0) {
+    logger.info(
+      `[ledger] request ${verificationRequestId} report delivered — 7-day claim window opened, ` +
+        `deadline ${claimDeadline.toISOString()}`
+    )
+  }
+
   const { count } = await tx.professionalEarning.updateMany({
-    where: { verificationRequestId, status: { in: ['EARNED', 'PENDING_SETTLEMENT'] } },
-    data: { status: 'AVAILABLE_FOR_PAYOUT' },
+    where: { verificationRequestId, status: 'EARNED' },
+    data: { status: 'PENDING_SETTLEMENT' },
   })
   if (count > 0) {
-    logger.info(`[ledger] ${count} earning(s) for request ${verificationRequestId} now AVAILABLE_FOR_PAYOUT`)
+    logger.info(`[ledger] ${count} earning(s) for request ${verificationRequestId} now PENDING_SETTLEMENT (on hold)`)
   }
 }
 
@@ -303,7 +351,13 @@ export async function recordReversalForRefund(
               `flagged for manual reconciliation, no automatic clawback`
           )
         } else if (
-          ['EARNED', 'PENDING_SETTLEMENT', 'AVAILABLE_FOR_PAYOUT', 'FAILED', 'RETRYABLE'].includes(earning.status)
+          // FROZEN included — a claim being under review (7-Day Verification
+          // Acceptance, Claim & Professional Settlement System) must not
+          // block an admin-approved refund from correctly reversing the
+          // earning it came from.
+          ['EARNED', 'PENDING_SETTLEMENT', 'AVAILABLE_FOR_PAYOUT', 'FROZEN', 'FAILED', 'RETRYABLE'].includes(
+            earning.status
+          )
         ) {
           await tx.professionalEarning.update({
             where: { id: earning.id },
@@ -374,6 +428,7 @@ export async function getVerificationRequestLedger(verificationRequestId: string
 export interface SellerEarningsSummary {
   totalEarnedPaise: number
   pendingSettlementPaise: number
+  frozenPaise: number // 7-Day Verification Acceptance, Claim & Professional Settlement System — active claim
   availableForPayoutPaise: number
   inPayoutPaise: number // PAYOUT_REQUESTED + PROCESSING
   paidPaise: number
@@ -381,6 +436,9 @@ export interface SellerEarningsSummary {
   failedPaise: number
 }
 
+// Expert-only, by design — see ProfessionalEarning's schema comment. There
+// is no Admin/SuperAdmin equivalent of this summary: they are never a
+// payout beneficiary, so there is nothing to summarize for them.
 export async function getSellerEarningsSummary(sellerId: string): Promise<SellerEarningsSummary> {
   const rows = await prisma.professionalEarning.findMany({
     where: { sellerId },
@@ -390,6 +448,7 @@ export async function getSellerEarningsSummary(sellerId: string): Promise<Seller
   const summary: SellerEarningsSummary = {
     totalEarnedPaise: 0,
     pendingSettlementPaise: 0,
+    frozenPaise: 0,
     availableForPayoutPaise: 0,
     inPayoutPaise: 0,
     paidPaise: 0,
@@ -401,6 +460,8 @@ export async function getSellerEarningsSummary(sellerId: string): Promise<Seller
     summary.totalEarnedPaise += row.grossEarningPaise
     if (row.status === 'EARNED' || row.status === 'PENDING_SETTLEMENT') {
       summary.pendingSettlementPaise += row.grossEarningPaise
+    } else if (row.status === 'FROZEN') {
+      summary.frozenPaise += row.grossEarningPaise
     } else if (row.status === 'AVAILABLE_FOR_PAYOUT') {
       summary.availableForPayoutPaise += row.grossEarningPaise
     } else if (row.status === 'PAYOUT_REQUESTED' || row.status === 'PROCESSING') {

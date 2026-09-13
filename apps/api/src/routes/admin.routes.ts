@@ -513,6 +513,20 @@ router.get('/finance/ledger', adminMiddleware, adminController.getFinancialLedge
 
 router.get('/payouts', adminMiddleware, adminController.getAllPayoutRecords)
 router.post('/payouts/:id/process', adminMiddleware, superOnly, adminController.processPayoutRecord)
+
+// Expert Verification Payouts — per-verification-request Expert payout view.
+// Named "expert-payouts", not "verification-payouts" or "partner-payouts":
+// Partner is a portal covering OWNER/EXPERT/REPORTER, and only the EXPERT
+// role is ever a payout beneficiary — see ProfessionalEarning's schema
+// comment. View for every admin tier (same as /payouts above); initiating
+// money movement is SUPER_ADMIN only, same as /payouts/:id/process.
+router.get('/expert-payouts', adminMiddleware, adminController.getExpertVerificationPayouts)
+router.post(
+  '/expert-payouts/:earningId/initiate',
+  adminMiddleware,
+  superOnly,
+  adminController.initiateExpertVerificationPayout
+)
 router.post(
   '/payouts/:id/resolve',
   adminMiddleware,

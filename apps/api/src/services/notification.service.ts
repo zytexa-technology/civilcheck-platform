@@ -302,3 +302,181 @@ export async function notifyBuyerAlert(
 
   return results
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SUPER ADMIN — PLATFORM-OPERATIONS ALERTS ONLY (never a claim notification —
+// see resolveVerificationPerformer/notifyVerificationPerformer below for who
+// actually gets those). Reserved for things only a Super Admin can act on
+// platform-wide, e.g. a payout that failed at the provider. The Notification
+// model (above) is buyer/seller only (its XOR CHECK constraint has no
+// adminId column at all) — the same "no in-app channel for admins"
+// convention every other verification-marketplace notification in this
+// codebase already follows. Rather than adding a third recipient type to
+// that model, this reuses the existing sendEmail() adapter directly,
+// addressed to every active, non-blocked SUPER_ADMIN account — there is
+// ordinarily exactly one, per this feature's own "do not modify the real
+// Super Admin account" rule, but this fans out correctly if that ever
+// changes. Best-effort: a dead/unconfigured email provider must never roll
+// back the business action that triggered this (same discipline as
+// notifyBuyerAlert/notifySeller above).
+//
+// Do NOT call this for claim-submitted, buyer-accepted, claim-rejected, or
+// claim-window-expired events — those go to the actual verification
+// performer only (see below). A Super Admin who did not personally perform
+// a verification must not be notified just because a claim exists on it;
+// they still see every claim via the existing Claims dashboard.
+// ─────────────────────────────────────────────────────────────────────────────
+export async function notifySuperAdmins(notification: { subject: string; body: string }): Promise<void> {
+  try {
+    const superAdmins = await prisma.admin.findMany({
+      where: { role: 'SUPER_ADMIN', active: true, blocked: false },
+      select: { id: true, email: true },
+    })
+    if (superAdmins.length === 0) {
+      logger.warn('[notify] no active Super Admin account found — skipping admin notification')
+      return
+    }
+
+    const results = await Promise.all(
+      superAdmins.map((admin) =>
+        sendEmail({
+          to: admin.email,
+          subject: notification.subject,
+          html: `<p>${notification.body}</p>`,
+          text: notification.body,
+        })
+      )
+    )
+
+    const summary = results.map((r) => r.status).join(' ')
+    logger.info(`[notify] super admin(s) "${notification.subject}" → ${summary}`)
+  } catch (err) {
+    logger.error(`[notify] super admin notification failed: ${err instanceof Error ? err.message : err}`)
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// VERIFICATION PERFORMER RESOLUTION — the single source of truth for "who
+// actually performed/handled this specific verification."
+//
+// This is deliberately separate from "who is eligible for the Expert 30/70
+// payout" (that question is answered only by whether a ProfessionalEarning
+// row exists — see ledger.service.ts — which structurally can only ever
+// belong to an EXPERT-role Seller). A claim recipient and a payout
+// beneficiary are two different questions with two different answers:
+//
+//   Expert-performed verification:      claim recipient = Expert,  payout beneficiary = Expert
+//   Admin-performed verification:       claim recipient = Admin,   payout beneficiary = NONE
+//   SuperAdmin-performed verification:  claim recipient = SuperAdmin, payout beneficiary = NONE
+//
+// Reads the actual assignment (VerificationRequest.assignedSellerId /
+// assignedAdminId) — never the current session, never "last active user",
+// never a role-wide broadcast.
+// ─────────────────────────────────────────────────────────────────────────────
+export type VerificationPerformer =
+  | {
+      type: 'EXPERT'
+      // Seller has no fcmToken/pushEnabled column at all (that push-channel
+      // pair exists only on User/buyer) — performer.seller is only ever
+      // passed to notifySeller(), which needs exactly these four fields, so
+      // the select below intentionally matches this type one-to-one.
+      seller: { id: string; name: string; phone: string; email: string | null }
+    }
+  | { type: 'ADMIN' | 'SUPER_ADMIN'; admin: { id: string; name: string; email: string } }
+  | { type: 'NONE' }
+
+export async function resolveVerificationPerformer(request: {
+  assignedSellerId: string | null
+  assignedAdminId: string | null
+}): Promise<VerificationPerformer> {
+  if (request.assignedSellerId) {
+    const seller = await prisma.seller.findUnique({
+      where: { id: request.assignedSellerId },
+      select: { id: true, name: true, phone: true, email: true },
+    })
+    if (seller) return { type: 'EXPERT', seller }
+  }
+  if (request.assignedAdminId) {
+    const admin = await prisma.admin.findUnique({
+      where: { id: request.assignedAdminId },
+      select: { id: true, name: true, email: true, role: true },
+    })
+    if (admin) return { type: admin.role === 'SUPER_ADMIN' ? 'SUPER_ADMIN' : 'ADMIN', admin }
+  }
+  return { type: 'NONE' }
+}
+
+/** A targeted email to exactly one Admin/SuperAdmin — never a role-wide broadcast. */
+async function notifyOneAdmin(admin: { email: string }, notification: { subject: string; body: string }): Promise<void> {
+  try {
+    await sendEmail({ to: admin.email, subject: notification.subject, html: `<p>${notification.body}</p>`, text: notification.body })
+  } catch (err) {
+    logger.error(`[notify] admin notification failed: ${err instanceof Error ? err.message : err}`)
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CLAIM SUBMITTED — notifies ONLY the actual verification performer, per
+// their role. Never every Expert, never every Admin, never every
+// SuperAdmin — SuperAdmin sees every claim via the existing Claims
+// dashboard regardless, but is not separately alerted unless they
+// themselves performed this verification.
+// ─────────────────────────────────────────────────────────────────────────────
+export async function notifyPerformerOfClaimSubmitted(
+  performer: VerificationPerformer,
+  context: { verificationRequestId: string; claimId: string }
+): Promise<void> {
+  if (performer.type === 'EXPERT') {
+    await notifySeller(performer.seller, {
+      type: 'claim',
+      title: 'A claim was raised on your verification',
+      body: '⚠️ Buyer has submitted a claim regarding your verification report. An admin will review it.',
+    })
+  } else if (performer.type === 'ADMIN' || performer.type === 'SUPER_ADMIN') {
+    await notifyOneAdmin(performer.admin, {
+      subject: 'CivilCheck — Claim submitted',
+      body: `⚠️ Buyer has submitted a claim regarding the verification you handled. Verification: ${context.verificationRequestId} · Claim: ${context.claimId}`,
+    })
+  }
+}
+
+/** Claim resolved (rejected, or otherwise) — same "actual performer only" rule. */
+export async function notifyPerformerOfClaimResolved(
+  performer: VerificationPerformer,
+  context: { status: string; resolutionNote: string }
+): Promise<void> {
+  if (performer.type === 'EXPERT') {
+    await notifySeller(performer.seller, {
+      type: 'claim',
+      title: 'Claim resolved',
+      body: `A claim against your verification work was resolved — status: ${context.status}.`,
+    })
+  } else if (performer.type === 'ADMIN' || performer.type === 'SUPER_ADMIN') {
+    await notifyOneAdmin(performer.admin, {
+      subject: 'CivilCheck — Claim resolved',
+      body: `A claim on a verification you handled was resolved — status: ${context.status}. ${context.resolutionNote}`,
+    })
+  }
+}
+
+/**
+ * Payout became eligible (buyer accepted, claim rejected, or the claim
+ * window expired) — Expert-only, by construction: an Admin/SuperAdmin
+ * performer never has a payout to become eligible, so this is a silent
+ * no-op for them rather than a misleading "your payout is eligible" email.
+ */
+export async function notifyPerformerOfPayoutEligible(
+  performer: VerificationPerformer,
+  releaseReason: 'BUYER_ACCEPTED' | 'CLAIM_REJECTED' | 'CLAIM_WINDOW_EXPIRED'
+): Promise<void> {
+  if (performer.type !== 'EXPERT') return
+
+  const body =
+    releaseReason === 'BUYER_ACCEPTED'
+      ? 'Buyer accepted the verification report. Your 70% Expert payout is now eligible for processing.'
+      : releaseReason === 'CLAIM_REJECTED'
+        ? 'The claim on your verification was rejected. Your Expert payout is now eligible for processing.'
+        : 'The buyer’s 7-day claim window expired with no claim. Your Expert payout is now eligible for processing.'
+
+  await notifySeller(performer.seller, { type: 'payment', title: 'Expert payout eligible', body })
+}

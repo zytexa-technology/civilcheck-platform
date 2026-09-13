@@ -195,4 +195,10 @@ router.patch(
   authController.updateBuyerProfile
 )
 
+// Mandatory Terms & Conditions / Privacy Policy re-acceptance — the one
+// route authMiddleware's TERMS_ACCEPTANCE_REQUIRED gate deliberately exempts
+// (see auth.middleware.ts's TERMS_ACCEPT_PATH), so a buyer who hasn't
+// accepted the current version can still reach the endpoint that lets them.
+router.post('/terms/accept', authMiddleware, authController.acceptBuyerTerms)
+
 export default router

@@ -78,6 +78,10 @@ export interface AuthUser {
   city?: string | null
   state?: string | null
   profileComplete?: boolean
+  // Mandatory Terms & Conditions / Privacy Policy re-acceptance — true when
+  // this buyer has never accepted, or accepted an older version than the
+  // server's current one. app/_layout.tsx routes to /accept-terms while true.
+  termsAcceptanceRequired?: boolean
 }
 
 /** POST /api/auth/login */
@@ -796,6 +800,17 @@ export interface VerificationRequest {
   cancellationReason: string | null
   cancellationFee: number | null
   cancellationRefund: number | null
+
+  // 7-Day Verification Acceptance, Claim & Professional Settlement System —
+  // both null until the report is delivered (status REPORT_UNLOCKED); once
+  // set, claimDeadline never changes — always the backend's own authoritative
+  // value, never recomputed on-device. Mirrors Buyer Web's identical fields
+  // exactly — same backend, same business rules.
+  reportCompletedAt?: string | null
+  claimDeadline?: string | null
+  buyerAcceptanceStatus?: 'PENDING' | 'ACCEPTED'
+  buyerAcceptedAt?: string | null
+
   createdAt: string
   updatedAt: string
   acceptedQuote?: { id: string; proposedFee: number; message: string | null } | null
@@ -906,6 +921,11 @@ export interface Claim {
 
 export interface CreateClaimResponse extends ApiEnvelope {
   claim: Claim
+}
+
+// 7-Day Verification Acceptance, Claim & Professional Settlement System
+export interface AcceptReportResponse extends ApiEnvelope {
+  request: VerificationRequest
 }
 
 export interface MyClaimsResponse extends ApiEnvelope {

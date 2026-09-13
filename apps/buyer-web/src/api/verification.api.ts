@@ -1,6 +1,7 @@
 import client from './client'
 import type {
   AcceptQuoteResponse,
+  AcceptReportResponse,
   CheckoutResult,
   CreateClaimResponse,
   CreateVerificationRequestResponse,
@@ -158,6 +159,14 @@ export async function createClaim(
 
 export async function getMyClaims(id: string): Promise<MyClaimsResponse> {
   const { data } = await client.get<MyClaimsResponse>(`/verification-requests/${id}/claims`)
+  return data
+}
+
+// 7-Day Verification Acceptance, Claim & Professional Settlement System —
+// buyer confirms they reviewed the report and have no claim. Makes the
+// professional's payout ELIGIBLE for processing; never pays it out directly.
+export async function acceptVerificationReport(id: string): Promise<AcceptReportResponse> {
+  const { data } = await client.post<AcceptReportResponse>(`/verification-requests/${id}/accept-report`)
   return data
 }
 

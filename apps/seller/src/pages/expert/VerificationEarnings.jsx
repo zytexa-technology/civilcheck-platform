@@ -28,6 +28,17 @@ const STATUS_TONE = {
   EARNED: 'ink', PENDING_SETTLEMENT: 'amber', AVAILABLE_FOR_PAYOUT: 'green',
   PAYOUT_REQUESTED: 'amber', PROCESSING: 'amber', PAID: 'green',
   FAILED: 'red', RETRYABLE: 'amber', MANUAL_REVIEW: 'red', REVERSED: 'red',
+  // 7-Day Verification Acceptance, Claim & Professional Settlement System —
+  // an active buyer claim on this verification froze the payout.
+  FROZEN: 'red',
+}
+
+// Distinct copy for PENDING_SETTLEMENT — it now also covers "on hold during
+// the buyer's 7-day review window", not just "waiting on the other payment
+// leg", so it reads clearly in either case without a second status value.
+const STATUS_LABEL = {
+  PENDING_SETTLEMENT: 'On Hold (7-Day Review)',
+  FROZEN: 'Frozen (Claim Under Review)',
 }
 
 const ELIGIBILITY_LABEL = {
@@ -123,7 +134,7 @@ export default function ExpertVerificationEarnings() {
             payouts.map((p) => (
               <div className="li" key={p.id}>
                 <div className="tx"><b className="dev">{inr(p.amount)}</b><p className="dev">{fmtDate(p.requestedAt)} · {p.earningsCount} earning(s)</p></div>
-                <Chip tone={STATUS_TONE[p.status] || 'ink'}>{p.status}</Chip>
+                <Chip tone={STATUS_TONE[p.status] || 'ink'}>{STATUS_LABEL[p.status] || p.status}</Chip>
               </div>
             ))
           )}
@@ -141,7 +152,7 @@ export default function ExpertVerificationEarnings() {
                 <b className="dev">{inr(t.amount)}</b>
                 <p className="dev">{fmtDate(t.createdAt)} · Request {t.verificationRequest?.id?.slice(-6) || '—'}</p>
               </div>
-              <Chip tone={STATUS_TONE[t.status] || 'ink'}>{t.status}</Chip>
+              <Chip tone={STATUS_TONE[t.status] || 'ink'}>{STATUS_LABEL[t.status] || t.status}</Chip>
             </div>
           ))
         )}

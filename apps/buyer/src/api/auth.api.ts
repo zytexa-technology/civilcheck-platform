@@ -19,8 +19,20 @@ export async function registerBuyer(input: {
   address: string
   password: string
   confirmPassword: string
+  acceptTerms: boolean
 }): Promise<RegisterResponse> {
   const { data } = await client.post<RegisterResponse>('/auth/register', input)
+  return data
+}
+
+/**
+ * POST /api/auth/terms/accept — mandatory Terms & Conditions / Privacy
+ * Policy re-acceptance for an already-authenticated buyer. The server
+ * determines the current Terms version and timestamp; this call only ever
+ * communicates explicit consent.
+ */
+export async function acceptTerms(): Promise<{ success: boolean; accepted: boolean; termsVersion: number }> {
+  const { data } = await client.post('/auth/terms/accept', { accept: true })
   return data
 }
 

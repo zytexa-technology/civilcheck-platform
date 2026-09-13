@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import {
   acceptVerificationQuote,
+  acceptVerificationReport,
   cancelVerificationRequest,
   createAdvanceOrder,
   createClaim,
@@ -25,7 +26,7 @@ import { PaymentModal } from '../../components/PaymentModal'
 import { ErrorState, InlineNotice, LoadingState } from '../../components/States'
 import { VerificationStepper } from '../../components/VerificationStepper'
 import { errorMessage } from '../../lib/errors'
-import { buildGoogleMapsUrl, formatDate, formatRupees, humanize, sellerBadgeLong, verificationRequestTone } from '../../lib/format'
+import { buildGoogleMapsUrl, formatDate, formatDateTime, formatRupees, humanize, sellerBadgeLong, verificationRequestTone } from '../../lib/format'
 import type { CheckoutOrder, Claim, VerificationMessage, VerificationQuote, VerificationReport, VerificationRequest } from '../../types/api'
 
 type PaymentStage = 'advance' | 'final' | null
@@ -63,6 +64,11 @@ export default function VerificationRequestDetail() {
   const [claimBusy, setClaimBusy] = useState(false)
   const [claimError, setClaimError] = useState('')
   const [claimPromptDismissed, setClaimPromptDismissed] = useState(false)
+
+  // 7-Day Verification Acceptance, Claim & Professional Settlement System
+  const [acceptOpen, setAcceptOpen] = useState(false)
+  const [acceptBusy, setAcceptBusy] = useState(false)
+  const [acceptError, setAcceptError] = useState('')
 
   // Buyer Verification Experience enhancement — the minimum conversation
   // with the assigned professional (reuses the existing Notification system
@@ -147,7 +153,17 @@ export default function VerificationRequestDetail() {
   // CANCELLED in the same render that sets cancelResult, so gating on
   // CANCELLABLE alone would hide the confirmation before it's ever shown.
   const canCancel = CANCELLABLE.has(request.status) || cancelResult !== null
-  const canRaiseClaim = request.status === 'REPORT_UNLOCKED' && !claims.some((c) => c.status === 'OPEN' || c.status === 'UNDER_REVIEW')
+
+  // 7-Day Verification Acceptance, Claim & Professional Settlement System —
+  // the backend's stored claimDeadline is the ONLY source of truth for
+  // whether the window is still open; this is a display convenience, never
+  // trusted as the actual gate (the accept/claim endpoints re-validate
+  // everything server-side regardless of what this page shows).
+  const hasActiveClaim = claims.some((c) => c.status === 'OPEN' || c.status === 'UNDER_REVIEW')
+  const buyerAccepted = request.buyerAcceptanceStatus === 'ACCEPTED'
+  const claimDeadlinePassed = request.claimDeadline ? Date.now() > new Date(request.claimDeadline).getTime() : false
+  const reviewWindowOpen = request.status === 'REPORT_UNLOCKED' && !hasActiveClaim && !buyerAccepted && !claimDeadlinePassed
+  const canRaiseClaim = reviewWindowOpen
 
   const startPayment = async (which: PaymentStage) => {
     if (!which) return
@@ -177,6 +193,20 @@ export default function VerificationRequestDetail() {
       setPayError(errorMessage(err, 'Could not cancel this request.'))
     } finally {
       setCancelBusy(false)
+    }
+  }
+
+  const handleAccept = async () => {
+    setAcceptBusy(true)
+    setAcceptError('')
+    try {
+      const res = await acceptVerificationReport(id)
+      setRequest(res.request)
+      setAcceptOpen(false)
+    } catch (err) {
+      setAcceptError(errorMessage(err, 'Could not accept this report.'))
+    } finally {
+      setAcceptBusy(false)
     }
   }
 
@@ -496,6 +526,76 @@ export default function VerificationRequestDetail() {
                 </div>
               </div>
             ) : null}
+          </SectionCard>
+        ) : null}
+
+        {/* 7-Day Verification Acceptance, Claim & Professional Settlement
+            System — STATE 1 (review period active) / STATE 2 (accepted) /
+            STATE 4 (window expired, no acceptance, no claim). STATE 3 (claim
+            submitted) and STATE 5 (claim resolved) are shown by the existing
+            claims list further down, unchanged. */}
+        {request.status === 'REPORT_UNLOCKED' ? (
+          <SectionCard icon={buyerAccepted ? '🟢' : claimDeadlinePassed && !hasActiveClaim ? '⏰' : '⚠️'} title="Review period">
+            {buyerAccepted ? (
+              <div className="stack" style={{ padding: '10px 0' }}>
+                <InlineNotice tone="info" message={`🟢 Report Accepted — you accepted this verification report on ${formatDateTime(request.buyerAcceptedAt)}.`} />
+              </div>
+            ) : hasActiveClaim ? null : claimDeadlinePassed ? (
+              <div className="stack" style={{ padding: '10px 0' }}>
+                <InlineNotice message="⏰ Claim Window Expired — the 7-day claim period has ended. A new claim can no longer be submitted for this report." />
+              </div>
+            ) : (
+              <div className="stack" style={{ padding: '10px 0', gap: 10 }}>
+                <InlineNotice
+                  tone="warn"
+                  message={
+                    'Claim Deadline: 7 Days. After your verification report is completed and delivered, you have 7 days to review ' +
+                    'the report and submit a claim if you identify any issue or discrepancy. Claims submitted after this period may not be accepted.'
+                  }
+                />
+                {request.claimDeadline ? (
+                  <p className="small muted">
+                    Claim window ends: <strong>{formatDateTime(request.claimDeadline)}</strong>
+                  </p>
+                ) : null}
+                <p className="small muted">Please review your verification report carefully within the claim period.</p>
+                <Link to="/terms" className="small" style={{ color: 'var(--cc-blue)' }}>
+                  View Terms &amp; Conditions
+                </Link>
+
+                {acceptError ? <InlineNotice tone="warn" message={acceptError} /> : null}
+
+                {acceptOpen ? (
+                  <div className="card" style={{ padding: 14, borderColor: 'var(--cc-green)' }}>
+                    <p style={{ fontWeight: 700, fontSize: 13.5, marginBottom: 6 }}>Confirm Report Acceptance</p>
+                    <p className="muted" style={{ fontSize: 12.5, lineHeight: 1.6, marginBottom: 12 }}>
+                      Please confirm that you have reviewed the verification report and are satisfied with the
+                      verification service provided. Your acceptance will make the professional&apos;s payout eligible
+                      for release.
+                    </p>
+                    <div className="row">
+                      <Button size="sm" loading={acceptBusy} onClick={() => void handleAccept()}>
+                        Confirm Acceptance
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => setAcceptOpen(false)} disabled={acceptBusy}>
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+                    <Button size="sm" onClick={() => setAcceptOpen(true)}>
+                      🟢 Accept Verification Report
+                    </Button>
+                    {canRaiseClaim ? (
+                      <Button size="sm" variant="danger" onClick={() => setClaimOpen(true)}>
+                        ⚠️ Report an Issue
+                      </Button>
+                    ) : null}
+                  </div>
+                )}
+              </div>
+            )}
           </SectionCard>
         ) : null}
 

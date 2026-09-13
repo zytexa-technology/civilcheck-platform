@@ -25,6 +25,7 @@ import prisma from '../lib/prisma.js'
 import logger from '../lib/logger.js'
 import { createPayout, RazorpayPayoutError } from '../lib/razorpayPayouts.js'
 import { isRouteConfigured } from '../lib/razorpayRoute.js'
+import { notifySuperAdmins } from './notification.service.js'
 
 export class PayoutError extends Error {
   status: number
@@ -41,24 +42,57 @@ export class PayoutError extends Error {
 // this is a retry-count constant, kept here rather than in PlatformSetting.
 const MAX_PAYOUT_RETRY_ATTEMPTS = 3
 
-// ─────────────────────────────────────────────────────────────────────────────
-// REQUEST — a professional (or an admin on their behalf) claims every
-// AVAILABLE_FOR_PAYOUT earning into one new payout record. Atomic claim,
-// same "first-acceptance-wins" shape as verification.service.ts's quote
-// acceptance and reward.service.ts's redeem-request approval: the earnings
-// are claimed with a guarded updateMany inside the same transaction that
-// creates the record, so two concurrent requests for the same seller can
-// never both claim the same earning into two different payout records.
-// ─────────────────────────────────────────────────────────────────────────────
-export async function requestPayout(sellerId: string): Promise<ProfessionalPayoutRecord> {
+interface Beneficiary {
+  name: string
+  bankAccount: string | null
+  ifsc: string | null
+  eligibilityStatus: string
+}
+
+// Expert-only, by design (role-model correction pass — see
+// ProfessionalEarning's schema comment). Every payout beneficiary is a
+// Seller — structurally guaranteed to be EXPERT by the marketplace's own
+// route-level RBAC — and this re-verifies that role defensively rather than
+// trusting the structural guarantee alone (section 57's explicit "verify
+// assigned user's actual role/type is EXPERT" requirement). Admin,
+// SuperAdmin, Owner and Reporter can never reach this function: there is no
+// code path that constructs a payout actor from anything but a
+// ProfessionalEarning.sellerId.
+async function loadBeneficiary(sellerId: string): Promise<Beneficiary> {
   const seller = await prisma.seller.findUnique({ where: { id: sellerId } })
   if (!seller || seller.deletedAt) throw new PayoutError('Seller not found', 404)
-  if (!seller.bankAccount || !seller.ifsc) {
+  if (seller.partnerRole !== 'EXPERT') {
+    // Must never happen via normal flow (OWNER/REPORTER sellers can never
+    // hold an assignedSellerId — see verification.routes.ts's
+    // requireSellerRole(EXPERT) gate on every quote/assignment path) — this
+    // refuses explicitly rather than ever silently paying one out.
+    throw new PayoutError('Only an Expert can receive a verification payout', 403)
+  }
+  return {
+    name: seller.name,
+    bankAccount: seller.bankAccount,
+    ifsc: seller.ifsc,
+    eligibilityStatus: seller.payoutEligibilityStatus,
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// REQUEST — the Expert claims every AVAILABLE_FOR_PAYOUT earning into one new
+// payout record. Atomic claim, same "first-acceptance-wins" shape as
+// verification.service.ts's quote acceptance and reward.service.ts's
+// redeem-request approval: the earnings are claimed with a guarded
+// updateMany inside the same transaction that creates the record, so two
+// concurrent requests for the same Expert can never both claim the same
+// earning into two different payout records.
+// ─────────────────────────────────────────────────────────────────────────────
+export async function requestPayout(sellerId: string): Promise<ProfessionalPayoutRecord> {
+  const beneficiary = await loadBeneficiary(sellerId)
+  if (!beneficiary.bankAccount || !beneficiary.ifsc) {
     throw new PayoutError('Bank account details are required before requesting a payout', 400)
   }
-  if (seller.payoutEligibilityStatus !== 'ELIGIBLE') {
+  if (beneficiary.eligibilityStatus !== 'ELIGIBLE') {
     throw new PayoutError(
-      `Payout is not currently available for this account (status: ${seller.payoutEligibilityStatus})`,
+      `Payout is not currently available for this account (status: ${beneficiary.eligibilityStatus})`,
       403
     )
   }
@@ -84,9 +118,9 @@ export async function requestPayout(sellerId: string): Promise<ProfessionalPayou
       data: { status: 'PAYOUT_REQUESTED', payoutRecordId: record.id },
     })
     if (claim.count !== ids.length) {
-      // Lost a race against a concurrent payout request for the same seller —
-      // rolling back the whole transaction is simpler and safer than trying
-      // to partially unwind a payout record with a wrong total.
+      // Lost a race against a concurrent payout request for the same
+      // Expert — rolling back the whole transaction is simpler and safer
+      // than trying to partially unwind a payout record with a wrong total.
       throw new PayoutError('Available balance changed while requesting payout — please try again', 409)
     }
 
@@ -104,16 +138,15 @@ export async function requestPayout(sellerId: string): Promise<ProfessionalPayou
 // webhook-only (see the file header).
 // ─────────────────────────────────────────────────────────────────────────────
 export async function processPayout(payoutRecordId: string): Promise<ProfessionalPayoutRecord> {
-  const record = await prisma.professionalPayoutRecord.findUnique({
-    where: { id: payoutRecordId },
-    include: { seller: true },
-  })
+  const record = await prisma.professionalPayoutRecord.findUnique({ where: { id: payoutRecordId } })
   if (!record) throw new PayoutError('Payout record not found', 404)
   if (record.status !== 'PAYOUT_REQUESTED' && record.status !== 'RETRYABLE') {
     throw new PayoutError(`Only PAYOUT_REQUESTED or RETRYABLE payouts can be processed (current: ${record.status})`, 400)
   }
-  if (!record.seller.bankAccount || !record.seller.ifsc) {
-    throw new PayoutError('Seller has no bank account on file', 400)
+
+  const beneficiary = await loadBeneficiary(record.sellerId)
+  if (!beneficiary.bankAccount || !beneficiary.ifsc) {
+    throw new PayoutError('This Expert has no bank account on file', 400)
   }
 
   // Route is not configured for this account (see lib/razorpayRoute.ts) —
@@ -134,9 +167,9 @@ export async function processPayout(payoutRecordId: string): Promise<Professiona
     const payout = await createPayout({
       amount: record.totalAmountPaise,
       bankAccount: {
-        name: record.seller.name,
-        accountNumber: record.seller.bankAccount,
-        ifsc: record.seller.ifsc,
+        name: beneficiary.name,
+        accountNumber: beneficiary.bankAccount,
+        ifsc: beneficiary.ifsc,
       },
       referenceId,
       narration: 'CivilCheck verification marketplace payout',
@@ -178,6 +211,11 @@ export async function processPayout(payoutRecordId: string): Promise<Professiona
         where: { payoutRecordId },
         data: { status: nextStatus },
       })
+    })
+
+    void notifySuperAdmins({
+      subject: 'CivilCheck — Payout failed',
+      body: `Payout ${payoutRecordId} failed at RazorpayX (${message}). Status: ${nextStatus}.`,
     })
 
     if (err instanceof RazorpayPayoutError) throw new PayoutError(message, err.status)
@@ -241,6 +279,10 @@ export async function handlePayoutWebhookEvent(
     })
     if (claim.count === 0) return 'IGNORED' // a concurrent delivery already handled this
     logger.warn(`[payout] record ${record.id} FAILED via webhook (${eventType}) → ${nextStatus}`)
+    void notifySuperAdmins({
+      subject: 'CivilCheck — Payout failed',
+      body: `Payout ${record.id} failed (${eventType}${failureReason ? `: ${failureReason}` : ''}). Status: ${nextStatus}.`,
+    })
     return 'FAILED'
   }
 

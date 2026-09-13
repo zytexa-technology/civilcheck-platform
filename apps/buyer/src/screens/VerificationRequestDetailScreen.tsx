@@ -3,6 +3,7 @@ import { Alert, Linking, StyleSheet, Text, TouchableOpacity, View } from 'react-
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import {
   acceptVerificationQuote,
+  acceptVerificationReport,
   cancelVerificationRequest,
   createAdvanceOrder,
   createClaim,
@@ -16,10 +17,19 @@ import {
   verifyFinalPayment,
 } from '../api/verification.api'
 import { errorMessage, errorStatus } from '../lib/errors'
-import { formatDate, formatRupees, humanize, sellerBadgeLabel, verificationRequestTone } from '../lib/format'
+import {
+  buildGoogleMapsUrl,
+  formatDate,
+  formatDateTime,
+  formatRupees,
+  humanize,
+  sellerBadgeLabel,
+  verificationRequestTone,
+} from '../lib/format'
 import { colors, SCREEN_PADDING, spacing } from '../theme'
 import { Button, ButtonRow } from '../components/Button'
 import { Card, DetailRow, SectionCard } from '../components/Card'
+import { LocationMapSection } from '../components/LocationMapSection'
 import { Pill } from '../components/Pill'
 import { Screen } from '../components/Screen'
 import { ScreenHeader } from '../components/ScreenHeader'
@@ -87,6 +97,10 @@ export function VerificationRequestDetailScreen() {
   const [claimDescription, setClaimDescription] = useState('')
   const [claimSubmitting, setClaimSubmitting] = useState(false)
   const [claimPromptDismissed, setClaimPromptDismissed] = useState(false)
+
+  // 7-Day Verification Acceptance, Claim & Professional Settlement System
+  const [showAcceptConfirm, setShowAcceptConfirm] = useState(false)
+  const [acceptSubmitting, setAcceptSubmitting] = useState(false)
 
   // Buyer-choice negotiation — the comparison list shown only while OPEN.
   const [quotes, setQuotes] = useState<VerificationQuote[]>([])
@@ -233,6 +247,20 @@ export function VerificationRequestDetailScreen() {
     }
   }
 
+  const handleAcceptReport = async () => {
+    if (!id) return
+    setAcceptSubmitting(true)
+    try {
+      const response = await acceptVerificationReport(id)
+      setRequest(response.request)
+      setShowAcceptConfirm(false)
+    } catch (err) {
+      Alert.alert("Couldn't accept this report", errorMessage(err))
+    } finally {
+      setAcceptSubmitting(false)
+    }
+  }
+
   const handleAcceptQuote = async (quoteId: string) => {
     if (!id) return
     setAcceptingId(quoteId)
@@ -294,8 +322,30 @@ export function VerificationRequestDetailScreen() {
 
   const tone = verificationRequestTone(request.status)
   const canCancel = CANCELLABLE.includes(request.status)
-  const canClaim = request.status === 'REPORT_UNLOCKED'
   const activeClaim = claims.find((c) => c.status === 'OPEN' || c.status === 'UNDER_REVIEW')
+
+  // 7-Day Verification Acceptance, Claim & Professional Settlement System —
+  // the backend's stored claimDeadline is the ONLY source of truth for
+  // whether the window is still open; this is a display convenience, never
+  // trusted as the actual gate (accept-report/claims both re-validate
+  // everything server-side regardless of what this screen shows).
+  const hasActiveClaim = Boolean(activeClaim)
+  const buyerAccepted = request.buyerAcceptanceStatus === 'ACCEPTED'
+  const claimDeadlinePassed = request.claimDeadline ? Date.now() > new Date(request.claimDeadline).getTime() : false
+  const reviewWindowOpen = request.status === 'REPORT_UNLOCKED' && !hasActiveClaim && !buyerAccepted && !claimDeadlinePassed
+  const canClaim = reviewWindowOpen
+
+  // Named states (rather than nested ternaries referencing the same
+  // variables inline) so each JSX branch below is a plain string
+  // comparison — simplest way to render the 7-day review section's four
+  // states (accepted / claimed / expired / open) unambiguously.
+  const reviewState: 'accepted' | 'claimed' | 'expired' | 'open' = buyerAccepted
+    ? 'accepted'
+    : hasActiveClaim
+      ? 'claimed'
+      : claimDeadlinePassed
+        ? 'expired'
+        : 'open'
 
   // Derived purely from fields already on the request (agreedFee splits into
   // advanceAmount + finalAmount by the existing 50/50 rule) — never a second
@@ -352,6 +402,69 @@ export function VerificationRequestDetailScreen() {
         <View style={styles.stepperDivider} />
         <VerificationStepper status={request.status} />
       </Card>
+
+      {/* Property Discovery flow — before an Expert links a real property,
+          there is no property to show yet; the buyer instead sees what they
+          asked CivilCheck to find. Mirrors Buyer Web's identical section
+          exactly (VerificationRequestDetail.tsx). Never a fake "Untitled
+          property" placeholder — only the buyer's own desired* fields,
+          which always exist for a DISCOVERY request. */}
+      {request.source === 'DISCOVERY' && !request.listing && !request.property ? (
+        <SectionCard icon="🔍" title="Property Discovery">
+          <DetailRow label="Desired Location" value={request.desiredAddress || '—'} />
+          <DetailRow label="City" value={request.desiredCity || '—'} />
+          {request.desiredTehsil ? <DetailRow label="Tehsil" value={request.desiredTehsil} /> : null}
+          <DetailRow
+            label="Property Type"
+            value={request.desiredPropertyType ? humanize(request.desiredPropertyType) : '—'}
+          />
+          <DetailRow
+            label="Khasra / Survey"
+            value={request.desiredKhasraOrSurvey || '—'}
+            last
+          />
+          {(() => {
+            const url = buildGoogleMapsUrl({
+              address: request.desiredAddress,
+              city: request.desiredCity,
+              tehsil: request.desiredTehsil,
+            })
+            return url ? (
+              <TouchableOpacity
+                onPress={() =>
+                  Linking.openURL(url).catch(() => Alert.alert("Couldn't open Maps", 'Please try again.'))
+                }
+                accessibilityRole="link"
+              >
+                <Text style={styles.desiredMapLink}>📍 Open desired location in Google Maps ↗</Text>
+              </TouchableOpacity>
+            ) : null
+          })()}
+          <Text style={styles.desiredHint}>
+            This is your desired location, not a confirmed property yet — an eligible Expert will search for
+            a matching property once you accept a quote.
+          </Text>
+        </SectionCard>
+      ) : null}
+
+      {/* Once an Expert links a real Listing/Property, show its actual
+          location — same shared component ReportScreen/OwnerPropertyDetailScreen
+          use, not a duplicate implementation. Scoped to DISCOVERY only,
+          matching Web exactly: LISTING/PROPERTY requests never showed a
+          location section on this screen before. */}
+      {request.source === 'DISCOVERY' && (request.listing || request.property) ? (
+        <LocationMapSection
+          latitude={(request.listing ?? request.property)!.latitude}
+          longitude={(request.listing ?? request.property)!.longitude}
+          address={request.listing ? request.listing.address : (request.property!.address ?? undefined)}
+          mapUrl={buildGoogleMapsUrl(request.listing ?? request.property!)}
+          locationLabel={
+            [(request.listing ?? request.property)!.tehsil, (request.listing ?? request.property)!.city]
+              .filter(Boolean)
+              .join(', ') || 'the property'
+          }
+        />
+      ) : null}
 
       {request.status === 'OPEN' ? (
         <SectionCard icon="💬" title="Compare quotes">
@@ -569,6 +682,89 @@ export function VerificationRequestDetailScreen() {
         ) : null}
       </SectionCard>
 
+      {/* 7-Day Verification Acceptance, Claim & Professional Settlement
+          System — STATE 1 (review period active) / STATE 2 (accepted) /
+          STATE 4 (window expired, no acceptance, no claim). STATE 3 (claim
+          submitted) and STATE 5 (claim resolved) are shown by the existing
+          claim section below, unchanged. */}
+      {request.status === 'REPORT_UNLOCKED' ? (
+        <SectionCard
+          icon={reviewState === 'accepted' ? '🟢' : reviewState === 'expired' ? '⏰' : '⚠️'}
+          title="Review period"
+        >
+          {reviewState === 'accepted' ? (
+            <Text style={styles.reviewAcceptedText}>
+              🟢 Report Accepted — you accepted this verification report on {formatDateTime(request.buyerAcceptedAt)}.
+            </Text>
+          ) : reviewState === 'claimed' ? null : reviewState === 'expired' ? (
+            <Text style={styles.reviewExpiredText}>
+              ⏰ Claim Window Expired — the 7-day claim period has ended. A new claim can no longer be
+              submitted for this report.
+            </Text>
+          ) : (
+            <View style={styles.reviewWrap}>
+              <Text style={styles.reviewNoticeTitle}>⚠️ Claim Deadline: 7 Days</Text>
+              <Text style={styles.reviewNoticeBody}>
+                After your verification report is completed and delivered, you have 7 days to review the
+                report and submit a claim if you identify any issue or discrepancy. Claims submitted after
+                this period may not be accepted.
+              </Text>
+              {request.claimDeadline ? (
+                <Text style={styles.reviewDeadline}>
+                  Claim window ends: <Text style={styles.reviewDeadlineValue}>{formatDateTime(request.claimDeadline)}</Text>
+                </Text>
+              ) : null}
+              <Text style={styles.reviewHint}>Please review your verification report carefully within the claim period.</Text>
+              <TouchableOpacity onPress={() => router.push('/terms')} accessibilityRole="link">
+                <Text style={styles.reviewTermsLink}>View Terms &amp; Conditions</Text>
+              </TouchableOpacity>
+
+              {showAcceptConfirm ? (
+                <Card style={styles.acceptConfirmCard}>
+                  <Text style={styles.formTitle}>Confirm Report Acceptance</Text>
+                  <Text style={styles.reviewNoticeBody}>
+                    Please confirm that you have reviewed the verification report and are satisfied with the
+                    verification service provided. Your acceptance will make the professional&apos;s payout
+                    eligible for release.
+                  </Text>
+                  <ButtonRow>
+                    <Button
+                      label="Cancel"
+                      variant="secondary"
+                      onPress={() => setShowAcceptConfirm(false)}
+                      disabled={acceptSubmitting}
+                      style={styles.flexButton}
+                    />
+                    <Button
+                      label="Confirm Acceptance"
+                      onPress={() => void handleAcceptReport()}
+                      loading={acceptSubmitting}
+                      style={styles.flexButton}
+                    />
+                  </ButtonRow>
+                </Card>
+              ) : (
+                <ButtonRow>
+                  <Button
+                    label="🟢 Accept Verification Report"
+                    onPress={() => setShowAcceptConfirm(true)}
+                    style={styles.flexButton}
+                  />
+                  {canClaim ? (
+                    <Button
+                      label="⚠️ Report an Issue"
+                      variant="danger"
+                      onPress={() => setShowClaimForm(true)}
+                      style={styles.flexButton}
+                    />
+                  ) : null}
+                </ButtonRow>
+              )}
+            </View>
+          )}
+        </SectionCard>
+      ) : null}
+
       {canClaim ? (
         <View style={styles.section}>
           {!activeClaim && !claimPromptDismissed ? (
@@ -778,6 +974,8 @@ const styles = StyleSheet.create({
   amountStatLabel: { fontSize: 10, color: colors.muted, textTransform: 'uppercase', letterSpacing: 0.3 },
   amountStatValue: { fontSize: 13.5, fontWeight: '700', color: colors.text, marginTop: 3 },
   stepperDivider: { height: 1, backgroundColor: colors.border, marginTop: spacing.md, marginBottom: spacing.sm },
+  desiredMapLink: { fontSize: 12.5, fontWeight: '600', color: colors.blue, marginTop: spacing.sm },
+  desiredHint: { fontSize: 11, color: colors.muted, marginTop: spacing.sm, lineHeight: 16 },
   section: { paddingHorizontal: SCREEN_PADDING, marginBottom: spacing.md },
   findings: {
     fontSize: 12,
@@ -855,4 +1053,16 @@ const styles = StyleSheet.create({
   claimPromptBody: { fontSize: 11.5, color: colors.muted, lineHeight: 17, marginTop: 4, marginBottom: spacing.md },
   contactSupportLink: { alignSelf: 'flex-start', marginTop: spacing.md },
   contactSupportText: { fontSize: 11.5, fontWeight: '600', color: colors.gold },
+
+  // ─── 7-Day Verification Acceptance, Claim & Professional Settlement System ───
+  reviewWrap: { gap: spacing.sm },
+  reviewAcceptedText: { fontSize: 12.5, color: colors.green, lineHeight: 18 },
+  reviewExpiredText: { fontSize: 12.5, color: colors.muted, lineHeight: 18 },
+  reviewNoticeTitle: { fontSize: 12.5, fontWeight: '700', color: colors.amber },
+  reviewNoticeBody: { fontSize: 11.5, color: colors.muted, lineHeight: 17 },
+  reviewDeadline: { fontSize: 11.5, color: colors.muted },
+  reviewDeadlineValue: { fontWeight: '700', color: colors.text },
+  reviewHint: { fontSize: 11, color: colors.dim, lineHeight: 16 },
+  reviewTermsLink: { fontSize: 11.5, fontWeight: '600', color: colors.gold },
+  acceptConfirmCard: { borderColor: colors.greenBorder, marginTop: spacing.sm },
 })

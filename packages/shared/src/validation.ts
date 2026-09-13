@@ -85,6 +85,12 @@ export const buyerRegisterSchema = z
     address: addressSchema,
     password: passwordSchema,
     confirmPassword: confirmPasswordSchema,
+    // Mandatory Terms & Conditions / Privacy Policy consent — must be the
+    // literal boolean true, never merely truthy/omitted. The controller
+    // records this as a versioned, timestamped, server-authoritative
+    // TermsAcceptance row; sending it does not itself accept anything the
+    // client claims — see terms.service.ts.
+    acceptTerms: z.literal(true, { message: 'Terms & Conditions acceptance is required.' }),
   })
   .refine((data) => data.password === data.confirmPassword, {
     message: 'Passwords do not match',

@@ -10,6 +10,18 @@ import {
   shouldRefreshActivity,
   isTwoFactorEnrollmentOverdue,
 } from '../lib/session.js'
+import { hasAcceptedCurrentTerms } from '../services/terms.service.js'
+
+// Mandatory Terms & Conditions acceptance — exact path (relative to
+// whichever router is currently executing) that must stay exempt from the
+// gate below in both authMiddleware and sellerMiddleware, or a user who
+// hasn't accepted could never reach the one endpoint that lets them. Each
+// middleware is reused across many routers mounted at different base
+// paths (unlike adminMiddleware's single /api/admin mount), so req.path
+// only ever equals this on the one router where the accept route is
+// actually defined (authRoutes / sellerRoutes) — it's simply never matched,
+// harmlessly, everywhere else.
+const TERMS_ACCEPT_PATH = '/terms/accept'
 
 // Request mein user attach karne ke liye TypeScript ko batana padta hai
 // ki hum req.user add kar rahe hain — nahi bataya toh TypeScript error dega
@@ -101,6 +113,21 @@ export const authMiddleware = async (req: Request, res: Response, next: NextFunc
       return
     }
 
+    // Mandatory Terms & Conditions acceptance (same pattern as
+    // adminMiddleware's TWO_FACTOR_ENROLLMENT_REQUIRED gate below) — an
+    // authenticated buyer who hasn't accepted the current Terms gets a
+    // specific, machine-readable 403 on every OTHER protected route, never
+    // a generic 401, so the frontend can show the mandatory acceptance
+    // screen instead of bouncing them to login.
+    if (req.path !== TERMS_ACCEPT_PATH && !(await hasAcceptedCurrentTerms({ userId: user.id }))) {
+      res.status(403).json({
+        success: false,
+        code: 'TERMS_ACCEPTANCE_REQUIRED',
+        message: 'Please accept the latest Terms & Conditions and Privacy Policy to continue.',
+      })
+      return
+    }
+
     req.user = {
       id: user.id,
       phone: user.phone,
@@ -153,6 +180,19 @@ export const authMiddleware = async (req: Request, res: Response, next: NextFunc
       success: false,
       code: 'ACCOUNT_DELETED',
       message: 'This account has been deleted.',
+    })
+    return
+  }
+
+  // Same mandatory Terms gate as the local-JWT branch above — a phone/
+  // Google-auth user who was just auto-created here has zero acceptance
+  // rows on file, so this correctly routes them into the mandatory
+  // acceptance flow on their very first authenticated request too.
+  if (req.path !== TERMS_ACCEPT_PATH && !(await hasAcceptedCurrentTerms({ userId: user.id }))) {
+    res.status(403).json({
+      success: false,
+      code: 'TERMS_ACCEPTANCE_REQUIRED',
+      message: 'Please accept the latest Terms & Conditions and Privacy Policy to continue.',
     })
     return
   }
@@ -270,6 +310,18 @@ export const sellerMiddleware = async (req: Request, res: Response, next: NextFu
       success: false,
       code: 'PARTNER_DELETED',
       message: 'This account has been deleted.',
+    })
+    return
+  }
+
+  // Mandatory Terms & Conditions acceptance — same gate/shape as
+  // authMiddleware's buyer-side check above. Applies uniformly across
+  // Owner/Expert/Reporter, one record per Seller row, never per-role.
+  if (req.path !== TERMS_ACCEPT_PATH && !(await hasAcceptedCurrentTerms({ sellerId: seller.id }))) {
+    res.status(403).json({
+      success: false,
+      code: 'TERMS_ACCEPTANCE_REQUIRED',
+      message: 'Please accept the latest Terms & Conditions and Privacy Policy to continue.',
     })
     return
   }

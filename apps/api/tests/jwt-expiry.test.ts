@@ -9,7 +9,7 @@
 import jwt from 'jsonwebtoken'
 import request from 'supertest'
 import { ACCESS_TOKEN_EXPIRY, resolveAccessTokenExpiry } from '../src/lib/jwt.js'
-import { app, loginAdmin, ADMIN_EMAIL, ADMIN_PASSWORD } from './helpers.js'
+import { app, loginAdmin, ADMIN_EMAIL, SUPERADMIN_TEST_PASSWORD } from './helpers.js'
 
 describe('resolveAccessTokenExpiry', () => {
   it('respects a configured duration string', () => {
@@ -53,10 +53,13 @@ describe('ACCESS_TOKEN_EXPIRY wiring', () => {
     expect(res.status).toBe(401)
   })
 
-  it('existing admin login still succeeds and returns a working, correctly-expiring token', async () => {
+  // Both of these need the real SuperAdmin's password, which is never
+  // hardcoded here — they skip cleanly (rather than failing the suite) when
+  // SUPERADMIN_TEST_PASSWORD isn't configured in this environment.
+  ;(SUPERADMIN_TEST_PASSWORD ? it : it.skip)('existing admin login still succeeds and returns a working, correctly-expiring token', async () => {
     const res = await request(app)
       .post('/api/auth/admin/login')
-      .send({ email: ADMIN_EMAIL, password: ADMIN_PASSWORD })
+      .send({ email: ADMIN_EMAIL, password: SUPERADMIN_TEST_PASSWORD })
 
     expect(res.status).toBe(200)
     expect(res.body.success).toBe(true)
@@ -72,7 +75,7 @@ describe('ACCESS_TOKEN_EXPIRY wiring', () => {
     expect(lifetimeSeconds).toBe(expected.exp - expected.iat)
   })
 
-  it('a token from loginAdmin() still authorizes an admin route (auth flow unaffected)', async () => {
+  ;(SUPERADMIN_TEST_PASSWORD ? it : it.skip)('a token from loginAdmin() still authorizes an admin route (auth flow unaffected)', async () => {
     const token = await loginAdmin()
     const res = await request(app).get('/api/admin/report-flags').set('Authorization', `Bearer ${token}`)
     expect(res.status).toBe(200)

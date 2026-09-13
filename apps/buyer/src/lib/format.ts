@@ -280,6 +280,22 @@ export function formatDate(value: string | null | undefined): string {
   })
 }
 
+// 7-Day Verification Acceptance, Claim & Professional Settlement System —
+// the claim deadline notice needs the exact time, not just the date. Mirrors
+// Buyer Web's identical formatDateTime exactly.
+export function formatDateTime(value: string | null | undefined): string {
+  if (!value) return '—'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '—'
+  return date.toLocaleString('en-IN', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+}
+
 /** Rupees, grouped Indian-style. Input is already in rupees, not paise. */
 export function formatRupees(amount: number | null | undefined): string {
   if (amount == null || Number.isNaN(amount)) return '—'
@@ -319,16 +335,35 @@ export function initial(...candidates: (string | null | undefined)[]): string {
 // ─── LOCATION / DISTANCE (Buyer Mobile Phase 4B) ──────────────────────────────
 // Ported directly from Buyer Web's identical helpers
 // (apps/buyer-web/src/lib/format.ts) — same math, same rounding, same
-// wording. Note what's deliberately NOT duplicated here: Web's
-// buildGoogleMapsUrl (coords -> address -> city/tehsil priority) isn't
-// needed on Mobile because every relevant type (FreePreviewProperty,
-// OwnerProperty, FeedItem) already carries a pre-built `mapUrl` from the
-// backend's own identical-algorithm buildMapUrl() — reusing that existing
-// field is more consistent with this app's existing pattern (already used
-// via Linking.openURL(property.mapUrl) in ReportScreen/OwnerPropertyDetailScreen)
-// than re-deriving the same URL a second, independent way. Distance and
-// Directions genuinely need a client-side implementation here, since only
-// the buyer's own device ever knows the buyer's own coordinates.
+// wording. Web's buildGoogleMapsUrl (coords -> address -> city/tehsil
+// priority) was originally left un-ported because every relevant type
+// (FreePreviewProperty, OwnerProperty, FeedItem) already carries a
+// pre-built `mapUrl` from the backend's own identical-algorithm
+// buildMapUrl(). Buyer Feature Parity: one case genuinely doesn't have a
+// backend-supplied mapUrl — a VerificationRequest's own desired*/linked
+// listing/property fields (verification.controller.ts never serializes one
+// for this endpoint) — so buildGoogleMapsUrl is now ported here too,
+// scoped to that one case, rather than adding a mapUrl field to the API
+// response (an apps/api change this task's scope avoids unless genuinely
+// unavoidable — this client-side computation makes it avoidable). Distance
+// and Directions still need a client-side implementation regardless, since
+// only the buyer's own device ever knows the buyer's own coordinates.
+
+/** Same priority order as Buyer Web: real coordinates, else free-text address, else city/tehsil. */
+export function buildGoogleMapsUrl(location: {
+  latitude?: number | null
+  longitude?: number | null
+  address?: string | null
+  city?: string | null
+  tehsil?: string | null
+}): string | null {
+  const query =
+    location.latitude != null && location.longitude != null
+      ? `${location.latitude},${location.longitude}`
+      : location.address || [location.tehsil, location.city].filter(Boolean).join(', ') || null
+  if (!query) return null
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`
+}
 
 function isValidLatLng(lat: unknown, lng: unknown): boolean {
   return (

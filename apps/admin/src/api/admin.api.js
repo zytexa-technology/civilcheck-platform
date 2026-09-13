@@ -328,6 +328,20 @@ export const updatePayoutEligibility = async (sellerId, data) => {
   return response.data
 }
 
+// 7-Day Verification Acceptance, Claim & Professional Settlement System
+// Expert Verification Payouts — Expert-only by construction; never surfaces
+// an Admin/SuperAdmin/Owner/Reporter-performed verification (see
+// admin.controller.ts's getExpertVerificationPayouts).
+export const getExpertVerificationPayouts = async (params = {}) => {
+  const response = await API.get('/admin/expert-payouts', { params })
+  return response.data
+}
+
+export const initiateExpertVerificationPayout = async (earningId) => {
+  const response = await API.post(`/admin/expert-payouts/${earningId}/initiate`)
+  return response.data
+}
+
 export const runReconciliationSweep = async () => {
   const response = await API.post('/admin/reconciliation/run')
   return response.data

@@ -79,6 +79,8 @@ model User {
   propertyComments       PropertyComment[]
 
   passwordResetOtps PasswordResetOtp[]
+  // Mandatory Terms & Conditions / Privacy Policy consent (see TermsAcceptance).
+  termsAcceptances  TermsAcceptance[]
 }
 
 // ─── ADMIN ────────────────────────────────
@@ -123,6 +125,18 @@ model Admin {
   // read from `role` above, never inferred from Firebase.
   firebaseUid String? @unique
 
+  // Correction (Buyer 7-Day Claim + Report Acceptance + Expert Payout system,
+  // role-model clarification pass): Admin — including SUPER_ADMIN — must
+  // NEVER be an Expert-payout beneficiary. An earlier pass on this feature
+  // incorrectly gave Admin its own payout-account fields and let
+  // ProfessionalEarning/ProfessionalPayoutRecord attribute to an adminId,
+  // treating "the person who performed the verification" as if that were
+  // the same question as "who is eligible for the 30/70 Expert commission."
+  // They are not: Admin is a salaried employee, never part of the 30/70
+  // split (see resolveVerificationPerformer / notification.service.ts's
+  // notifyVerificationPerformer for the corrected split between "who gets
+  // the claim notification" and "who gets paid"). No Admin payout fields
+  // exist here by design — do not re-add them.
   passwordResetOtps PasswordResetOtp[]
 }
 
@@ -256,6 +270,8 @@ model Seller {
   supportTickets         SupportTicket[]
 
   passwordResetOtps PasswordResetOtp[]
+  // Mandatory Terms & Conditions / Privacy Policy consent (see TermsAcceptance).
+  termsAcceptances  TermsAcceptance[]
 }
 
 // ─── PROPERTY LISTINGS ────────────────────
@@ -705,6 +721,39 @@ model Disclaimer {
   updatedAt DateTime @updatedAt
 }
 
+// Mandatory Terms & Conditions / Privacy Policy consent — one row per
+// (actor, version) acceptance. `version` pins Disclaimer('terms-and-
+// conditions').version at the moment of acceptance, the same "freeze what
+// was live at the time" pattern Disclaimer's own header comment already
+// documents for purchased reports — so a later Terms edit never rewrites
+// what an existing acceptance legally represents. Actor is exactly one of
+// userId/sellerId (XOR enforced by a CHECK constraint in the migration,
+// same convention as PasswordResetOtp's actor-nullable-FK shape); Admin is
+// deliberately excluded — this task scopes mandatory ToS acceptance to
+// Buyer and Partner/Seller only. `@@unique` on each actor+version pair is
+// the idempotency guard: a retried accept call for an already-accepted
+// version is a duplicate-key no-op, never a second row (Postgres treats
+// each NULL in a unique index as distinct, so the two constraints below
+// don't collide with each other across actor types).
+model TermsAcceptance {
+  id         String   @id @default(uuid(7))
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id], onDelete: Restrict)
+  sellerId   String?
+  seller     Seller?  @relation(fields: [sellerId], references: [id], onDelete: Restrict)
+  version    Int
+  acceptedAt DateTime @default(now())
+  // Best-effort audit context only — never used for authorization decisions.
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  @@unique([userId, version])
+  @@unique([sellerId, version])
+  @@index([userId])
+  @@index([sellerId])
+}
+
 // In-app banner announcements. A banner is live when active AND inside its
 // optional [startsAt, endsAt] window — so campaigns can be scheduled ahead.
 model BannerAnnouncement {
@@ -1099,6 +1148,26 @@ model VerificationRequest {
   cancellationFee    Float? // charged only if cancelled after acceptance
   cancellationRefund Float? // what was actually returned to the buyer
 
+  // ─── 7-Day Verification Acceptance, Claim & Professional Settlement System ───
+  // Set together, exactly once, idempotently, the moment this request first
+  // reaches REPORT_UNLOCKED (ledger.service.ts's promoteEarningsOnUnlock) —
+  // never recalculated on a later read, never reset by a repeated call.
+  // Both stay null for a request that has never been unlocked; legacy
+  // REPORT_UNLOCKED rows that predate this feature also keep both null
+  // rather than being backfilled with an invented deadline (see this
+  // feature's migration note — there is no reliable historical "unlocked
+  // at" timestamp to backfill from).
+  reportCompletedAt DateTime?
+  // = reportCompletedAt + 7 days, computed and frozen server-side once, at
+  // the same moment as reportCompletedAt — the buyer/professional-facing
+  // countdown always reads this stored value, never a client-recomputed one.
+  claimDeadline     DateTime?
+
+  buyerAcceptanceStatus BuyerAcceptanceStatus @default(PENDING)
+  // Set only when buyerAcceptanceStatus flips to ACCEPTED — server time,
+  // never client-supplied.
+  buyerAcceptedAt       DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1117,6 +1186,15 @@ model VerificationRequest {
   @@index([assignedSellerId])
   @@index([listingId])
   @@index([propertyId])
+  // 7-Day expiry sweep (verificationExpiry.service.ts) filters on exactly
+  // this pair — buyerAcceptanceStatus first (highly selective: PENDING is
+  // the minority once requests age past 7 days) then claimDeadline range.
+  @@index([buyerAcceptanceStatus, claimDeadline])
+}
+
+enum BuyerAcceptanceStatus {
+  PENDING
+  ACCEPTED
 }
 
 // A professional's (Admin or verified Expert) proposed fee for a
@@ -1358,6 +1436,21 @@ enum ProfessionalEarningStatus {
   RETRYABLE // a FAILED payout eligible for another attempt
   MANUAL_REVIEW // a FAILED payout that exhausted retries, or a mismatch found during reconciliation
   REVERSED // the underlying ledger entry was reversed (refund/cancellation) after being earned/paid
+  // 7-Day Verification Acceptance, Claim & Professional Settlement System —
+  // an OPEN/UNDER_REVIEW Claim exists against this earning's verification
+  // request. Payout can never be requested/initiated while any earning for
+  // a request sits here (payout.service.ts's requestPayout only ever
+  // selects AVAILABLE_FOR_PAYOUT). Set from EARNED/PENDING_SETTLEMENT when a
+  // claim opens; released back to AVAILABLE_FOR_PAYOUT (never silently to
+  // PENDING_SETTLEMENT) if the claim is later REJECTED, or left FROZEN for
+  // the existing refund pipeline to resolve if the claim is approved.
+  FROZEN
+}
+
+enum PayoutReleaseReason {
+  BUYER_ACCEPTED
+  CLAIM_WINDOW_EXPIRED
+  CLAIM_REJECTED
 }
 
 // The professional's entitlement to one captured payment's worth of
@@ -1369,6 +1462,23 @@ enum ProfessionalEarningStatus {
 model ProfessionalEarning {
   id String @id @default(uuid(7))
 
+  // Correction: an earlier pass on this feature let this be adminId-or-
+  // sellerId, treating "who performed the verification" as the same
+  // question as "who is eligible for the 30/70 Expert commission." They are
+  // not the same question — a ProfessionalEarning row (and everything
+  // downstream: payout eligibility, payout accounts, the Expert earnings
+  // dashboard) exists ONLY for the Expert-commission path. sellerId here is
+  // always an EXPERT-role Seller — structurally guaranteed by the
+  // marketplace's own route-level RBAC (requireSellerRole(EXPERT) gates
+  // every quote/assignment path, so an OWNER/REPORTER Seller can never
+  // become assignedSellerId in the first place), and defensively
+  // re-verified before any payout is requested or processed (see
+  // payout.service.ts's loadBeneficiary). An Admin-performed verification
+  // never reaches this model at all — see ledger.service.ts's
+  // recordCaptureLedgerEntries and resolveVerificationPerformer in
+  // notification.service.ts for where "who gets the claim notification"
+  // (any performer) is deliberately kept separate from this table (Expert
+  // payout only).
   sellerId String
   seller   Seller @relation(fields: [sellerId], references: [id])
 
@@ -1392,6 +1502,14 @@ model ProfessionalEarning {
   payoutRecord   ProfessionalPayoutRecord? @relation(fields: [payoutRecordId], references: [id])
 
   reversalReason String? // set only when status becomes REVERSED
+
+  // 7-Day Verification Acceptance, Claim & Professional Settlement System —
+  // why/when this earning left PENDING_SETTLEMENT/FROZEN for
+  // AVAILABLE_FOR_PAYOUT. Both null until that first happens; never
+  // overwritten afterward (a later claim on an already-eligible earning is
+  // not possible — see createClaim's own gate).
+  releaseReason    PayoutReleaseReason?
+  payoutEligibleAt DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1427,6 +1545,9 @@ enum PayoutMechanism {
 model ProfessionalPayoutRecord {
   id String @id @default(uuid(7))
 
+  // Correction: reverted to Seller-only (Expert-only, by construction — see
+  // ProfessionalEarning's comment above). An Admin/SuperAdmin must never be
+  // a payout beneficiary.
   sellerId String
   seller   Seller @relation(fields: [sellerId], references: [id])
 

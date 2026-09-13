@@ -79,10 +79,18 @@ export function ProfileScreen() {
   // properties, requests, alerts, notification inbox/settings, log out)
   // only appears once signed in — matching Web's account/* split exactly.
   const PUBLIC_MENU: MenuItem[] = [
+    { icon: '🏆', title: 'Expert Properties', href: '/search' },
     { icon: '🏠', title: 'Owner listings', href: '/owner-properties' },
+    { icon: '🧭', title: 'Browse Property', href: '/browse' },
     { icon: '📰', title: 'Property Updates', href: '/reporter-feed' },
     { icon: '📍', title: 'Where we operate', href: '/coverage' },
     { icon: '💬', title: 'Support', href: '/support' },
+    { icon: '📜', title: 'Legal — Terms & Conditions', href: '/terms' },
+    // Buyer Feature Parity — Web's Privacy Policy is reachable everywhere via
+    // its site-wide Footer.tsx link; Mobile has no footer equivalent, so it
+    // needs an explicit menu entry here (previously only reachable from the
+    // signup checkbox and the mandatory Terms re-acceptance screen).
+    { icon: '🔒', title: 'Privacy Policy', href: '/privacy' },
   ]
 
   const ACCOUNT_MENU: MenuItem[] = [

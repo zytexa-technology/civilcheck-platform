@@ -9,6 +9,7 @@ const LINKS = [
   { to: '/account/alerts', label: '🔔 Watching & alerts' },
   { to: '/account/support', label: '💬 Support' },
   { to: '/notifications', label: '📥 Notifications' },
+  { to: '/terms', label: '📜 Legal — Terms & Conditions' },
 ]
 
 /** Sidebar shell for the authenticated buyer account area. */

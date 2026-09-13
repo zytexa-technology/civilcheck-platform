@@ -79,4 +79,10 @@ router.get('/uploads/signature', sellerMiddleware, sellerController.getUploadSig
 // GET /api/seller/kyc/documents/:field/signed-url  (field: certificate|selfie|identity-document)
 router.get('/kyc/documents/:field/signed-url', sellerMiddleware, sellerController.getKycDocumentSignedUrl)
 
+// Mandatory Terms & Conditions / Privacy Policy re-acceptance — applies
+// uniformly to Owner/Expert/Reporter (one record per Seller row, never per
+// role). The one route sellerMiddleware's TERMS_ACCEPTANCE_REQUIRED gate
+// deliberately exempts (see auth.middleware.ts's TERMS_ACCEPT_PATH).
+router.post('/terms/accept', sellerMiddleware, sellerController.acceptSellerTerms)
+
 export default router

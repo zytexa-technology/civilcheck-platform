@@ -12,15 +12,38 @@ import { FeedItemCard } from '../components/PropertyCard'
 import { Screen } from '../components/Screen'
 import { SectionTitle } from '../components/Card'
 import { EmptyState, ErrorState, LoadingState } from '../components/States'
-import type { Banner, FeedItem } from '../types/api'
+import type { Banner, FeedItem, FeedSourceFilter } from '../types/api'
 
+// Buyer Feature Parity — "Search reports" already hits the exact same
+// Listing/Expert search endpoint (searchProperties -> GET /properties/search)
+// as Buyer Web's dedicated "Expert Properties" page (ExpertProperties.tsx),
+// confirmed by direct audit of both apps' API wiring. The destination was
+// already correct; only the label was generic rather than Web's canonical
+// term, so this renames it without touching where it goes. "Browse Property"
+// is new — Web's /browse (BrowseProperty.tsx) searches Listing (Expert) AND
+// Property (Owner) together from one form and shows both result sets, which
+// neither "Expert Properties" nor "Owner listings" does alone; BrowsePropertyScreen
+// reuses the same two existing search API functions those two screens already
+// call, it does not introduce a new endpoint or duplicate either screen.
 const QUICK_ACTIONS = [
-  { icon: '🔍', label: 'Search reports', href: '/search' },
+  { icon: '🏆', label: 'Expert Properties', href: '/search' },
   { icon: '🏠', label: 'Owner listings', href: '/owner-properties' },
+  { icon: '🧭', label: 'Browse Property', href: '/browse' },
   { icon: '📰', label: 'Property Updates', href: '/reporter-feed' },
   { icon: '📖', label: 'My reports', href: '/reports' },
   { icon: '📝', label: 'Custom check', href: '/requests/new' },
 ] as const
+
+// Buyer Feature Parity — mirrors Buyer Web's Home.tsx FILTERS exactly (same
+// four source combinations, same order, same underlying getFeed/getPropertyFeed
+// call). Previously Home's merged feed had no source filter at all; Web's had
+// one directly on the feed section.
+const FEED_FILTERS: { label: string; sources: FeedSourceFilter[] }[] = [
+  { label: 'All', sources: ['EXPERT', 'OWNER', 'REPORTER'] },
+  { label: 'Expert', sources: ['EXPERT'] },
+  { label: 'Owner', sources: ['OWNER'] },
+  { label: 'Reporter', sources: ['REPORTER'] },
+]
 
 export function HomeScreen() {
   const router = useRouter()
@@ -32,6 +55,7 @@ export function HomeScreen() {
   // approach so Reporter Posts (and their Verify This Property CTA) are
   // actually reachable from Home.
   const [feedItems, setFeedItems] = useState<FeedItem[]>([])
+  const [filterIndex, setFilterIndex] = useState(0)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
@@ -40,14 +64,14 @@ export function HomeScreen() {
   const [checking, setChecking] = useState(false)
   const [checkError, setCheckError] = useState('')
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (sources: FeedSourceFilter[]) => {
     setError('')
     try {
       // Banners are supporting content — a failure there must not blank out
       // the whole home screen, so only the feed call is allowed to decide
       // the error state.
       const [feedResult, bannersResult] = await Promise.allSettled([
-        getPropertyFeed({ sources: ['EXPERT', 'OWNER', 'REPORTER'], limit: 10 }),
+        getPropertyFeed({ sources, limit: 10 }),
         getBanners('BUYERS'),
       ])
 
@@ -64,14 +88,15 @@ export function HomeScreen() {
 
   useEffect(() => {
     void (async () => {
-      await load()
+      setLoading(true)
+      await load(FEED_FILTERS[filterIndex]!.sources)
       setLoading(false)
     })()
-  }, [load])
+  }, [load, filterIndex])
 
   const handleRefresh = async () => {
     setRefreshing(true)
-    await load()
+    await load(FEED_FILTERS[filterIndex]!.sources)
     setRefreshing(false)
   }
 
@@ -192,6 +217,22 @@ export function HomeScreen() {
           reasoning Web's own Home has no "see all" link either, since Home
           already is the full feed there. */}
       <SectionTitle>Latest properties</SectionTitle>
+
+      <View style={styles.filterRow}>
+        {FEED_FILTERS.map((f, i) => (
+          <TouchableOpacity
+            key={f.label}
+            style={[styles.filterPill, i === filterIndex && styles.filterPillActive]}
+            onPress={() => setFilterIndex(i)}
+            accessibilityRole="button"
+            accessibilityState={{ selected: i === filterIndex }}
+          >
+            <Text style={[styles.filterPillText, i === filterIndex && styles.filterPillTextActive]}>
+              {f.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
 
       <View style={styles.list}>
         {loading ? (
@@ -318,12 +359,14 @@ const styles = StyleSheet.create({
   heroError: { fontSize: 11, color: colors.red, marginTop: spacing.sm },
   quickRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: spacing.sm,
     paddingHorizontal: SCREEN_PADDING,
     paddingVertical: spacing.lg,
   },
   quickTile: {
-    flex: 1,
+    flexBasis: '30%',
+    flexGrow: 1,
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
@@ -331,6 +374,33 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
     alignItems: 'center',
     gap: 5,
+  },
+  filterRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    paddingHorizontal: SCREEN_PADDING,
+    marginBottom: spacing.md,
+  },
+  filterPill: {
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  filterPillActive: {
+    backgroundColor: colors.gold,
+    borderColor: colors.gold,
+  },
+  filterPillText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.muted,
+  },
+  filterPillTextActive: {
+    color: colors.onGold,
   },
   quickIcon: { fontSize: 18 },
   quickLabel: {

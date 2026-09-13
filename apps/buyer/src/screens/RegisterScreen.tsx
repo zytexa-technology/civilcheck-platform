@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { useRouter } from 'expo-router'
 import { registerBuyer } from '../api/auth.api'
 import { errorMessage, errorStatus } from '../lib/errors'
@@ -24,6 +24,7 @@ interface FieldErrors {
   address?: string
   password?: string
   confirmPassword?: string
+  acceptTerms?: string
 }
 
 /**
@@ -41,6 +42,7 @@ export function RegisterScreen() {
   const [address, setAddress] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
+  const [acceptTerms, setAcceptTerms] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({})
@@ -75,6 +77,9 @@ export function RegisterScreen() {
     if (password !== confirmPassword) {
       errors.confirmPassword = 'Passwords do not match.'
     }
+    if (!acceptTerms) {
+      errors.acceptTerms = 'Terms & Conditions acceptance is required.'
+    }
 
     return errors
   }
@@ -97,6 +102,7 @@ export function RegisterScreen() {
         address: address.trim(),
         password,
         confirmPassword,
+        acceptTerms,
       })
       // Signup Email Verification — no session yet; the OTP screen is what
       // actually logs the buyer in once the code is confirmed.
@@ -198,10 +204,29 @@ export function RegisterScreen() {
           onSubmitEditing={() => void handleSubmit()}
         />
 
+        <Pressable style={styles.checkboxRow} onPress={() => setAcceptTerms((c) => !c)} disabled={loading}>
+          <View style={[styles.checkbox, acceptTerms && styles.checkboxChecked]}>
+            {acceptTerms ? <Text style={styles.checkmark}>✓</Text> : null}
+          </View>
+          <Text style={styles.checkboxLabel}>
+            I agree to CivilCheck&apos;s{' '}
+            <Text style={styles.checkboxLink} onPress={() => router.push('/terms')}>
+              Terms &amp; Conditions
+            </Text>{' '}
+            and{' '}
+            <Text style={styles.checkboxLink} onPress={() => router.push('/privacy')}>
+              Privacy Policy
+            </Text>
+            .
+          </Text>
+        </Pressable>
+        {fieldErrors.acceptTerms ? <Text style={styles.checkboxError}>{fieldErrors.acceptTerms}</Text> : null}
+
         <Button
           label="Create account"
           onPress={() => void handleSubmit()}
           loading={loading}
+          disabled={!acceptTerms}
           size="lg"
           block
           style={styles.submit}
@@ -224,6 +249,22 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     marginBottom: spacing.lg,
   },
+  checkboxRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginTop: spacing.md },
+  checkbox: {
+    width: 20,
+    height: 20,
+    borderRadius: 4,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 1,
+  },
+  checkboxChecked: { backgroundColor: colors.gold, borderColor: colors.gold },
+  checkmark: { fontSize: 13, fontWeight: '700', color: colors.bg },
+  checkboxLabel: { flex: 1, fontSize: 12.5, color: colors.muted, lineHeight: 18 },
+  checkboxLink: { color: colors.gold, fontWeight: '600' },
+  checkboxError: { fontSize: 11.5, color: colors.red, marginTop: 6 },
   submit: { marginTop: spacing.sm },
   link: {
     textAlign: 'center',

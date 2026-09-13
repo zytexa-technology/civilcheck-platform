@@ -62,10 +62,20 @@ const PROFESSIONS = [
   { value: 'PROPERTY_CONSULTANT', label: 'Property Consultant' },
 ]
 
-// Placeholder copy — the real, lawyer-drafted Seller T&C (PDF Section 10.3)
-// doesn't exist yet. This text must be replaced before real sellers register.
-const TC_PLACEHOLDER_TEXT =
-  "I agree to CivilCheck's Seller Terms & Conditions and Privacy Policy, including the accuracy obligations and penalty clauses for incorrect listings."
+// Mandatory Terms & Conditions / Privacy Policy consent (Terms & Consent
+// Implementation) — the general Terms/Privacy content now exists (Content
+// Control Disclaimer keys "terms-and-conditions"/"privacy-policy", see
+// apps/api/scripts/seed-legal-content.ts) and is linked below, not just
+// named in plain text. This checkbox is still the one place that sets
+// tcAccepted === true, which the backend (seller.controller.ts's
+// sellerRegister) uses to both satisfy the existing KYC-completeness
+// compliance flag AND record a proper versioned/timestamped
+// TermsAcceptance row — see terms.service.ts. The accuracy-obligations/
+// penalty-clause sentence remains supplementary text describing this
+// codebase's real strike/penalty system (Seller.strikeCount), not invented
+// legal copy.
+const TC_SUFFIX_TEXT =
+  ', including the accuracy obligations and penalty clauses for incorrect listings.'
 
 const emailValid = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim())
 const passwordValid = (v) => v.length >= 8 && /[A-Za-z]/.test(v) && /[0-9]/.test(v)
@@ -553,7 +563,13 @@ export default function Login() {
               onChange={(e) => setTcAccepted(e.target.checked)}
               style={{ marginTop: 3 }}
             />
-            <span className="muted">{TC_PLACEHOLDER_TEXT}</span>
+            <span className="muted">
+              I agree to CivilCheck&apos;s{' '}
+              <Link to="/terms" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--seal, #B67A12)' }}>Seller Terms &amp; Conditions</Link>
+              {' '}and{' '}
+              <Link to="/privacy" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--seal, #B67A12)' }}>Privacy Policy</Link>
+              {TC_SUFFIX_TEXT}
+            </span>
           </label>
           <button
             className="btn btn-primary btn-block"

@@ -12,6 +12,8 @@ import OwnerProperties from './pages/OwnerProperties'
 import OwnerPropertyDetail from './pages/OwnerPropertyDetail'
 import ReporterFeed from './pages/ReporterFeed'
 import Coverage from './pages/Coverage'
+import Terms from './pages/Terms'
+import Privacy from './pages/Privacy'
 import NotFound from './pages/NotFound'
 
 import Login from './pages/auth/Login'
@@ -55,6 +57,8 @@ export default function App() {
         <Route path="owner-properties/:id" element={<OwnerPropertyDetail />} />
         <Route path="reporter-feed" element={<ReporterFeed />} />
         <Route path="coverage" element={<Coverage />} />
+        <Route path="terms" element={<Terms />} />
+        <Route path="privacy" element={<Privacy />} />
         <Route path="support" element={<SupportHome />} />
 
         <Route element={<GuestOnlyRoute />}>

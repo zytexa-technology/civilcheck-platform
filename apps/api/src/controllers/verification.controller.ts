@@ -17,6 +17,7 @@ import {
   createVerificationFinalOrder,
   finalizeVerificationAdvance,
   finalizeVerificationFinalPayment,
+  round2,
 } from '../services/payment.service.js'
 import {
   VerificationError,
@@ -37,8 +38,15 @@ import {
   type CreateVerificationRequestInput,
   type ProfessionalActor,
 } from '../services/verification.service.js'
-import { notifySeller, notifyBuyerAlert } from '../services/notification.service.js'
+import {
+  notifySeller,
+  notifyBuyerAlert,
+  resolveVerificationPerformer,
+  notifyPerformerOfClaimSubmitted,
+  notifyPerformerOfPayoutEligible,
+} from '../services/notification.service.js'
 import { getPlatformSettings } from '../services/platformSettings.service.js'
+import { acceptReport, createClaimWithFreeze, SettlementError } from '../services/verificationSettlement.service.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PUBLIC — lets any property-detail screen show "Verification starts from
@@ -48,12 +56,87 @@ import { getPlatformSettings } from '../services/platformSettings.service.js'
 // GET /api/verification-requests/config
 export const getMarketplaceConfig = async (_req: Request, res: Response) => {
   const settings = await getPlatformSettings()
-  res.json({ success: true, minVerificationFee: settings.minVerificationFee })
+  // platformCommissionPercent/expertCommissionPercent — the authoritative
+  // 30/70 split, derived here (never hardcoded on any frontend: Buyer Web/
+  // Mobile, the Expert quote form, and every earning-preview/notification
+  // all read this same value, never recompute their own).
+  const platformCommissionPercent = round2(settings.verificationPlatformCommissionRate * 100)
+  res.json({
+    success: true,
+    minVerificationFee: settings.minVerificationFee,
+    platformCommissionPercent,
+    expertCommissionPercent: round2(100 - platformCommissionPercent),
+  })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // BUYER SIDE
 // ─────────────────────────────────────────────────────────────────────────────
+
+// New verification request opened to the marketplace — notifies every
+// eligible Expert (never Owner/Reporter/Admin/SuperAdmin) that work is
+// available, with the exact backend-computed earning preview. Completely
+// separate from claim notification (verificationSettlement/notification
+// services below): this is a broad "new work available" broadcast, not a
+// claim/payout event, and it is the ONLY notification in this codebase that
+// intentionally fans out to every Expert rather than one specific performer.
+//
+// Eligibility reuses the real gate an Expert must already pass to act on a
+// request — kycStatus === 'APPROVED' is the same check submitQuote itself
+// enforces a few hundred lines below ("Only KYC-approved Experts can submit
+// a verification quote"), plus partnerRole === 'EXPERT' and a live
+// (non-deleted) account. This is deliberately NOT a new matching engine:
+// there is no existing location/specialization/service-area matching for
+// VerificationRequest anywhere in this codebase (Seller.city/profession are
+// never joined against it), and GET /verification-marketplace itself shows
+// every OPEN request to every eligible Expert platform-wide with zero
+// city/profession filtering — so this fan-out is exactly as broad as the
+// marketplace already is, not broader and not narrower.
+//
+// Idempotency: called exactly once, synchronously, right after the row is
+// created below. A retried create call never reaches this a second time —
+// createVerificationRequest's own dedupe guard (one active request per buyer
+// per property) throws before a second row, and therefore a second
+// fan-out, can ever exist. No separate dedupe table is introduced; nothing
+// else in this file's notification pathways (notifyBuyer, notifySuperAdmins)
+// has one either.
+async function notifyEligibleExpertsOfNewRequest(
+  requestId: string,
+  earning: {
+    verificationAmount: number
+    platformPercent: number
+    platformAmount: number
+    expertPercent: number
+    expertAmount: number
+  },
+  locationCity: string | null
+): Promise<void> {
+  try {
+    const experts = await prisma.seller.findMany({
+      where: { partnerRole: 'EXPERT', kycStatus: 'APPROVED', deletedAt: null },
+      select: { id: true, name: true, phone: true, email: true },
+    })
+    if (experts.length === 0) return
+
+    const locationText = locationCity ? ` in ${locationCity}` : ''
+    const body =
+      `A new property verification request is available${locationText}. ` +
+      `Verification amount: ₹${earning.verificationAmount.toLocaleString('en-IN')} · ` +
+      `CivilCheck share (${earning.platformPercent}%): ₹${earning.platformAmount.toLocaleString('en-IN')} · ` +
+      `Your Expert earning (${earning.expertPercent}%): ₹${earning.expertAmount.toLocaleString('en-IN')}. ` +
+      `Review the request and earning breakdown before submitting a quote. Reference: ${requestId}`
+
+    await Promise.all(
+      experts.map((expert) =>
+        notifySeller(expert, { type: 'request', title: 'New verification request available', body }).catch((err) =>
+          logger.error(`[verification] new-request notify failed for expert ${expert.id}: ${err}`)
+        )
+      )
+    )
+  } catch (err) {
+    logger.error(`[verification] notifyEligibleExpertsOfNewRequest failed for request ${requestId}: ${err}`)
+  }
+}
 
 // POST /api/verification-requests
 export const createRequest = async (req: Request, res: Response) => {
@@ -88,6 +171,38 @@ export const createRequest = async (req: Request, res: Response) => {
       body: `Your offer of ₹${request.buyerInitialOfferAmount.toLocaleString('en-IN')} is now open to professionals — you'll be able to compare their quotes and choose one.`,
       data: { verificationRequestId: request.id },
     })
+
+    // Fire the new-request Expert alert with the SAME rate the real payment
+    // capture will later use (ledger.service.ts / payment.service.ts's
+    // round2(amount * platformCommissionRate) → round2(amount - platformCut)),
+    // so the preview shown here never drifts from the eventual real split —
+    // this is a preview of the buyer's initial offer, not a promise: the
+    // final figure is whatever fee the buyer actually accepts a quote for.
+    void (async () => {
+      const settings = await getPlatformSettings()
+      const rate = settings.verificationPlatformCommissionRate
+      const gross = request.buyerInitialOfferAmount
+      const platformAmount = round2(gross * rate)
+      const platformPercent = round2(rate * 100)
+      let city: string | null = request.desiredCity ?? null
+      if (request.listingId) {
+        city = (await prisma.listing.findUnique({ where: { id: request.listingId }, select: { city: true } }))?.city ?? null
+      } else if (request.propertyId) {
+        city = (await prisma.property.findUnique({ where: { id: request.propertyId }, select: { city: true } }))?.city ?? null
+      }
+      await notifyEligibleExpertsOfNewRequest(
+        request.id,
+        {
+          verificationAmount: gross,
+          platformPercent,
+          platformAmount,
+          expertPercent: round2(100 - platformPercent),
+          expertAmount: round2(gross - platformAmount),
+        },
+        city
+      )
+    })()
+
     res.status(201).json({
       success: true,
       message: `Verification request submitted — your offer of ₹${request.buyerInitialOfferAmount.toLocaleString('en-IN')} is open to professionals. No payment is due yet.`,
@@ -462,9 +577,15 @@ export const cancelRequest = async (req: Request, res: Response) => {
 
 // POST /api/verification-requests/:id/claims
 // Buyer's "Raise a Claim" — only after the report has actually been
-// delivered (REPORT_UNLOCKED). No automatic refund decision happens here;
-// this only records the dispute for an Admin/Super Admin to review (see
-// admin.controller.ts's resolveClaim).
+// delivered (REPORT_UNLOCKED) AND only within the 7-day claim window (7-Day
+// Verification Acceptance, Claim & Professional Settlement System —
+// verificationSettlement.service.ts's createClaimWithFreeze enforces the
+// deadline server-side, from the stored claimDeadline, and atomically
+// freezes the professional's earning in the same transaction as the claim
+// row — impossible to bypass via device time, a stale screen, or a direct
+// API call). No automatic refund decision happens here; this only records
+// the dispute for an Admin/Super Admin to review (see admin.controller.ts's
+// resolveClaim).
 export const createClaim = async (req: Request, res: Response) => {
   const userId = req.user!.id
   const id = req.params.id as string
@@ -474,27 +595,18 @@ export const createClaim = async (req: Request, res: Response) => {
     evidence: string[]
   }
 
+  let claim
+  try {
+    claim = await createClaimWithFreeze(id, userId, { reason, description, evidence: evidence ?? [] })
+  } catch (err) {
+    if (err instanceof SettlementError) {
+      res.status(err.status).json({ success: false, message: err.message })
+      return
+    }
+    throw err
+  }
+
   const request = await prisma.verificationRequest.findUnique({ where: { id } })
-  if (!request || request.userId !== userId) {
-    res.status(404).json({ success: false, message: 'Verification request not found' })
-    return
-  }
-  if (request.status !== 'REPORT_UNLOCKED') {
-    res.status(400).json({ success: false, message: 'A claim can only be raised after the report has been delivered' })
-    return
-  }
-
-  const existingActive = await prisma.claim.findFirst({
-    where: { verificationRequestId: id, status: { in: ['OPEN', 'UNDER_REVIEW'] } },
-  })
-  if (existingActive) {
-    res.status(409).json({ success: false, message: 'An active claim already exists for this request' })
-    return
-  }
-
-  const claim = await prisma.claim.create({
-    data: { verificationRequestId: id, userId, reason, description, evidence: evidence ?? [] },
-  })
 
   void notifyBuyer(userId, {
     type: 'claim',
@@ -503,26 +615,61 @@ export const createClaim = async (req: Request, res: Response) => {
     data: { verificationRequestId: id, claimId: claim.id },
   })
 
-  // Buyer Verification Experience enhancement — section 12 requires the
-  // claim be visible/known to the professional it's raised against too, not
-  // just the buyer and admin oversight. Same "sellers only, no in-app
-  // channel for admins" convention already used by every other loss/close
-  // notification in this file (see notifyLosingQuotes below).
-  if (request.assignedSellerId) {
-    const seller = await prisma.seller.findUnique({ where: { id: request.assignedSellerId } })
-    if (seller) {
-      await notifySeller(seller, {
-        type: 'claim',
-        title: 'A claim was raised on your verification',
-        body: `The buyer raised a claim ("${reason}") on a verification request you completed. An admin will review it.`,
-      })
-    }
+  // Claim recipient = the ACTUAL person who performed this verification —
+  // never role-wide (not every Expert, not every Admin, not every
+  // SuperAdmin). resolveVerificationPerformer reads the real assignment;
+  // notifyPerformerOfClaimSubmitted routes to the right channel for
+  // whichever role that turns out to be. Deliberately does NOT also
+  // broadcast to all SuperAdmins — they see every claim via the existing
+  // Claims dashboard regardless of who performed the work.
+  if (request) {
+    const performer = await resolveVerificationPerformer(request)
+    void notifyPerformerOfClaimSubmitted(performer, { verificationRequestId: id, claimId: claim.id })
   }
 
   res.status(201).json({
     success: true,
     message: 'Claim submitted — an admin will review it.',
     claim,
+  })
+}
+
+// POST /api/verification-requests/:id/accept-report
+// Buyer confirms they reviewed the report and currently have no claim
+// regarding the verification service — see the button/modal copy this is
+// paired with on Buyer Web/Mobile (never "property approved"/"guaranteed").
+// Makes the professional's payout ELIGIBLE for processing; never pays it out
+// directly (verificationSettlement.service.ts's acceptReport does the
+// atomic, race-safe state transition and validates every precondition
+// itself — ownership, report delivered, deadline not passed, no active
+// claim, not already accepted — never trusting that the frontend only
+// showed this button when it should have).
+export const acceptReportEndpoint = async (req: Request, res: Response) => {
+  const userId = req.user!.id
+  const id = req.params.id as string
+
+  let request
+  try {
+    request = await acceptReport(id, userId)
+  } catch (err) {
+    if (err instanceof SettlementError) {
+      res.status(err.status).json({ success: false, message: err.message })
+      return
+    }
+    throw err
+  }
+
+  // Notify the actual performer only — and only an Expert has a payout to
+  // become eligible. An Admin/SuperAdmin performer gets no payout
+  // notification at all (notifyPerformerOfPayoutEligible is a no-op for
+  // them by construction) — there is nothing eligible to tell them about.
+  const performer = await resolveVerificationPerformer(request)
+  void notifyPerformerOfPayoutEligible(performer, 'BUYER_ACCEPTED')
+
+  res.json({
+    success: true,
+    message: 'Report accepted — the professional payout is now eligible for processing.',
+    request,
   })
 }
 

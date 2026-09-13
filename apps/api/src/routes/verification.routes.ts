@@ -14,6 +14,7 @@ import * as verificationController from '../controllers/verification.controller.
 import * as payoutController from '../controllers/payout.controller.js'
 import * as authMiddleware from '../middleware/auth.middleware.js'
 import { validateBody } from '../middleware/validation.middleware.js'
+import { paymentLimiter } from '../middleware/rateLimiter.js'
 
 // ─── BUYER ROUTES — mounted at /api/verification-requests ─────────────────
 export const buyerVerificationRouter = Router()
@@ -40,9 +41,15 @@ buyerVerificationRouter.post(
   verificationController.acceptQuote
 )
 
+// paymentLimiter on order-creation only — same guard, same reasoning
+// (order-flooding, keyed post-auth so it's per-buyer) as purchase.routes.ts's
+// identical POST / order-creation route; verify steps are left unlimited by
+// this same existing convention since they require a valid signed order/
+// payment id pair, not just a guessable request.
 buyerVerificationRouter.post(
   '/:id/advance-order',
   authMiddleware.authMiddleware,
+  paymentLimiter,
   verificationController.createAdvanceOrder
 )
 
@@ -56,6 +63,7 @@ buyerVerificationRouter.post(
 buyerVerificationRouter.post(
   '/:id/final-order',
   authMiddleware.authMiddleware,
+  paymentLimiter,
   verificationController.createFinalOrder
 )
 
@@ -67,6 +75,16 @@ buyerVerificationRouter.post(
 )
 
 buyerVerificationRouter.get('/:id/report', authMiddleware.authMiddleware, verificationController.getReport)
+
+// 7-Day Verification Acceptance, Claim & Professional Settlement System —
+// buyer confirms they reviewed the report and have no claim; makes the
+// professional's payout ELIGIBLE (never PAID directly — see
+// verificationSettlement.service.ts's acceptReport).
+buyerVerificationRouter.post(
+  '/:id/accept-report',
+  authMiddleware.authMiddleware,
+  verificationController.acceptReportEndpoint
+)
 
 buyerVerificationRouter.post(
   '/:id/cancel',

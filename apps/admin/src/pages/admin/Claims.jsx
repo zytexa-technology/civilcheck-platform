@@ -91,6 +91,13 @@ const ClaimModal = ({ claim, onClose, onResolved, canResolve }) => {
           ['Verification request', claim.verificationRequest?.id || claim.verificationRequestId],
           ['Request status', claim.verificationRequest?.status || '—'],
           ['Agreed fee', claim.verificationRequest?.agreedFee ? `₹${Number(claim.verificationRequest.agreedFee).toLocaleString('en-IN')}` : '—'],
+          ['Report completed', claim.verificationRequest?.reportCompletedAt ? formatDate(claim.verificationRequest.reportCompletedAt) : '—'],
+          ['Claim deadline', claim.verificationRequest?.claimDeadline ? formatDate(claim.verificationRequest.claimDeadline) : '—'],
+          ['Buyer acceptance', claim.verificationRequest?.buyerAcceptanceStatus || '—'],
+          // Actual verification performer — the claim recipient. A separate
+          // question from Expert payout eligibility: only when this reads
+          // "Expert" is there a 30/70 payout involved at all.
+          ['Verification performed by', claim.verificationPerformer ? `${claim.verificationPerformer.name} (${claim.verificationPerformer.type})` : '—'],
           ['Reason', claim.reason],
           ['Status', claim.status],
           ['Raised on', formatDate(claim.createdAt)],

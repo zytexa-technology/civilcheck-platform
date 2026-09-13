@@ -71,6 +71,11 @@ export interface AuthUser {
   city?: string | null
   state?: string | null
   profileComplete?: boolean
+  // Mandatory Terms & Conditions / Privacy Policy re-acceptance — true when
+  // this buyer has never accepted, or accepted an older version than the
+  // server's current one. <ProtectedRoute> blocks normal app navigation
+  // and shows the mandatory acceptance screen while this is true.
+  termsAcceptanceRequired?: boolean
 }
 
 export interface LoginResponse extends ApiEnvelope {
@@ -694,6 +699,17 @@ export interface VerificationRequest {
   cancellationReason: string | null
   cancellationFee: number | null
   cancellationRefund: number | null
+
+  // 7-Day Verification Acceptance, Claim & Professional Settlement System —
+  // both null until the report is delivered (status REPORT_UNLOCKED); once
+  // set, claimDeadline never changes — always the backend's own authoritative
+  // value, never recomputed client-side. See the verification detail screen's
+  // claim-deadline notice and Accept Verification Report flow.
+  reportCompletedAt?: string | null
+  claimDeadline?: string | null
+  buyerAcceptanceStatus?: 'PENDING' | 'ACCEPTED'
+  buyerAcceptedAt?: string | null
+
   createdAt: string
   updatedAt: string
   acceptedQuote?: { id: string; proposedFee: number; message: string | null } | null
@@ -806,6 +822,11 @@ export interface Claim {
 
 export interface CreateClaimResponse extends ApiEnvelope {
   claim: Claim
+}
+
+// 7-Day Verification Acceptance, Claim & Professional Settlement System
+export interface AcceptReportResponse extends ApiEnvelope {
+  request: VerificationRequest
 }
 
 export interface MyClaimsResponse extends ApiEnvelope {

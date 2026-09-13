@@ -8,6 +8,7 @@ import { verifyTotp } from '../services/twoFactor.service.js'
 import { AuditAction, clientIp, recordAudit } from '../services/audit.service.js'
 import { verifyFirebaseToken } from '../lib/firebase.js'
 import { sendWelcomeVerificationEmail } from '../services/emailVerification.service.js'
+import { hasAcceptedCurrentTerms, recordTermsAcceptance, TermsError } from '../services/terms.service.js'
 
 // bcrypt has a hard 72-byte input limit; passwordSchema already caps input at
 // 72 characters so this only guards against callers that bypass Zod.
@@ -57,6 +58,15 @@ export const loginBuyer = async (req: Request, res: Response) => {
     { expiresIn: ACCESS_TOKEN_EXPIRY }
   )
 
+  // Mandatory Terms & Conditions acceptance — surfaced in the login response
+  // itself (same "flag it here, then re-enforce on every protected request"
+  // shape as adminLogin's `twoFactor.enrollmentRequired`), not a hard login
+  // failure: the token is still issued so the frontend can show the
+  // mandatory acceptance screen using an authenticated session, then call
+  // POST /api/auth/terms/accept. authMiddleware enforces this on every other
+  // protected route regardless of what the frontend does with this flag.
+  const termsAcceptanceRequired = !(await hasAcceptedCurrentTerms({ userId: user.id }))
+
   res.json({
     success: true,
     message: 'Login successful',
@@ -71,6 +81,7 @@ export const loginBuyer = async (req: Request, res: Response) => {
       city: user.city,
       state: user.state,
       profileComplete: Boolean(user.name && user.city && user.state),
+      termsAcceptanceRequired,
     }
   })
 }
@@ -125,6 +136,38 @@ export const updateBuyerProfile = async (req: Request, res: Response) => {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// POST /api/auth/terms/accept — mandatory Terms & Conditions / Privacy Policy
+// re-acceptance for an already-authenticated buyer (the TERMS_ACCEPTANCE_
+// REQUIRED gate in authMiddleware routes here). Body only ever communicates
+// explicit intent (`accept: true`) — the acted-upon userId comes from the
+// verified JWT (req.user), the version comes from the server-authoritative
+// Disclaimer row, and the timestamp is the DB's own clock. A client can send
+// whatever it wants for version/acceptedAt/userId; none of it is read.
+// ─────────────────────────────────────────────────────────────────────────────
+export const acceptBuyerTerms = async (req: Request, res: Response) => {
+  const userId = req.user!.id
+  const { accept } = req.body as { accept?: boolean }
+  if (accept !== true) {
+    res.status(400).json({ success: false, message: 'Terms & Conditions acceptance is required.' })
+    return
+  }
+
+  try {
+    const { version } = await recordTermsAcceptance(
+      { userId },
+      { ipAddress: clientIp(req), userAgent: req.get('user-agent') }
+    )
+    res.json({ success: true, accepted: true, termsVersion: version })
+  } catch (err) {
+    if (err instanceof TermsError) {
+      res.status(err.status).json({ success: false, message: err.message })
+      return
+    }
+    throw err
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // POST /api/auth/seller/login → Partner email + password login (replaces
 // phone OTP — MSG91 removed).
 // ─────────────────────────────────────────────────────────────────────────────
@@ -176,6 +219,11 @@ export const sellerLogin = async (req: Request, res: Response) => {
     { expiresIn: ACCESS_TOKEN_EXPIRY }
   )
 
+  // Mandatory Terms & Conditions acceptance — same "surface it in the login
+  // response, then re-enforce on every protected request via
+  // sellerMiddleware" shape as loginBuyer above.
+  const termsAcceptanceRequired = !(await hasAcceptedCurrentTerms({ sellerId: seller.id }))
+
   res.json({
     success: true,
     message: 'Seller login successful',
@@ -190,6 +238,7 @@ export const sellerLogin = async (req: Request, res: Response) => {
       badge: seller.badge,
       kycStatus: seller.kycStatus,
       accuracyScore: seller.accuracyScore,
+      termsAcceptanceRequired,
     }
   })
 }
@@ -671,13 +720,19 @@ export const getMe = async (req: Request, res: Response) => {
     if (decoded.sellerId) {
       const seller = await prisma.seller.findUnique({ where: { id: decoded.sellerId } })
       if (!seller) { res.status(401).json({ success: false, message: 'Seller not found' }); return }
-      res.json({ success: true, seller: { id: seller.id, phone: seller.phone, name: seller.name, badge: seller.badge, kycStatus: seller.kycStatus } })
+      // Surfaced here too, not just at login — /me is the panel's own
+      // session-restore probe on every app load/reload, so a Terms version
+      // bump between sessions is caught immediately rather than only on
+      // the next fresh login.
+      const termsAcceptanceRequired = !(await hasAcceptedCurrentTerms({ sellerId: seller.id }))
+      res.json({ success: true, seller: { id: seller.id, phone: seller.phone, name: seller.name, badge: seller.badge, kycStatus: seller.kycStatus, termsAcceptanceRequired } })
       return
     }
 
     if (decoded.userId) {
       const user = await prisma.user.findUnique({ where: { id: decoded.userId } })
       if (!user) { res.status(401).json({ success: false, message: 'User not found' }); return }
+      const termsAcceptanceRequired = !(await hasAcceptedCurrentTerms({ userId: user.id }))
       res.json({
         success: true,
         user: {
@@ -687,6 +742,7 @@ export const getMe = async (req: Request, res: Response) => {
           city: user.city,
           state: user.state,
           profileComplete: Boolean(user.name && user.city && user.state),
+          termsAcceptanceRequired,
         },
       })
       return
@@ -746,6 +802,13 @@ export const logout = async (req: Request, res: Response) => {
 // actually logs the buyer in, once the emailed OTP is confirmed.
 // ─────────────────────────────────────────────────────────────────────────────
 export const registerBuyer = async (req: Request, res: Response) => {
+  // acceptTerms itself is never trusted to mean anything on its own — it
+  // only gates past validateBody's buyerRegisterSchema (z.literal(true), a
+  // missing/false value is already refused with 400 before this handler
+  // ever runs). What actually records consent is the explicit
+  // recordTermsAcceptance() call below, server-timestamped and pinned to
+  // the server-resolved current Terms version — never a client-supplied
+  // version/timestamp/userId.
   const { name, email, phone, address, password } = req.body as {
     name: string
     email: string
@@ -781,6 +844,19 @@ export const registerBuyer = async (req: Request, res: Response) => {
     : await prisma.user.create({
         data: { phone, name, email, address, passwordHash, emailVerified: false },
       })
+
+  // Explicit consent, not OTP send/verify — recorded now, at the moment the
+  // buyer actually checked the box and submitted the form, independent of
+  // whether/when they later complete email verification.
+  try {
+    await recordTermsAcceptance({ userId: user.id }, { ipAddress: clientIp(req), userAgent: req.get('user-agent') })
+  } catch (err) {
+    if (err instanceof TermsError) {
+      res.status(err.status).json({ success: false, message: err.message })
+      return
+    }
+    throw err
+  }
 
   await sendWelcomeVerificationEmail('BUYER', user.id, email, name)
 

@@ -12,7 +12,23 @@ import prisma from '../src/lib/prisma.js'
 import { signMockPaymentResponse } from '../src/lib/razorpay.js'
 
 export const ADMIN_EMAIL = 'superadmin@civilcheck.in'
-export const ADMIN_PASSWORD = 'Super@123'
+// The real SuperAdmin's password must never be hardcoded here (or anywhere
+// else in the repo) — this now reads a test-only credential from the
+// environment instead of a fixed guess, and is undefined if that isn't
+// configured. Never fall back to a literal string; loginAdmin() below
+// treats "unset" as a distinct, catchable condition rather than attempting
+// a login with a wrong/guessed password.
+export const SUPERADMIN_TEST_PASSWORD = process.env.SUPERADMIN_TEST_PASSWORD
+
+// Thrown by loginAdmin() when SUPERADMIN_TEST_PASSWORD isn't configured —
+// callers/suites that only need the real SuperAdmin for optional coverage
+// can catch this and skip cleanly instead of failing the whole run.
+export class SuperAdminCredentialUnavailableError extends Error {
+  constructor() {
+    super('SUPERADMIN_TEST_PASSWORD is not set — skip SuperAdmin-dependent test(s) rather than failing the whole suite')
+    this.name = 'SuperAdminCredentialUnavailableError'
+  }
+}
 
 let counter = 0
 export function uniquePhone(): string {
@@ -75,9 +91,10 @@ async function withTransientRetry<T extends { body: { success?: boolean; message
 }
 
 export async function loginAdmin(): Promise<string> {
+  if (!SUPERADMIN_TEST_PASSWORD) throw new SuperAdminCredentialUnavailableError()
   const res = await request(app)
     .post('/api/auth/admin/login')
-    .send({ email: ADMIN_EMAIL, password: ADMIN_PASSWORD })
+    .send({ email: ADMIN_EMAIL, password: SUPERADMIN_TEST_PASSWORD })
   if (!res.body.success) throw new Error(`Admin login failed: ${JSON.stringify(res.body)}`)
   return res.body.token as string
 }
@@ -94,7 +111,7 @@ export async function registerAndLoginBuyer(): Promise<{ token: string; userId: 
   const registerRes = await withTransientRetry(() =>
     request(app)
       .post('/api/auth/register')
-      .send({ phone, name: 'Test Buyer', email, address: TEST_ADDRESS, password: TEST_PASSWORD, confirmPassword: TEST_PASSWORD })
+      .send({ phone, name: 'Test Buyer', email, address: TEST_ADDRESS, password: TEST_PASSWORD, confirmPassword: TEST_PASSWORD, acceptTerms: true })
   )
   if (!registerRes.body.success) throw new Error(`Buyer register failed: ${JSON.stringify(registerRes.body)}`)
   // The register response is deliberately unauthenticated (requiresVerification:
@@ -246,6 +263,10 @@ export async function backdateSpecialRequest(id: string, hoursAgo: number): Prom
 // this helper rather than a bare `prisma.seller.deleteMany`.
 export async function deleteSeller(sellerId: string): Promise<void> {
   await prisma.notification.deleteMany({ where: { sellerId } })
+  // TermsAcceptance.sellerId is a RESTRICT FK too — every seller fixture
+  // that registers with tcAccepted: true (i.e. all of them) leaves a row
+  // here (see seller.controller.ts's sellerRegister / terms.service.ts).
+  await prisma.termsAcceptance.deleteMany({ where: { sellerId } })
   await prisma.specialRequestPayout.deleteMany({ where: { sellerId } })
   // Reporter Reward Ledger (Phase 4A) — same RESTRICT-FK reasoning as
   // Notification above; every Reporter fixture that earns/redeems points
@@ -265,6 +286,17 @@ export async function deleteSeller(sellerId: string): Promise<void> {
 // Purchase) must be cleared before the User row itself can go — same
 // reasoning as deleteSeller above, just with more child tables.
 export async function deleteBuyer(userId: string): Promise<void> {
+  // Notification.userId is a RESTRICT FK too (same reasoning as
+  // deleteSeller's notification cleanup above) — any buyer fixture that ever
+  // received an in-app alert (notifyBuyer/notifyBuyerAlert fire on nearly
+  // every verification-request lifecycle event) would otherwise block this
+  // delete. Discovered via real runtime execution (Phase 6 E2E), since no
+  // buyer-flow test had ever actually run against a live DB before.
+  await prisma.notification.deleteMany({ where: { userId } })
+  // TermsAcceptance.userId is a RESTRICT FK too — every buyer fixture that
+  // registers with acceptTerms: true (i.e. all of them, via registerBuyer)
+  // leaves a row here.
+  await prisma.termsAcceptance.deleteMany({ where: { userId } })
   await prisma.refund.deleteMany({ where: { userId } })
   await prisma.review.deleteMany({ where: { userId } })
   await prisma.reportFlag.deleteMany({ where: { userId } })

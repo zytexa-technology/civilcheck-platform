@@ -16,6 +16,7 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import {
+  getVerificationMarketplaceConfig,
   getVerificationMarketplace,
   getMyVerificationAssignments,
   getVerificationMarketplaceRequest,
@@ -147,6 +148,30 @@ function formatDate(iso) {
   return new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
+const inr = (n) => '₹' + Math.round(Number(n) || 0).toLocaleString('en-IN')
+
+// Expert earning must be visible BEFORE the Expert commits to a quote — the
+// backend is the source of truth for both the amount (whatever the Expert
+// is about to quote) and the split percentage (config.platformCommissionPercent/
+// expertCommissionPercent, fetched once from the public marketplace config
+// endpoint — never hardcoded here as 30/70). Every consumer of this
+// breakdown (the live preview below, the confirmation step, the eventual
+// backend-stored snapshot once a quote is accepted) reads the same two
+// numbers, so nothing here can ever independently drift from what the
+// backend will actually charge/pay.
+function computeSplit(amount, config) {
+  const gross = Number(amount)
+  if (!config || !gross || gross <= 0) return null
+  const platformAmount = Math.round((gross * config.platformCommissionPercent) / 100)
+  return {
+    gross,
+    platformPercent: config.platformCommissionPercent,
+    platformAmount,
+    expertPercent: config.expertCommissionPercent,
+    expertAmount: gross - platformAmount,
+  }
+}
+
 export default function ExpertVerificationRequests() {
   const { seller } = useAuth()
   const kycApproved = seller?.kycStatus === 'APPROVED'
@@ -155,6 +180,8 @@ export default function ExpertVerificationRequests() {
   const [assigned, setAssigned] = useState(null)
   const [error, setError] = useState('')
   const [detailTarget, setDetailTarget] = useState(null) // { id } — opens the modal
+  // The authoritative 30/70 split, fetched once — see computeSplit() above.
+  const [config, setConfig] = useState(null)
 
   const load = () => {
     setError('')
@@ -170,6 +197,9 @@ export default function ExpertVerificationRequests() {
   }
 
   useEffect(load, [])
+  useEffect(() => {
+    getVerificationMarketplaceConfig().then(setConfig).catch(() => {})
+  }, [])
 
   return (
     <>
@@ -270,6 +300,7 @@ export default function ExpertVerificationRequests() {
         kycApproved={kycApproved}
         sellerId={seller?.id}
         onQuoted={load}
+        config={config}
       />
     </>
   )
@@ -283,7 +314,7 @@ export default function ExpertVerificationRequests() {
 // validity and prior linkage, surfaced via its own 400/409 responses below.
 const LINKABLE_LISTING_STATUSES = ['PENDING_REVIEW', 'APPROVED']
 
-function RequestDetailModal({ id, onClose, kycApproved, sellerId, onQuoted }) {
+function RequestDetailModal({ id, onClose, kycApproved, sellerId, onQuoted, config }) {
   const [request, setRequest] = useState(null)
   const [myQuote, setMyQuote] = useState(null)
   const [loadError, setLoadError] = useState('')
@@ -291,6 +322,11 @@ function RequestDetailModal({ id, onClose, kycApproved, sellerId, onQuoted }) {
   const [message, setMessage] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState('')
+  // Expert Acceptance Confirmation (section 13, adapted to this app's real
+  // quote-submission flow, not a fixed-price "Accept" button — see this
+  // file's own header comment on why quoting, not one-tap acceptance, is
+  // the actual marketplace mechanic here).
+  const [confirmingQuote, setConfirmingQuote] = useState(false)
 
   // Property Discovery flow (Phase 4C) — "Find & Link Property" sub-flow.
   const [linking, setLinking] = useState(false) // selector open?
@@ -337,6 +373,7 @@ function RequestDetailModal({ id, onClose, kycApproved, sellerId, onQuoted }) {
     setAmount('')
     setMessage('')
     setSubmitError('')
+    setConfirmingQuote(false)
     setLinking(false)
     setMyListings(null)
     setSelectedListingId('')
@@ -473,6 +510,7 @@ function RequestDetailModal({ id, onClose, kycApproved, sellerId, onQuoted }) {
     try {
       const res = await submitVerificationQuote(id, { proposedFee: fee, message: message.trim() || undefined })
       setMyQuote(res.quote)
+      setConfirmingQuote(false)
       toast('Quote submitted — waiting for the buyer to review it')
       onQuoted?.()
     } catch (err) {
@@ -660,6 +698,14 @@ function RequestDetailModal({ id, onClose, kycApproved, sellerId, onQuoted }) {
                 <p className="small dev" style={{ color: 'var(--danger)' }}>
                   Only KYC-approved Experts can submit a quote.
                 </p>
+              ) : confirmingQuote ? (
+                <QuoteConfirmCard
+                  split={computeSplit(amount, config)}
+                  submitting={submitting}
+                  submitError={submitError}
+                  onConfirm={submit}
+                  onBack={() => setConfirmingQuote(false)}
+                />
               ) : (
                 <>
                   {submitError ? <p className="small dev" style={{ color: 'var(--danger)', marginBottom: 8 }}>{submitError}</p> : null}
@@ -677,6 +723,11 @@ function RequestDetailModal({ id, onClose, kycApproved, sellerId, onQuoted }) {
                       onChange={(e) => setAmount(e.target.value)}
                     />
                   </Field>
+                  {/* Expert earning MUST be visible before accepting/quoting —
+                      live-computed from the amount just typed above and the
+                      backend's own commission rate (config), never a
+                      hardcoded 30%/70%. */}
+                  <EarningPreview split={computeSplit(amount, config)} />
                   <Field label="Message (optional)" optional>
                     <textarea
                       className="control"
@@ -686,8 +737,16 @@ function RequestDetailModal({ id, onClose, kycApproved, sellerId, onQuoted }) {
                       onChange={(e) => setMessage(e.target.value)}
                     />
                   </Field>
-                  <button className="btn btn-primary btn-block" onClick={submit} disabled={submitting}>
-                    {submitting ? 'Submitting…' : 'Submit Quote'}
+                  <button
+                    className="btn btn-primary btn-block"
+                    onClick={() => {
+                      const fee = Number(amount)
+                      if (!fee || fee <= 0) { setSubmitError('Enter a valid quote amount.'); return }
+                      setSubmitError('')
+                      setConfirmingQuote(true)
+                    }}
+                  >
+                    Review &amp; Submit Quote
                   </button>
                 </>
               )}
@@ -966,4 +1025,56 @@ function humanizeStatus(status) {
   if (!status) return '—'
   const lower = String(status).replace(/_/g, ' ').toLowerCase()
   return lower.charAt(0).toUpperCase() + lower.slice(1)
+}
+
+// Live earning breakdown, shown while the Expert is still typing their
+// proposed fee — every figure comes from computeSplit() (backend commission
+// rate × the amount on screen), never a hardcoded 30/70.
+function EarningPreview({ split }) {
+  if (!split) return null
+  return (
+    <Card style={{ padding: 12, marginBottom: 12, background: 'var(--paper-2)' }}>
+      <div className="xs muted" style={{ marginBottom: 6 }}>Earning Breakdown</div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }} className="dev">
+        <span className="muted">Verification Amount</span>
+        <b>{inr(split.gross)}</b>
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }} className="dev">
+        <span className="muted">CivilCheck Platform Share ({split.platformPercent}%)</span>
+        <span>{inr(split.platformAmount)}</span>
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginTop: 2 }} className="dev">
+        <span style={{ fontWeight: 700 }}>Your Expert Earning ({split.expertPercent}%)</span>
+        <b style={{ color: 'var(--seal, #B67A12)' }}>{inr(split.expertAmount)}</b>
+      </div>
+    </Card>
+  )
+}
+
+// Expert Acceptance Confirmation (section 13) — shown before the quote is
+// actually sent. Wording matches this app's real mechanic (submitting a
+// quote the buyer may or may not accept), not a one-tap "Accept" the
+// marketplace doesn't have.
+function QuoteConfirmCard({ split, submitting, submitError, onConfirm, onBack }) {
+  return (
+    <div>
+      <p className="dev" style={{ fontWeight: 700, marginBottom: 8 }}>Confirm Verification Quote</p>
+      <p className="small muted dev" style={{ marginBottom: 10, lineHeight: 1.6 }}>
+        By submitting this quote, you acknowledge the verification amount and Expert earning shown
+        below.
+      </p>
+      <EarningPreview split={split} />
+      <p className="xs muted dev" style={{ marginBottom: 12, lineHeight: 1.6 }}>
+        Your payout is subject to successful payment settlement, report completion, the buyer's 7-day
+        claim period, applicable refund rules and payout processing requirements.
+      </p>
+      {submitError ? <p className="small dev" style={{ color: 'var(--danger)', marginBottom: 8 }}>{submitError}</p> : null}
+      <div className="row">
+        <button className="btn btn-light" onClick={onBack} disabled={submitting}>Cancel</button>
+        <button className="btn btn-primary" onClick={onConfirm} disabled={submitting}>
+          {submitting ? 'Submitting…' : 'Submit Verification Quote'}
+        </button>
+      </div>
+    </div>
+  )
 }

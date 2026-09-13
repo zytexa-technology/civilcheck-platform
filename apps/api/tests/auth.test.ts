@@ -7,7 +7,7 @@ import {
   uniqueEmail,
   loginAdmin,
   ADMIN_EMAIL,
-  ADMIN_PASSWORD,
+  SUPERADMIN_TEST_PASSWORD,
   TEST_PASSWORD,
 } from './helpers.js'
 
@@ -40,10 +40,13 @@ describe('auth', () => {
     }
   })
 
-  it('admin login succeeds with correct credentials', async () => {
+  // Needs the real SuperAdmin's password, which is never hardcoded here —
+  // skips cleanly (rather than failing the suite) when SUPERADMIN_TEST_PASSWORD
+  // isn't configured in this environment.
+  ;(SUPERADMIN_TEST_PASSWORD ? it : it.skip)('admin login succeeds with correct credentials', async () => {
     const res = await request(app)
       .post('/api/auth/admin/login')
-      .send({ email: ADMIN_EMAIL, password: ADMIN_PASSWORD })
+      .send({ email: ADMIN_EMAIL, password: SUPERADMIN_TEST_PASSWORD })
 
     expect(res.status).toBe(200)
     expect(res.body.success).toBe(true)
@@ -67,7 +70,7 @@ describe('auth', () => {
 
     const registerRes = await request(app)
       .post('/api/auth/register')
-      .send({ phone, name: 'Auth Test Buyer', email, address: TEST_ADDRESS, password: TEST_PASSWORD, confirmPassword: TEST_PASSWORD })
+      .send({ phone, name: 'Auth Test Buyer', email, address: TEST_ADDRESS, password: TEST_PASSWORD, confirmPassword: TEST_PASSWORD, acceptTerms: true })
     expect(registerRes.status).toBe(201)
     expect(registerRes.body.requiresVerification).toBe(true)
     expect(registerRes.body.token).toBeUndefined()
@@ -107,7 +110,7 @@ describe('auth', () => {
 
     const firstRes = await request(app)
       .post('/api/auth/register')
-      .send({ phone, name: 'Dup Test Buyer', email, address: TEST_ADDRESS, password: TEST_PASSWORD, confirmPassword: TEST_PASSWORD })
+      .send({ phone, name: 'Dup Test Buyer', email, address: TEST_ADDRESS, password: TEST_PASSWORD, confirmPassword: TEST_PASSWORD, acceptTerms: true })
     expect(firstRes.status).toBe(201)
     // Verify it — an unverified duplicate is a resumable signup (see
     // emailVerification.service.ts), not a 409; only a verified account
@@ -118,16 +121,16 @@ describe('auth', () => {
 
     const dupPhoneRes = await request(app)
       .post('/api/auth/register')
-      .send({ phone, name: 'Dup Test Buyer 2', email: uniqueEmail('auth-buyer-dup2'), address: TEST_ADDRESS, password: TEST_PASSWORD, confirmPassword: TEST_PASSWORD })
+      .send({ phone, name: 'Dup Test Buyer 2', email: uniqueEmail('auth-buyer-dup2'), address: TEST_ADDRESS, password: TEST_PASSWORD, confirmPassword: TEST_PASSWORD, acceptTerms: true })
     expect(dupPhoneRes.status).toBe(409)
 
     const dupEmailRes = await request(app)
       .post('/api/auth/register')
-      .send({ phone: uniquePhone(), name: 'Dup Test Buyer 3', email, address: TEST_ADDRESS, password: TEST_PASSWORD, confirmPassword: TEST_PASSWORD })
+      .send({ phone: uniquePhone(), name: 'Dup Test Buyer 3', email, address: TEST_ADDRESS, password: TEST_PASSWORD, confirmPassword: TEST_PASSWORD, acceptTerms: true })
     expect(dupEmailRes.status).toBe(409)
   })
 
-  it('a Bearer token from loginAdmin() actually authorizes an admin route', async () => {
+  ;(SUPERADMIN_TEST_PASSWORD ? it : it.skip)('a Bearer token from loginAdmin() actually authorizes an admin route', async () => {
     const token = await loginAdmin()
     const res = await request(app).get('/api/admin/report-flags').set('Authorization', `Bearer ${token}`)
     expect(res.status).toBe(200)

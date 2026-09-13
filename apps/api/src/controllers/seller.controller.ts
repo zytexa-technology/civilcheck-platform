@@ -6,6 +6,8 @@ import logger from '../lib/logger.js'
 import { generateUploadSignature, generateSignedDownloadUrl, parseCloudinaryUrl, UploadKind } from '../lib/cloudinary.js'
 import { notifySeller } from '../services/notification.service.js'
 import { sendWelcomeVerificationEmail } from '../services/emailVerification.service.js'
+import { clientIp } from '../services/audit.service.js'
+import { hasAcceptedCurrentTerms, recordTermsAcceptance, TermsError } from '../services/terms.service.js'
 
 // bcrypt has a hard 72-byte input limit; sellerRegistrationSchema's
 // passwordSchema already caps input at 72 characters so this only guards
@@ -125,6 +127,25 @@ export const sellerRegister = async (req: Request, res: Response) => {
     const seller = existingEmail
       ? await prisma.seller.update({ where: { id: existingEmail.id }, data: sellerData })
       : await prisma.seller.create({ data: { ...sellerData, emailVerified: false } })
+
+    // Mandatory Terms & Conditions / Privacy Policy consent — sellerData's
+    // own tcAccepted (compliance checkbox, PDF 6.1) is preserved exactly as
+    // it already was for KYC-completeness purposes; this additionally
+    // records a proper versioned/timestamped/auditable TermsAcceptance row
+    // whenever that checkbox was actually true (never treated as accepted
+    // merely because the request reached this far — sellerData.tcAccepted
+    // above already establishes the real === true check).
+    if (sellerData.tcAccepted) {
+      try {
+        await recordTermsAcceptance({ sellerId: seller.id }, { ipAddress: clientIp(req), userAgent: req.get('user-agent') })
+      } catch (err) {
+        if (err instanceof TermsError) {
+          res.status(err.status).json({ success: false, message: err.message })
+          return
+        }
+        throw err
+      }
+    }
 
     await sendWelcomeVerificationEmail('SELLER', seller.id, email, name)
 
@@ -415,6 +436,37 @@ export const getKycStatus = async (req: Request, res: Response) => {
 // Seller apni poori profile dekh sakta hai
 // Listings count, earnings bhi saath mein aata hai
 // ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/seller/terms/accept — mandatory Terms & Conditions / Privacy
+// Policy re-acceptance for an already-authenticated seller (any partner
+// role — Owner/Expert/Reporter alike). Body only ever communicates explicit
+// intent (`accept: true`); the acted-upon sellerId comes from the verified
+// JWT (req.seller), the version from the server-authoritative Disclaimer
+// row, and the timestamp from the DB clock.
+// ─────────────────────────────────────────────────────────────────────────────
+export const acceptSellerTerms = async (req: Request, res: Response) => {
+  const sellerId = req.seller!.id
+  const { accept } = req.body as { accept?: boolean }
+  if (accept !== true) {
+    res.status(400).json({ success: false, message: 'Terms & Conditions acceptance is required.' })
+    return
+  }
+
+  try {
+    const { version } = await recordTermsAcceptance(
+      { sellerId },
+      { ipAddress: clientIp(req), userAgent: req.get('user-agent') }
+    )
+    res.json({ success: true, accepted: true, termsVersion: version })
+  } catch (err) {
+    if (err instanceof TermsError) {
+      res.status(err.status).json({ success: false, message: err.message })
+      return
+    }
+    throw err
+  }
+}
+
 export const getSellerProfile = async (req: Request, res: Response) => {
   const sellerId = req.seller!.id
 
@@ -450,6 +502,12 @@ export const getSellerProfile = async (req: Request, res: Response) => {
     where: { sellerId, status: 'APPROVED' }
   })
 
+  // Mandatory Terms & Conditions acceptance — this is the seller app's own
+  // bootstrap/refresh probe (AuthContext.jsx's initial load + refreshSeller()
+  // both call this endpoint), so it needs the same flag loginBuyer/loginSeller/
+  // getMe already surface, not just the login response.
+  const termsAcceptanceRequired = !(await hasAcceptedCurrentTerms({ sellerId }))
+
   res.json({
     success: true,
     seller: {
@@ -477,6 +535,7 @@ export const getSellerProfile = async (req: Request, res: Response) => {
       bankAccount: seller.bankAccount,
       ifsc: seller.ifsc,
       createdAt: seller.createdAt,
+      termsAcceptanceRequired,
       stats: {
         totalListings,
         approvedListings,

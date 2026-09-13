@@ -17,6 +17,7 @@ export default function Register() {
   const [address, setAddress] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
+  const [acceptTerms, setAcceptTerms] = useState(false)
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [formError, setFormError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -25,7 +26,7 @@ export default function Register() {
     e.preventDefault()
     setFormError('')
 
-    const parsed = buyerRegisterSchema.safeParse({ name, email, phone, address, password, confirmPassword })
+    const parsed = buyerRegisterSchema.safeParse({ name, email, phone, address, password, confirmPassword, acceptTerms })
     if (!parsed.success) {
       const errs: Record<string, string> = {}
       for (const issue of parsed.error.issues) {
@@ -113,7 +114,25 @@ export default function Register() {
             onChange={(e) => setConfirmPassword(e.target.value)}
             error={fieldErrors.confirmPassword}
           />
-          <Button type="submit" size="lg" block loading={busy}>
+          <label className="small muted" style={{ display: 'flex', alignItems: 'flex-start', gap: 8, lineHeight: 1.5, cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={acceptTerms}
+              onChange={(e) => setAcceptTerms(e.target.checked)}
+              style={{ marginTop: 3 }}
+            />
+            <span>
+              I agree to CivilCheck&apos;s{' '}
+              <Link to="/terms" target="_blank" rel="noopener noreferrer" className="gold-text">Terms &amp; Conditions</Link>
+              {' '}and{' '}
+              <Link to="/privacy" target="_blank" rel="noopener noreferrer" className="gold-text">Privacy Policy</Link>.
+            </span>
+          </label>
+          {fieldErrors.acceptTerms ? (
+            <p className="small" style={{ color: 'var(--cc-red)', marginTop: -8 }}>{fieldErrors.acceptTerms}</p>
+          ) : null}
+
+          <Button type="submit" size="lg" block loading={busy} disabled={!acceptTerms}>
             Create account
           </Button>
         </form>

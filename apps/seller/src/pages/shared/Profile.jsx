@@ -30,14 +30,25 @@ export default function Profile() {
   const [saving, setSaving]     = useState(false)
   const [ef, setEf]             = useState({ name: '', email: '', city: '', state: '', bankAccount: '', ifsc: '' })
 
+  // Expert Payout Details are EXPERT-only — Partner is a portal covering
+  // OWNER/EXPERT/REPORTER, not a payout beneficiary by itself, and only an
+  // EXPERT can ever actually earn a verification-marketplace or report-
+  // unlock commission requiring these fields (both are gated
+  // requireSellerRole(EXPERT) server-side already — see
+  // verification.routes.ts / specialRequest.routes.ts — so an Owner/
+  // Reporter could never use them even before this). Hiding the fields here
+  // is the UI-side half of that same guarantee: Owner/Reporter get no
+  // Expert payout account section at all, not merely an unused one.
+  const isExpert = seller?.partnerRole === 'EXPERT'
+
   const openEdit = () => {
     setEf({
       name: seller?.name || '',
       email: seller?.email || '',
       city: seller?.city || '',
       state: seller?.state || '',
-      bankAccount: seller?.bankAccount || '',
-      ifsc: seller?.ifsc || '',
+      bankAccount: isExpert ? seller?.bankAccount || '' : '',
+      ifsc: isExpert ? seller?.ifsc || '' : '',
     })
     setEditOpen(true)
   }
@@ -51,8 +62,9 @@ export default function Profile() {
         email: ef.email.trim() || undefined,
         city: ef.city.trim() || undefined,
         state: ef.state.trim() || undefined,
-        bankAccount: ef.bankAccount.trim() || undefined,
-        ifsc: ef.ifsc.trim() || undefined,
+        ...(isExpert
+          ? { bankAccount: ef.bankAccount.trim() || undefined, ifsc: ef.ifsc.trim() || undefined }
+          : {}),
       })
       if (res?.success) {
         await refreshSeller?.()      // context me fresh seller
@@ -157,12 +169,16 @@ export default function Profile() {
             <input className="control" value={ef.state} onChange={(e) => setEf((f) => ({ ...f, state: e.target.value }))} placeholder="Rajasthan" />
           </Field>
         </div>
-        <Field label="Bank Account Number">
-          <input className="control" value={ef.bankAccount} onChange={(e) => setEf((f) => ({ ...f, bankAccount: e.target.value.replace(/\D/g, '') }))} placeholder="Settlement ke liye" />
-        </Field>
-        <Field label="IFSC Code">
-          <input className="control" value={ef.ifsc} onChange={(e) => setEf((f) => ({ ...f, ifsc: e.target.value.toUpperCase() }))} placeholder="e.g. SBIN0001234" />
-        </Field>
+        {isExpert && (
+          <>
+            <Field label="Bank Account Number">
+              <input className="control" value={ef.bankAccount} onChange={(e) => setEf((f) => ({ ...f, bankAccount: e.target.value.replace(/\D/g, '') }))} placeholder="Settlement ke liye" />
+            </Field>
+            <Field label="IFSC Code">
+              <input className="control" value={ef.ifsc} onChange={(e) => setEf((f) => ({ ...f, ifsc: e.target.value.toUpperCase() }))} placeholder="e.g. SBIN0001234" />
+            </Field>
+          </>
+        )}
         <p className="xs muted dev" style={{ marginTop: 4 }}>
           Phone aur profession KYC se linked hain — yahan se change nahi hote.
         </p>

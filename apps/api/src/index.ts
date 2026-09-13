@@ -5,6 +5,7 @@ import { startInterval } from './lib/scheduler.js'
 import { runSpecialRequestSlaSweep } from './services/specialRequestSla.service.js'
 import { weeklySettlementTick } from './services/settlement.service.js'
 import { sweepExpiredFeaturedListings } from './services/subscription.service.js'
+import { runVerificationExpirySweep } from './services/verificationExpiry.service.js'
 
 const PORT = process.env.PORT || 8080
 app.listen(PORT, () => {
@@ -21,4 +22,11 @@ app.listen(PORT, () => {
   // Featured-listing expiry sweep (Day 4 carry-over) — clears `featured` on
   // listings whose paid-through date has lapsed.
   startInterval('featured-expiry', 30 * 60 * 1000, sweepExpiredFeaturedListings)
+
+  // 7-Day Verification Acceptance, Claim & Professional Settlement System —
+  // hourly sweep that makes payout ELIGIBLE once a buyer's claim window
+  // expires with no acceptance and no claim (verificationExpiry.service.ts).
+  startInterval('verification-claim-expiry', 60 * 60 * 1000, async () => {
+    await runVerificationExpirySweep()
+  })
 })

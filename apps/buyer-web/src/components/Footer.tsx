@@ -38,6 +38,12 @@ export function Footer() {
             <Link to="/support">Help center</Link>
             <Link to="/support/new">Contact support</Link>
           </div>
+
+          <div className="footer-col">
+            <div className="footer-col__title">Legal</div>
+            <Link to="/terms">Terms &amp; Conditions</Link>
+            <Link to="/privacy">Privacy Policy</Link>
+          </div>
         </div>
 
         <div className="footer-bottom">
