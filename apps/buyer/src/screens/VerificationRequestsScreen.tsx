@@ -46,7 +46,7 @@ export function VerificationRequestsScreen() {
 
   return (
     <Screen scroll refreshing={refreshing} onRefresh={() => void handleRefresh()}>
-      <ScreenHeader title="My verifications" backFallback="/profile" />
+      <ScreenHeader title="Verification requests" backFallback="/profile" />
 
       {loading ? (
         <LoadingState />

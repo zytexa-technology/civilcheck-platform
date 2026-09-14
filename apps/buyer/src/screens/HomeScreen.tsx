@@ -31,7 +31,7 @@ const QUICK_ACTIONS = [
   { icon: '🧭', label: 'Browse Property', href: '/browse' },
   { icon: '📰', label: 'Property Updates', href: '/reporter-feed' },
   { icon: '📖', label: 'My reports', href: '/reports' },
-  { icon: '📝', label: 'Custom check', href: '/requests/new' },
+  { icon: '📝', label: 'Custom research', href: '/requests/new' },
 ] as const
 
 // Buyer Feature Parity — mirrors Buyer Web's Home.tsx FILTERS exactly (same
@@ -244,7 +244,7 @@ export function HomeScreen() {
             icon="🏘️"
             title="Nothing published yet"
             description="Once experts, owners or reporters publish content for your area, it'll show up here."
-            actionLabel="Request a custom check"
+            actionLabel="Request custom research"
             onAction={() => router.push('/requests/new')}
           />
         ) : (

@@ -155,7 +155,7 @@ export function OwnerPropertyDetailScreen() {
           style={styles.upsellButton}
         />
         <Button
-          label="Request a custom check"
+          label="Request custom research"
           variant="ghost"
           onPress={() => router.push('/requests/new')}
         />

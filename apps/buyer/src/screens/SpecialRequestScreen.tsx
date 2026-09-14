@@ -117,7 +117,7 @@ export function SpecialRequestScreen() {
   return (
     <Screen scroll>
       <ScreenHeader
-        title="Custom check"
+        title="Request custom research"
         subtitle="Property not on CivilCheck yet?"
         backFallback="/requests"
       />

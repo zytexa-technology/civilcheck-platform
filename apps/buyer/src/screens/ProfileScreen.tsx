@@ -95,10 +95,10 @@ export function ProfileScreen() {
 
   const ACCOUNT_MENU: MenuItem[] = [
     { icon: '📖', title: 'My reports', href: '/reports' },
-    { icon: '🔎', title: 'My verifications', href: '/verifications' },
+    { icon: '🔎', title: 'Verification requests', href: '/verifications' },
     { icon: '🔖', title: 'Saved properties', href: '/saved-properties' },
-    { icon: '📝', title: 'My research requests', href: '/requests' },
-    { icon: '🔔', title: 'Alerts & subscription', href: '/alerts' },
+    { icon: '📝', title: 'Custom research', href: '/requests' },
+    { icon: '🔔', title: 'Watching & alerts', href: '/alerts' },
     ...PUBLIC_MENU,
     { icon: '📥', title: 'Notification inbox', href: '/inbox' },
     { icon: '⚙️', title: 'Notification settings', href: '/notifications' },

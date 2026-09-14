@@ -211,7 +211,7 @@ export function SearchScreen() {
   const header = (
     <View>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Search properties</Text>
+        <Text style={styles.headerTitle}>Expert Properties</Text>
       </View>
 
       <View style={styles.searchWrap}>
@@ -379,8 +379,8 @@ export function SearchScreen() {
               <EmptyState
                 icon="🔍"
                 title="No properties match"
-                description="Try a different address, or clear the filters. If the property isn't in our database yet, request a custom check."
-                actionLabel="Request a custom check"
+                description="Try a different address, or clear the filters. If the property isn't in our database yet, submit a custom research request."
+                actionLabel="Request custom research"
                 onAction={() => router.push('/requests/new')}
               />
               <TouchableOpacity
