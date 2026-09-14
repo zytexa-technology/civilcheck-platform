@@ -97,7 +97,7 @@ export function VerificationRequestsScreen() {
                   {request.assignedSeller?.name ? (
                     <Text style={styles.footText}>👤 {request.assignedSeller.name}</Text>
                   ) : (
-                    <Text style={[styles.footText, { color: colors.gold }]}>Details →</Text>
+                    <Text style={[styles.footText, { color: colors.goldText }]}>Details →</Text>
                   )}
                 </View>
               </TouchableOpacity>

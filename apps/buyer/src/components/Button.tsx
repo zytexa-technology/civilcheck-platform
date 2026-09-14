@@ -106,6 +106,6 @@ const variantStyles: Record<Variant, ViewStyle> = {
 const labelStyles: Record<Variant, { color: string }> = {
   primary: { color: colors.onGold },
   secondary: { color: colors.text },
-  ghost: { color: colors.gold },
+  ghost: { color: colors.goldText },
   danger: { color: colors.red },
 }

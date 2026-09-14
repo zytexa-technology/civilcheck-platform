@@ -1,11 +1,12 @@
 // ─────────────────────────────────────────────────────────────────────────
 //  GlobalStyles.jsx — CivilCheck Admin design system.
 //
-//  Same brand as the buyer app (identical dark neutral scale + gold accent,
+//  Same brand as the buyer app (identical light neutral scale + gold accent,
 //  see apps/buyer/src/theme/index.ts) and the same semantic colors as the
 //  Partner portal (apps/seller/src/styles/GlobalStyles.jsx) — one identity,
-//  expressed as a dense dark "command console" here since this surface is
-//  for professionals/admins, not a light "paper document" like the portal.
+//  expressed as a clean light "command console" here since this surface is
+//  for professionals/admins. Converted from the original dark "command
+//  console" palette — see git history for the previous dark values.
 //
 //  Usage: mounted once in main.jsx, before <App/>. Every admin page should
 //  use these classes/vars instead of hand-rolled inline style objects.
@@ -17,17 +18,17 @@ export default function GlobalStyles() {
 @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap');
 
 :root{
-  --bg:#0a0c10; --surface:#111318; --surface-2:#171b23; --surface-3:#1d2230;
-  --border:#222736; --border-2:#2a3045;
-  --text:#e6e9f0; --muted:#8890a6; --dim:#4a5170;
-  --gold:#f0a500; --gold-dim:rgba(240,165,0,.12); --gold-border:rgba(240,165,0,.35); --on-gold:#1a1200;
-  --green:#23c55e; --green-dim:rgba(35,197,94,.12); --green-border:rgba(35,197,94,.3);
-  --red:#f04444; --red-dim:rgba(240,68,68,.12); --red-border:rgba(240,68,68,.3);
-  --amber:#f5a000; --amber-dim:rgba(245,160,0,.12); --amber-border:rgba(245,160,0,.3);
-  --blue:#4f8ef7; --blue-dim:rgba(79,142,247,.12); --blue-border:rgba(79,142,247,.3);
-  --violet:#9b6ef7; --violet-dim:rgba(155,110,247,.12); --violet-border:rgba(155,110,247,.3);
-  --shadow:0 1px 2px rgba(0,0,0,.3), 0 10px 30px -16px rgba(0,0,0,.5);
-  --shadow-lg:0 30px 70px -30px rgba(0,0,0,.7);
+  --bg:#fafafa; --surface:#ffffff; --surface-2:#f5f6f8; --surface-3:#eef0f3;
+  --border:#e4e7ec; --border-2:#d0d5dd;
+  --text:#12141c; --muted:#5b6472; --dim:#98a2b3;
+  --gold:#f0a500; --gold-text:#92400e; --gold-dim:rgba(240,165,0,.12); --gold-border:rgba(240,165,0,.35); --on-gold:#1a1200;
+  --green:#16a34a; --green-dim:rgba(22,163,74,.12); --green-border:rgba(22,163,74,.35);
+  --red:#dc2626; --red-dim:rgba(220,38,38,.12); --red-border:rgba(220,38,38,.35);
+  --amber:#d97706; --amber-dim:rgba(217,119,6,.12); --amber-border:rgba(217,119,6,.35);
+  --blue:#2563eb; --blue-dim:rgba(37,99,235,.12); --blue-border:rgba(37,99,235,.3);
+  --violet:#7c3aed; --violet-dim:rgba(124,58,237,.12); --violet-border:rgba(124,58,237,.3);
+  --shadow:0 1px 2px rgba(16,24,40,.04), 0 10px 30px -16px rgba(16,24,40,.1);
+  --shadow-lg:0 30px 70px -30px rgba(16,24,40,.25);
   --r-sm:9px; --r:12px; --r-lg:16px; --r-xl:22px;
   --disp:'Poppins',system-ui,sans-serif;
   --body:'Poppins',system-ui,sans-serif;
@@ -58,7 +59,7 @@ h1,h2,h3,h4{font-family:var(--disp);letter-spacing:-.01em;line-height:1.2;font-w
 .btn-primary:hover:not(:disabled){filter:brightness(1.08)}
 .btn-ghost{background:var(--surface-2);border:1.5px solid var(--border-2);color:var(--text)}
 .btn-ghost:hover:not(:disabled){border-color:var(--gold-border)}
-.btn-soft{background:var(--gold-dim);color:var(--gold);border:1px solid var(--gold-border)}
+.btn-soft{background:var(--gold-dim);color:var(--gold-text);border:1px solid var(--gold-border)}
 .btn-danger{background:var(--red-dim);color:var(--red);border:1px solid var(--red-border)}
 .btn-danger-solid{background:var(--red);color:#fff}
 .btn-sm{padding:7px 13px;font-size:12px;min-height:32px;border-radius:8px}
@@ -91,7 +92,7 @@ textarea.control{resize:vertical;min-height:88px}
 .badge.red{background:var(--red-dim);color:var(--red);border-color:var(--red-border)}
 .badge.blue{background:var(--blue-dim);color:var(--blue);border-color:var(--blue-border)}
 .badge.violet{background:var(--violet-dim);color:var(--violet);border-color:var(--violet-border)}
-.badge.gold{background:var(--gold-dim);color:var(--gold);border-color:var(--gold-border)}
+.badge.gold{background:var(--gold-dim);color:var(--gold-text);border-color:var(--gold-border)}
 .badge.grey{background:var(--surface-3);color:var(--muted);border-color:var(--border-2)}
 
 /* ============ STAT GRID ============ */
@@ -121,7 +122,7 @@ textarea.control{resize:vertical;min-height:88px}
 /* ============ TABS ============ */
 .tabs{display:flex;gap:6px;flex-wrap:wrap}
 .tab-btn{padding:8px 15px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--muted);font-size:12.5px;font-weight:600}
-.tab-btn.on{background:var(--gold-dim);color:var(--gold);border-color:var(--gold-border)}
+.tab-btn.on{background:var(--gold-dim);color:var(--gold-text);border-color:var(--gold-border)}
 
 /* ============ SEGMENTED / FILTER PILLS ============ */
 .pillbar{display:flex;gap:8px;flex-wrap:wrap}
@@ -170,9 +171,9 @@ textarea.control{resize:vertical;min-height:88px}
 .admin-nav-section{font-size:10px;color:var(--dim);letter-spacing:.1em;text-transform:uppercase;font-weight:700;padding:16px 10px 6px}
 .admin-nav-item{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:9px;cursor:pointer;font-size:13px;font-weight:500;margin-bottom:2px;color:var(--muted);transition:background .15s,color .15s}
 .admin-nav-item:hover{background:var(--surface-2);color:var(--text)}
-.admin-nav-item.on{background:var(--gold-dim);color:var(--gold)}
+.admin-nav-item.on{background:var(--gold-dim);color:var(--gold-text)}
 .admin-main{margin-left:var(--sidebar-w);flex:1;display:flex;flex-direction:column;min-width:0}
-.admin-topbar{position:sticky;top:0;z-index:20;background:rgba(10,12,16,.85);backdrop-filter:blur(10px);border-bottom:1px solid var(--border);padding:14px 24px;display:flex;align-items:center;gap:14px}
+.admin-topbar{position:sticky;top:0;z-index:20;background:rgba(255,255,255,.85);backdrop-filter:blur(10px);border-bottom:1px solid var(--border);padding:14px 24px;display:flex;align-items:center;gap:14px}
 .admin-hamburger{display:none;width:38px;height:38px;border-radius:9px;background:var(--surface-2);border:1px solid var(--border-2);align-items:center;justify-content:center;flex-shrink:0}
 .admin-content{padding:24px;max-width:1320px;width:100%}
 

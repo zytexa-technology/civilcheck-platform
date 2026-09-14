@@ -1,53 +1,59 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // CivilCheck Buyer — design tokens.
 //
-// The app is dark-only by design (the HTML prototype it was built from is), so
-// there is no light palette here. Every screen must pull colours from this file
-// rather than inlining hexes.
+// Light-only by design (converted from the original dark palette — see git
+// history for the previous dark values). Every screen must pull colours from
+// this file rather than inlining hexes, so this single palette swap is what
+// re-themes the whole app.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const colors = {
-  bg: '#0a0c10',
-  surface: '#111318',
-  surface2: '#171b23',
-  surface3: '#1d2230',
-  border: '#222736',
-  border2: '#2a3045',
+  bg: '#FAFAFA',
+  surface: '#FFFFFF',
+  surface2: '#F5F6F8',
+  surface3: '#EEF0F3',
+  border: '#E4E7EC',
+  border2: '#D0D5DD',
 
-  text: '#e6e9f0',
-  muted: '#7b8299',
-  dim: '#3d4560',
+  text: '#12141C',
+  muted: '#5B6472',
+  dim: '#98A2B3',
 
   gold: '#f0a500',
-  goldDim: 'rgba(240,165,0,0.1)',
-  goldBorder: 'rgba(240,165,0,0.3)',
-  goldGlow: 'rgba(240,165,0,0.22)',
+  /* Darker text-safe variant of gold — gold itself is a button/icon/border
+     fill colour; as text on light surfaces it fails contrast (~2:1). This
+     keeps the same accent family with real contrast (~6:1 on white). */
+  goldText: '#92400e',
+  goldDim: 'rgba(240,165,0,0.12)',
+  goldBorder: 'rgba(240,165,0,0.35)',
+  goldGlow: 'rgba(240,165,0,0.25)',
 
-  green: '#23c55e',
-  greenDim: 'rgba(35,197,94,0.1)',
-  greenBorder: 'rgba(35,197,94,0.3)',
+  green: '#16A34A',
+  greenDim: 'rgba(22,163,74,0.12)',
+  greenBorder: 'rgba(22,163,74,0.35)',
 
-  red: '#f04444',
-  redDim: 'rgba(240,68,68,0.1)',
-  redBorder: 'rgba(240,68,68,0.3)',
+  red: '#DC2626',
+  redDim: 'rgba(220,38,38,0.12)',
+  redBorder: 'rgba(220,38,38,0.35)',
 
-  amber: '#f5a000',
-  amberDim: 'rgba(245,160,0,0.1)',
-  amberBorder: 'rgba(245,160,0,0.3)',
+  amber: '#D97706',
+  amberDim: 'rgba(217,119,6,0.12)',
+  amberBorder: 'rgba(217,119,6,0.35)',
 
-  blue: '#4f8ef7',
-  blueDim: 'rgba(79,142,247,0.1)',
-  blueBorder: 'rgba(79,142,247,0.3)',
+  blue: '#2563EB',
+  blueDim: 'rgba(37,99,235,0.1)',
+  blueBorder: 'rgba(37,99,235,0.3)',
 
-  violet: '#9b6ef7',
-  violetDim: 'rgba(155,110,247,0.12)',
-  violetBorder: 'rgba(155,110,247,0.3)',
+  violet: '#7C3AED',
+  violetDim: 'rgba(124,58,237,0.12)',
+  violetBorder: 'rgba(124,58,237,0.3)',
 
   /** Text/icons that sit on a gold fill. */
   onGold: '#000000',
-  /** Scrim behind the locked-report overlay. */
-  scrim: 'rgba(10,12,16,0.88)',
-  hairline: 'rgba(255,255,255,0.08)',
+  /** Scrim behind the locked-report overlay — deliberately dark regardless of
+   * theme, same as any modal backdrop, so the "locked" blur reads clearly. */
+  scrim: 'rgba(10,12,16,0.82)',
+  hairline: 'rgba(16,24,40,0.06)',
 } as const
 
 // `md` was missing from the original theme while HomeScreen referenced
@@ -78,23 +84,23 @@ export const SCREEN_PADDING = spacing.lg
 // per screen.
 export const shadows = {
   card: {
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.22,
-    shadowRadius: 6,
-    elevation: 3,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 2,
   },
   raised: {
-    shadowColor: '#000',
+    shadowColor: '#0F172A',
     shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
-    shadowRadius: 16,
-    elevation: 8,
+    shadowOpacity: 0.12,
+    shadowRadius: 20,
+    elevation: 6,
   },
   glow: {
     shadowColor: '#f0a500',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.35,
+    shadowOpacity: 0.28,
     shadowRadius: 12,
     elevation: 6,
   },

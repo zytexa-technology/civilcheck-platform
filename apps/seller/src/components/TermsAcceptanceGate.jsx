@@ -33,7 +33,7 @@ export default function TermsAcceptanceGate() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0a0c10', padding: 16 }}>
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#F4F1EA', padding: 16 }}>
       <Card style={{ maxWidth: 460, width: '100%', padding: 28 }}>
         <h2 className="dev" style={{ marginBottom: 6 }}>Updated Terms &amp; Conditions</h2>
         <p className="dev muted" style={{ fontSize: 13.5, lineHeight: 1.6, marginBottom: 18 }}>

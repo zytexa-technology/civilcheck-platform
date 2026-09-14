@@ -960,7 +960,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: spacing.sm,
   },
-  amount: { fontSize: 15, fontWeight: '700', color: colors.gold },
+  amount: { fontSize: 15, fontWeight: '700', color: colors.goldText },
   amountMuted: { fontSize: 12, fontWeight: '600', color: colors.muted },
   statusMessage: { fontSize: 12, color: colors.muted, lineHeight: 18 },
   amountBreakdown: {
@@ -1000,7 +1000,7 @@ const styles = StyleSheet.create({
   },
   quoteHeadRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   quoteName: { fontSize: 13.5, fontWeight: '700', color: colors.text },
-  quoteFee: { fontSize: 14.5, fontWeight: '800', color: colors.gold },
+  quoteFee: { fontSize: 14.5, fontWeight: '800', color: colors.goldText },
   quoteMeta: { fontSize: 11, color: colors.muted, marginTop: 2 },
   quoteMessage: { fontSize: 12, color: colors.text, marginTop: spacing.sm, lineHeight: 18 },
   quoteConfirm: { marginTop: spacing.md, gap: spacing.sm },
@@ -1026,7 +1026,7 @@ const styles = StyleSheet.create({
   documentIcon: { fontSize: 18 },
   documentName: { fontSize: 12, fontWeight: '600', color: colors.text },
   documentHint: { fontSize: 10, color: colors.muted, marginTop: 2 },
-  documentGlyph: { fontSize: 15, color: colors.gold },
+  documentGlyph: { fontSize: 15, color: colors.goldText },
 
   // ─── Conversation ────────────────────────────────────────────────────────
   messageThread: { paddingVertical: spacing.sm, gap: spacing.sm },
@@ -1052,7 +1052,7 @@ const styles = StyleSheet.create({
   claimPromptTitle: { fontSize: 12.5, fontWeight: '700', color: colors.text },
   claimPromptBody: { fontSize: 11.5, color: colors.muted, lineHeight: 17, marginTop: 4, marginBottom: spacing.md },
   contactSupportLink: { alignSelf: 'flex-start', marginTop: spacing.md },
-  contactSupportText: { fontSize: 11.5, fontWeight: '600', color: colors.gold },
+  contactSupportText: { fontSize: 11.5, fontWeight: '600', color: colors.goldText },
 
   // ─── 7-Day Verification Acceptance, Claim & Professional Settlement System ───
   reviewWrap: { gap: spacing.sm },
@@ -1063,6 +1063,6 @@ const styles = StyleSheet.create({
   reviewDeadline: { fontSize: 11.5, color: colors.muted },
   reviewDeadlineValue: { fontWeight: '700', color: colors.text },
   reviewHint: { fontSize: 11, color: colors.dim, lineHeight: 16 },
-  reviewTermsLink: { fontSize: 11.5, fontWeight: '600', color: colors.gold },
+  reviewTermsLink: { fontSize: 11.5, fontWeight: '600', color: colors.goldText },
   acceptConfirmCard: { borderColor: colors.greenBorder, marginTop: spacing.sm },
 })

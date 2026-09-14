@@ -605,7 +605,9 @@ const styles = StyleSheet.create({
     paddingVertical: 3.5,
     borderRadius: radius.pill,
   },
-  uploaderTagText: { fontSize: 10, fontWeight: '700', color: colors.text },
+  // Sits on the dark `uploaderTag` pill over the property photo — stays
+  // white regardless of app theme, same as `name`/`meta` below it.
+  uploaderTagText: { fontSize: 10, fontWeight: '700', color: '#fff' },
   scrim: {
     position: 'absolute',
     left: 0,
@@ -626,7 +628,7 @@ const styles = StyleSheet.create({
     paddingVertical: 11,
   },
   seller: { fontSize: 10.5, color: colors.muted },
-  price: { fontSize: 15, fontWeight: '700', color: colors.gold, marginTop: 2 },
+  price: { fontSize: 15, fontWeight: '700', color: colors.goldText, marginTop: 2 },
   freeLabel: { fontSize: 11, fontWeight: '600', color: colors.green, marginTop: 2 },
   postCard: {
     backgroundColor: colors.surface,
@@ -662,7 +664,7 @@ const styles = StyleSheet.create({
   },
   socialBtn: { paddingVertical: 6, paddingHorizontal: 4, minWidth: 44, minHeight: 32, justifyContent: 'center' },
   socialBtnText: { fontSize: 12, fontWeight: '600', color: colors.muted },
-  socialBtnTextActive: { color: colors.gold },
+  socialBtnTextActive: { color: colors.goldText },
   postVerifyBtn: {
     alignSelf: 'flex-start',
     marginTop: spacing.sm,
@@ -673,7 +675,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.goldBorder,
   },
-  postVerifyBtnText: { fontSize: 11, fontWeight: '700', color: colors.gold },
+  postVerifyBtnText: { fontSize: 11, fontWeight: '700', color: colors.goldText },
   uploaderTagStatic: {
     backgroundColor: colors.surface2,
     borderWidth: 1,
@@ -717,7 +719,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.goldBorder,
   },
-  actionVerifyText: { fontSize: 11, fontWeight: '700', color: colors.gold },
+  actionVerifyText: { fontSize: 11, fontWeight: '700', color: colors.goldText },
   actionPrimary: {
     paddingHorizontal: 12,
     paddingVertical: 8,

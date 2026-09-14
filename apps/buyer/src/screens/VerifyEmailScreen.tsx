@@ -152,7 +152,7 @@ const styles = StyleSheet.create({
   resendWrap: { alignItems: 'center', marginTop: spacing.md, marginBottom: spacing.lg },
   link: {
     textAlign: 'center',
-    color: colors.gold,
+    color: colors.goldText,
     fontSize: 13,
     fontWeight: '500',
   },

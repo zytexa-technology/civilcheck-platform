@@ -201,10 +201,10 @@ const styles = StyleSheet.create({
   form: { paddingHorizontal: SCREEN_PADDING },
   intro: { fontSize: 12.5, color: colors.muted, lineHeight: 19, marginBottom: spacing.lg },
   submit: { marginTop: spacing.sm },
-  link: { color: colors.gold, fontWeight: '600' },
+  link: { color: colors.goldText, fontWeight: '600' },
   resendLink: {
     textAlign: 'center',
-    color: colors.gold,
+    color: colors.goldText,
     fontSize: 13,
     fontWeight: '500',
     marginTop: spacing.lg,

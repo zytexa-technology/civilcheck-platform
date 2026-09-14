@@ -87,7 +87,7 @@ const styles = StyleSheet.create({
     paddingBottom: 22,
   },
   labelDone: { color: colors.text, fontWeight: '500' },
-  labelCurrent: { color: colors.gold, fontWeight: '700' },
+  labelCurrent: { color: colors.goldText, fontWeight: '700' },
   cancelledWrap: {
     flexDirection: 'row',
     alignItems: 'center',

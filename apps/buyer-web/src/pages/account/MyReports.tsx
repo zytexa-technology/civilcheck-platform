@@ -59,7 +59,7 @@ export default function MyReports() {
                   <span className="muted" style={{ fontSize: 11.5 }}>
                     {p.listing.city} · Unlocked {formatDate(p.createdAt)}
                   </span>
-                  <span style={{ fontWeight: 700, color: 'var(--cc-gold)', fontSize: 13 }}>
+                  <span style={{ fontWeight: 700, color: 'var(--cc-gold-text)', fontSize: 13 }}>
                     {formatRupees(p.amountPaid)}
                   </span>
                 </div>

@@ -87,7 +87,7 @@ const styles = StyleSheet.create({
   title: { fontSize: 22, fontWeight: '700', color: colors.text, marginBottom: 4 },
   intro: { fontSize: 12.5, color: colors.muted, lineHeight: 19, marginBottom: spacing.lg },
   link: { marginBottom: spacing.sm },
-  linkText: { fontSize: 14, fontWeight: '600', color: colors.gold },
+  linkText: { fontSize: 14, fontWeight: '600', color: colors.goldText },
   checkboxRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginTop: spacing.md, marginBottom: spacing.lg },
   checkbox: {
     width: 20,

@@ -186,7 +186,7 @@ const styles = StyleSheet.create({
   phoneLabel: { fontSize: 11, color: colors.muted, marginBottom: 4 },
   phoneRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   phoneValue: { fontSize: 15, fontWeight: '600', color: colors.text },
-  verified: { fontSize: 12, fontWeight: '600', color: colors.gold },
+  verified: { fontSize: 12, fontWeight: '600', color: colors.goldText },
   phoneHint: { fontSize: 11, color: colors.muted, marginTop: 3 },
   submit: { marginTop: spacing.sm },
   cancel: { marginTop: spacing.sm },

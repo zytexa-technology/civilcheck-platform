@@ -142,7 +142,7 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
   },
   stat: { flex: 1, alignItems: 'center', paddingHorizontal: 4 },
-  statValue: { fontSize: 17, fontWeight: '700', color: colors.gold },
+  statValue: { fontSize: 17, fontWeight: '700', color: colors.goldText },
   statLabel: { fontSize: 10, color: colors.muted, marginTop: 2 },
   divider: { width: 1, backgroundColor: colors.border },
   list: { paddingHorizontal: SCREEN_PADDING },
@@ -180,5 +180,5 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 8,
   },
-  viewTagText: { fontSize: 11.5, fontWeight: '600', color: colors.gold },
+  viewTagText: { fontSize: 11.5, fontWeight: '600', color: colors.goldText },
 })

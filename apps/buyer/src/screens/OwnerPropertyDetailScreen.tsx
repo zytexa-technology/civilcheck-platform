@@ -179,7 +179,7 @@ const styles = StyleSheet.create({
   mediaIcon: { fontSize: 18 },
   mediaName: { fontSize: 12, fontWeight: '600', color: colors.text },
   mediaHint: { fontSize: 10, color: colors.muted, marginTop: 2 },
-  mediaGlyph: { fontSize: 15, color: colors.gold },
+  mediaGlyph: { fontSize: 15, color: colors.goldText },
   tag: {
     alignSelf: 'flex-start',
     backgroundColor: colors.surface2,

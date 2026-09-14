@@ -219,7 +219,7 @@ export function SpecialRequestScreen() {
                 </Text>
                 <Text style={styles.tierBlurb}>{entry.blurb}</Text>
               </View>
-              <Text style={[styles.tierPrice, active && { color: colors.gold }]}>
+              <Text style={[styles.tierPrice, active && { color: colors.goldText }]}>
                 {formatRupees(entry.amount)}
               </Text>
             </TouchableOpacity>

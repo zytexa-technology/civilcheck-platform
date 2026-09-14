@@ -242,7 +242,7 @@ const styles = StyleSheet.create({
     paddingVertical: 13,
     alignItems: 'center',
   },
-  statValue: { fontSize: 18, fontWeight: '700', color: colors.gold },
+  statValue: { fontSize: 18, fontWeight: '700', color: colors.goldText },
   statLabel: { fontSize: 10, color: colors.muted, marginTop: 2 },
   menu: { marginTop: spacing.xs },
   menuItem: {

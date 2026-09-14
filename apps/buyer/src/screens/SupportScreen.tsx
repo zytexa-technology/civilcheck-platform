@@ -111,7 +111,7 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
     borderRadius: 8,
   },
-  newButtonText: { fontSize: 12, fontWeight: '700', color: colors.gold },
+  newButtonText: { fontSize: 12, fontWeight: '700', color: colors.goldText },
   list: { paddingHorizontal: SCREEN_PADDING },
   card: {
     backgroundColor: colors.surface,

@@ -161,5 +161,5 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border2,
   },
-  signInText: { fontSize: 12.5, fontWeight: '600', color: colors.gold },
+  signInText: { fontSize: 12.5, fontWeight: '600', color: colors.goldText },
 })

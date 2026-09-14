@@ -38,5 +38,5 @@ export function StarRating({ value, onChange, size = 30 }: StarRatingProps) {
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', gap: spacing.sm, alignItems: 'center' },
   star: { color: colors.dim },
-  filled: { color: colors.gold },
+  filled: { color: colors.goldText },
 })

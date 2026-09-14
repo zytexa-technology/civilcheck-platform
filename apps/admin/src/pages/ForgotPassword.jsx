@@ -86,22 +86,22 @@ export default function ForgotPassword() {
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap');
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        input:focus { border-color: #3b82f6 !important; outline: none; }
+        input:focus { border-color: #f0a500 !important; outline: none; }
         .login-btn:hover { opacity: 0.9; transform: translateY(-1px); }
         @keyframes spin { to { transform: rotate(360deg); } }
       `}</style>
-      <div style={{ position: 'fixed', inset: 0, backgroundImage: 'radial-gradient(#1f2535 1px, transparent 1px)', backgroundSize: '28px 28px', opacity: 0.4, pointerEvents: 'none' }} />
+      <div style={{ position: 'fixed', inset: 0, backgroundImage: 'radial-gradient(#e4e7ec 1px, transparent 1px)', backgroundSize: '28px 28px', opacity: 0.4, pointerEvents: 'none' }} />
       <div style={{ position: 'fixed', inset: 0, background: 'radial-gradient(ellipse 80% 50% at 50% -10%, rgba(59,130,246,.12), transparent)', pointerEvents: 'none' }} />
 
       <div style={s.box}>
         <div style={{ textAlign: 'center', marginBottom: 32 }}>
-          <div style={{ width: 52, height: 52, background: 'linear-gradient(135deg, #3b82f6, #06b6d4)', borderRadius: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, margin: '0 auto 14px' }}>
+          <div style={{ width: 52, height: 52, background: 'linear-gradient(135deg, #f0a500, #ffc233)', borderRadius: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, margin: '0 auto 14px' }}>
             🛡️
           </div>
-          <div style={{ fontFamily: "'Poppins', sans-serif", fontSize: 26, fontWeight: 800, color: '#e8eaf0' }}>
+          <div style={{ fontFamily: "'Poppins', sans-serif", fontSize: 26, fontWeight: 800, color: '#12141c' }}>
             CivilCheck
           </div>
-          <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 5, letterSpacing: '1.5px', textTransform: 'uppercase', fontWeight: 600 }}>
+          <div style={{ fontSize: 11, color: '#5b6472', marginTop: 5, letterSpacing: '1.5px', textTransform: 'uppercase', fontWeight: 600 }}>
             Reset Super Admin Password
           </div>
         </div>
@@ -145,7 +145,7 @@ export default function ForgotPassword() {
                 style={{ ...s.input, letterSpacing: '6px', textAlign: 'center', fontSize: 18, fontWeight: 700 }}
                 autoFocus
               />
-              <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 6 }}>
+              <div style={{ fontSize: 11, color: '#5b6472', marginTop: 6 }}>
                 Code expires in 10 minutes. Check the inbox for {email}.
               </div>
             </div>
@@ -203,11 +203,11 @@ export default function ForgotPassword() {
 
         {stage !== 'done' && (
           <div style={{ textAlign: 'center', marginTop: 20 }}>
-            <Link to="/login" style={{ fontSize: 12.5, color: '#9ca3af' }}>← Back to login</Link>
+            <Link to="/login" style={{ fontSize: 12.5, color: '#5b6472' }}>← Back to login</Link>
           </div>
         )}
 
-        <div style={{ textAlign: 'center', marginTop: 24, color: '#9ca3af', fontSize: 12, borderTop: '1px solid #1f2535', paddingTop: 20 }}>
+        <div style={{ textAlign: 'center', marginTop: 24, color: '#5b6472', fontSize: 12, borderTop: '1px solid #e4e7ec', paddingTop: 20 }}>
           Zytexa Technology LLP · Authorized Access Only
         </div>
       </div>
@@ -216,13 +216,13 @@ export default function ForgotPassword() {
 }
 
 const s = {
-  bg: { minHeight: '100vh', background: '#080b10', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'Poppins', sans-serif", padding: 16, position: 'relative' },
-  box: { position: 'relative', background: '#111318', border: '1px solid #1f2535', borderRadius: 18, padding: '36px 32px', width: 380, maxWidth: '100%', boxShadow: '0 32px 80px rgba(0,0,0,.6)' },
-  errorBox: { background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.3)', borderRadius: 8, padding: '10px 14px', color: '#f87171', fontSize: 13, marginBottom: 16 },
-  infoBox: { background: 'rgba(59,130,246,.1)', border: '1px solid rgba(59,130,246,.3)', borderRadius: 8, padding: '10px 14px', color: '#93c5fd', fontSize: 13, marginBottom: 16 },
+  bg: { minHeight: '100vh', background: '#fafafa', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'Poppins', sans-serif", padding: 16, position: 'relative' },
+  box: { position: 'relative', background: '#ffffff', border: '1px solid #e4e7ec', borderRadius: 18, padding: '36px 32px', width: 380, maxWidth: '100%', boxShadow: '0 24px 60px rgba(16,24,40,.1)' },
+  errorBox: { background: 'rgba(220,38,38,.08)', border: '1px solid rgba(220,38,38,.25)', borderRadius: 8, padding: '10px 14px', color: '#b91c1c', fontSize: 13, marginBottom: 16 },
+  infoBox: { background: 'rgba(37,99,235,.08)', border: '1px solid rgba(37,99,235,.25)', borderRadius: 8, padding: '10px 14px', color: '#1d4ed8', fontSize: 13, marginBottom: 16 },
   field: { marginBottom: 16 },
-  label: { display: 'block', fontSize: 12, color: '#9ca3af', marginBottom: 7, fontWeight: 600, letterSpacing: '.3px' },
-  input: { width: '100%', background: '#181c24', border: '1px solid #1f2535', borderRadius: 9, padding: '11px 14px', color: '#e8eaf0', fontSize: 14, transition: 'border-color .15s', fontFamily: "'Poppins', sans-serif" },
-  btn: { width: '100%', padding: '13px 16px', borderRadius: 9, border: 'none', cursor: 'pointer', background: 'linear-gradient(135deg, #3b82f6, #06b6d4)', color: '#fff', fontSize: 15, fontWeight: 700, marginTop: 4, transition: 'all .2s', fontFamily: "'Poppins', sans-serif" },
-  linkBtn: { width: '100%', padding: '8px', borderRadius: 9, border: 'none', background: 'none', cursor: 'pointer', color: '#9ca3af', fontSize: 12.5, fontFamily: "'Poppins', sans-serif" },
+  label: { display: 'block', fontSize: 12, color: '#5b6472', marginBottom: 7, fontWeight: 600, letterSpacing: '.3px' },
+  input: { width: '100%', background: '#ffffff', border: '1px solid #e4e7ec', borderRadius: 9, padding: '11px 14px', color: '#12141c', fontSize: 14, transition: 'border-color .15s', fontFamily: "'Poppins', sans-serif" },
+  btn: { width: '100%', padding: '13px 16px', borderRadius: 9, border: 'none', cursor: 'pointer', background: 'linear-gradient(135deg, #f0a500, #ffc233)', color: '#1a1200', fontSize: 15, fontWeight: 700, marginTop: 4, transition: 'all .2s', fontFamily: "'Poppins', sans-serif" },
+  linkBtn: { width: '100%', padding: '8px', borderRadius: 9, border: 'none', background: 'none', cursor: 'pointer', color: '#5b6472', fontSize: 12.5, fontFamily: "'Poppins', sans-serif" },
 }

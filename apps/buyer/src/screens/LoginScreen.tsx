@@ -159,7 +159,7 @@ const styles = StyleSheet.create({
   dividerText: { fontSize: 11, color: colors.muted, fontWeight: '600' },
   link: {
     textAlign: 'center',
-    color: colors.gold,
+    color: colors.goldText,
     fontSize: 13,
     fontWeight: '500',
     marginTop: spacing.lg,

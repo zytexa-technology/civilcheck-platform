@@ -9,12 +9,14 @@ import {
 
 // ─── SHARED COMPONENTS ────────────────────────────────────────────────────
 const Badge = ({ children, color }) => {
+  // Pale tinted chip backgrounds need dark, saturated text for contrast —
+  // the original bright text colors were tuned for a dark chip background.
   const colors = {
-    green:  { bg: 'rgba(34,197,94,.15)',  text: '#4ade80' },
-    gold:   { bg: 'rgba(245,158,11,.15)', text: '#fbbf24' },
-    blue:   { bg: 'rgba(59,130,246,.15)', text: '#60a5fa' },
-    amber:  { bg: 'rgba(249,115,22,.15)', text: '#fb923c' },
-    gray:   { bg: 'rgba(107,114,128,.15)',text: '#9ca3af' },
+    green:  { bg: 'rgba(34,197,94,.15)',  text: '#15803d' },
+    gold:   { bg: 'rgba(234,179,8,.15)',  text: '#a16207' },
+    blue:   { bg: 'rgba(59,130,246,.15)', text: '#1d4ed8' },
+    amber:  { bg: 'rgba(249,115,22,.15)', text: '#c2410c' },
+    gray:   { bg: 'rgba(107,114,128,.15)',text: '#374151' },
   }
   const c = colors[color] || colors.gray
   return (
@@ -24,12 +26,12 @@ const Badge = ({ children, color }) => {
   )
 }
 
-const StatCard = ({ icon, label, value, color = '#e8eaf0', sub }) => (
+const StatCard = ({ icon, label, value, color = '#12141c', sub }) => (
   <div style={s.card}>
     <div style={{ fontSize: 22, marginBottom: 8 }}>{icon}</div>
     <div style={{ fontFamily: "'Poppins',sans-serif", fontSize: 26, fontWeight: 800, color }}>{value}</div>
-    <div style={{ color: '#9ca3af', fontSize: 12, fontWeight: 500, textTransform: 'uppercase', letterSpacing: '.4px', marginTop: 4 }}>{label}</div>
-    {sub && <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 6 }}>{sub}</div>}
+    <div style={{ color: '#5b6472', fontSize: 12, fontWeight: 500, textTransform: 'uppercase', letterSpacing: '.4px', marginTop: 4 }}>{label}</div>
+    {sub && <div style={{ fontSize: 12, color: '#5b6472', marginTop: 6 }}>{sub}</div>}
   </div>
 )
 
@@ -39,12 +41,12 @@ const ProgressBar = ({ label, value, total, color }) => {
   return (
     <div style={{ marginBottom: 14 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 6 }}>
-        <span style={{ color: '#e8eaf0' }}>{label}</span>
-        <span style={{ color: '#9ca3af' }}>
+        <span style={{ color: '#12141c' }}>{label}</span>
+        <span style={{ color: '#5b6472' }}>
           {value.toLocaleString()} <span style={{ color }}> ({pct}%)</span>
         </span>
       </div>
-      <div style={{ height: 5, background: '#1f2535', borderRadius: 99 }}>
+      <div style={{ height: 5, background: '#e4e7ec', borderRadius: 99 }}>
         <div style={{ height: '100%', width: `${pct}%`, background: color, borderRadius: 99, transition: 'width .8s ease' }} />
       </div>
     </div>
@@ -87,15 +89,15 @@ export default function Analytics() {
   }
 
   if (loading) return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 300, color: '#9ca3af', fontSize: 14 }}>
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 300, color: '#5b6472', fontSize: 14 }}>
       ⏳ Loading analytics...
     </div>
   )
 
   if (error) return (
-    <div style={{ background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.3)', borderRadius: 10, padding: 20, color: '#f87171', fontSize: 14 }}>
+    <div style={{ background: 'rgba(220,38,38,.08)', border: '1px solid rgba(220,38,38,.25)', borderRadius: 10, padding: 20, color: '#b91c1c', fontSize: 14 }}>
       ❌ {error}
-      <button onClick={loadData} style={{ marginLeft: 12, color: '#3b82f6', background: 'none', border: 'none', cursor: 'pointer' }}>
+      <button onClick={loadData} style={{ marginLeft: 12, color: '#1d4ed8', background: 'none', border: 'none', cursor: 'pointer' }}>
         Retry →
       </button>
     </div>
@@ -113,22 +115,22 @@ export default function Analytics() {
       <div className="grid g4" style={{ marginBottom: 24 }}>
         <StatCard icon="💰" label="Total GMV"
           value={`₹${(overview?.revenue?.totalGMV || 0).toLocaleString('en-IN')}`}
-          color="#f59e0b"
+          color="#b45309"
           sub="Gross Merchandise Value"
         />
         <StatCard icon="🏦" label="Platform Revenue (40%)"
           value={`₹${(overview?.revenue?.platformRevenue || 0).toLocaleString('en-IN')}`}
-          color="#22c55e"
+          color="#15803d"
           sub="After seller commission"
         />
         <StatCard icon="📦" label="Total Transactions"
           value={overview?.revenue?.totalTransactions || 0}
-          color="#3b82f6"
+          color="#1d4ed8"
           sub="Reports sold all time"
         />
         <StatCard icon="👥" label="Total Users"
           value={(overview?.users?.totalBuyers || 0) + (overview?.users?.totalSellers || 0)}
-          color="#a78bfa"
+          color="#6d28d9"
           sub={`${overview?.users?.totalBuyers || 0} buyers · ${overview?.users?.totalSellers || 0} sellers`}
         />
       </div>
@@ -140,24 +142,24 @@ export default function Analytics() {
         <div style={s.card}>
           <div style={s.cardTitle}>Users Breakdown</div>
           {[
-            { label: 'Total Buyers',      value: overview?.users?.totalBuyers || 0,     total: (overview?.users?.totalBuyers || 0) + (overview?.users?.totalSellers || 0), color: '#3b82f6' },
-            { label: 'Approved Sellers',  value: overview?.users?.approvedSellers || 0, total: overview?.users?.totalSellers || 1, color: '#22c55e' },
-            { label: 'Pending KYC',       value: overview?.users?.pendingSellers || 0,  total: overview?.users?.totalSellers || 1, color: '#f97316' },
+            { label: 'Total Buyers',      value: overview?.users?.totalBuyers || 0,     total: (overview?.users?.totalBuyers || 0) + (overview?.users?.totalSellers || 0), color: '#1d4ed8' },
+            { label: 'Approved Sellers',  value: overview?.users?.approvedSellers || 0, total: overview?.users?.totalSellers || 1, color: '#15803d' },
+            { label: 'Pending KYC',       value: overview?.users?.pendingSellers || 0,  total: overview?.users?.totalSellers || 1, color: '#c2410c' },
           ].map(item => (
             <ProgressBar key={item.label} {...item} />
           ))}
           <div style={{ display: 'flex', gap: 10, marginTop: 16, flexWrap: 'wrap' }}>
             <div style={s.miniStat}>
-              <div style={{ fontSize: 18, fontWeight: 800, color: '#3b82f6' }}>{overview?.users?.totalBuyers || 0}</div>
-              <div style={{ fontSize: 11, color: '#9ca3af' }}>Buyers</div>
+              <div style={{ fontSize: 18, fontWeight: 800, color: '#1d4ed8' }}>{overview?.users?.totalBuyers || 0}</div>
+              <div style={{ fontSize: 11, color: '#5b6472' }}>Buyers</div>
             </div>
             <div style={s.miniStat}>
-              <div style={{ fontSize: 18, fontWeight: 800, color: '#22c55e' }}>{overview?.users?.approvedSellers || 0}</div>
-              <div style={{ fontSize: 11, color: '#9ca3af' }}>Active Sellers</div>
+              <div style={{ fontSize: 18, fontWeight: 800, color: '#15803d' }}>{overview?.users?.approvedSellers || 0}</div>
+              <div style={{ fontSize: 11, color: '#5b6472' }}>Active Sellers</div>
             </div>
             <div style={s.miniStat}>
-              <div style={{ fontSize: 18, fontWeight: 800, color: '#f97316' }}>{overview?.users?.pendingSellers || 0}</div>
-              <div style={{ fontSize: 11, color: '#9ca3af' }}>Pending KYC</div>
+              <div style={{ fontSize: 18, fontWeight: 800, color: '#c2410c' }}>{overview?.users?.pendingSellers || 0}</div>
+              <div style={{ fontSize: 11, color: '#5b6472' }}>Pending KYC</div>
             </div>
           </div>
         </div>
@@ -166,20 +168,20 @@ export default function Analytics() {
         <div style={s.card}>
           <div style={s.cardTitle}>Listings Breakdown</div>
           {[
-            { label: 'Approved Listings', value: overview?.listings?.approved || 0,      total: overview?.listings?.total || 1, color: '#22c55e' },
-            { label: 'Pending Review',    value: overview?.listings?.pendingReview || 0, total: overview?.listings?.total || 1, color: '#f97316' },
+            { label: 'Approved Listings', value: overview?.listings?.approved || 0,      total: overview?.listings?.total || 1, color: '#15803d' },
+            { label: 'Pending Review',    value: overview?.listings?.pendingReview || 0, total: overview?.listings?.total || 1, color: '#c2410c' },
           ].map(item => (
             <ProgressBar key={item.label} {...item} />
           ))}
           <div style={{ display: 'flex', gap: 10, marginTop: 16, flexWrap: 'wrap' }}>
             {[
-              { val: overview?.listings?.total || 0,         label: 'Total',   color: '#e8eaf0' },
-              { val: overview?.listings?.approved || 0,      label: 'Live',    color: '#22c55e' },
-              { val: overview?.listings?.pendingReview || 0, label: 'Pending', color: '#f97316' },
+              { val: overview?.listings?.total || 0,         label: 'Total',   color: '#12141c' },
+              { val: overview?.listings?.approved || 0,      label: 'Live',    color: '#15803d' },
+              { val: overview?.listings?.pendingReview || 0, label: 'Pending', color: '#c2410c' },
             ].map(stat => (
               <div key={stat.label} style={s.miniStat}>
                 <div style={{ fontSize: 18, fontWeight: 800, color: stat.color }}>{stat.val}</div>
-                <div style={{ fontSize: 11, color: '#9ca3af' }}>{stat.label}</div>
+                <div style={{ fontSize: 11, color: '#5b6472' }}>{stat.label}</div>
               </div>
             ))}
           </div>
@@ -194,23 +196,23 @@ export default function Analytics() {
         </div>
         <div className="grid g3" style={{ marginBottom: 20 }}>
           {[
-            { icon: '🔍', label: 'Free Case Checks',     value: funnel?.step1_freeChecks || 0,          color: '#3b82f6' },
-            { icon: '💳', label: 'Paid Report Unlocks',  value: funnel?.step2_paidUnlocks || 0,         color: '#22c55e' },
-            { icon: '🔔', label: 'Alert Subscriptions',  value: funnel?.step3_alertSubscriptions || 0,  color: '#a78bfa' },
+            { icon: '🔍', label: 'Free Case Checks',     value: funnel?.step1_freeChecks || 0,          color: '#1d4ed8' },
+            { icon: '💳', label: 'Paid Report Unlocks',  value: funnel?.step2_paidUnlocks || 0,         color: '#15803d' },
+            { icon: '🔔', label: 'Alert Subscriptions',  value: funnel?.step3_alertSubscriptions || 0,  color: '#6d28d9' },
           ].map(f => (
-            <div key={f.label} style={{ background: '#0e1016', border: '1px solid #1f2535', borderRadius: 10, padding: 16, textAlign: 'center' }}>
+            <div key={f.label} style={{ background: '#f5f6f8', border: '1px solid #e4e7ec', borderRadius: 10, padding: 16, textAlign: 'center' }}>
               <div style={{ fontSize: 24, marginBottom: 6 }}>{f.icon}</div>
               <div style={{ fontFamily: "'Poppins',sans-serif", fontSize: 22, fontWeight: 800, color: f.color }}>{f.value.toLocaleString()}</div>
-              <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 4 }}>{f.label}</div>
+              <div style={{ fontSize: 11, color: '#5b6472', marginTop: 4 }}>{f.label}</div>
             </div>
           ))}
         </div>
 
         {/* Funnel Visual */}
         {[
-          { label: 'Step 1 — Free Case Check', value: funnel?.step1_freeChecks || 0,         pct: 100, color: '#3b82f6' },
-          { label: 'Step 2 — Paid Unlock',      value: funnel?.step2_paidUnlocks || 0,        pct: funnel?.step1_freeChecks > 0 ? Math.round((funnel.step2_paidUnlocks / funnel.step1_freeChecks) * 100) : 0, color: '#22c55e' },
-          { label: 'Step 3 — Alert Subscribe',  value: funnel?.step3_alertSubscriptions || 0, pct: funnel?.step1_freeChecks > 0 ? Math.round((funnel.step3_alertSubscriptions / funnel.step1_freeChecks) * 100) : 0, color: '#a78bfa' },
+          { label: 'Step 1 — Free Case Check', value: funnel?.step1_freeChecks || 0,         pct: 100, color: '#1d4ed8' },
+          { label: 'Step 2 — Paid Unlock',      value: funnel?.step2_paidUnlocks || 0,        pct: funnel?.step1_freeChecks > 0 ? Math.round((funnel.step2_paidUnlocks / funnel.step1_freeChecks) * 100) : 0, color: '#15803d' },
+          { label: 'Step 3 — Alert Subscribe',  value: funnel?.step3_alertSubscriptions || 0, pct: funnel?.step1_freeChecks > 0 ? Math.round((funnel.step3_alertSubscriptions / funnel.step1_freeChecks) * 100) : 0, color: '#6d28d9' },
         ].map(f => (
           <ProgressBar key={f.label} label={f.label} value={f.value} total={funnel?.step1_freeChecks || 1} color={f.color} />
         ))}
@@ -221,13 +223,13 @@ export default function Analytics() {
 
         {/* Top Sellers */}
         <div style={{ ...s.card, padding: 0, overflow: 'hidden' }}>
-          <div style={{ padding: '14px 18px', borderBottom: '1px solid #1f2535', ...s.cardTitle }}>
+          <div style={{ padding: '14px 18px', borderBottom: '1px solid #e4e7ec', ...s.cardTitle }}>
             Top Sellers by Earnings
           </div>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
-                <tr style={{ background: '#0e1016' }}>
+                <tr style={{ background: '#f5f6f8' }}>
                   {['#', 'Seller', 'Badge', 'Earnings', 'Accuracy'].map(h => (
                     <th key={h} style={{ ...s.th, padding: '9px 14px', whiteSpace: 'nowrap' }}>{h}</th>
                   ))}
@@ -236,30 +238,30 @@ export default function Analytics() {
               <tbody>
                 {topSellers.length === 0 ? (
                   <tr>
-                    <td colSpan={5} style={{ padding: 24, textAlign: 'center', color: '#9ca3af', fontSize: 12 }}>
+                    <td colSpan={5} style={{ padding: 24, textAlign: 'center', color: '#5b6472', fontSize: 12 }}>
                       No sellers yet
                     </td>
                   </tr>
                 ) : topSellers.map((seller, i) => (
                   <tr key={seller.id}
-                    style={{ borderTop: '1px solid #1f2535' }}
-                    onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,.02)'}
+                    style={{ borderTop: '1px solid #e4e7ec' }}
+                    onMouseEnter={e => e.currentTarget.style.background = 'rgba(16,24,40,.03)'}
                     onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                    <td style={{ ...s.td, padding: '10px 14px', color: '#9ca3af', fontWeight: 700 }}>{i + 1}</td>
+                    <td style={{ ...s.td, padding: '10px 14px', color: '#5b6472', fontWeight: 700 }}>{i + 1}</td>
                     <td style={{ ...s.td, padding: '10px 14px', whiteSpace: 'nowrap' }}>
                       <div style={{ fontWeight: 600 }}>{seller.name}</div>
-                      <div style={{ fontSize: 11, color: '#9ca3af' }}>{seller.profession}</div>
+                      <div style={{ fontSize: 11, color: '#5b6472' }}>{seller.profession}</div>
                     </td>
                     <td style={{ ...s.td, padding: '10px 14px' }}>
                       <Badge color={seller.badge === 'PLATINUM' || seller.badge === 'GOLD' ? 'gold' : seller.badge === 'SILVER' ? 'blue' : 'gray'}>
                         {seller.badge}
                       </Badge>
                     </td>
-                    <td style={{ ...s.td, padding: '10px 14px', color: '#22c55e', fontWeight: 700, whiteSpace: 'nowrap' }}>
+                    <td style={{ ...s.td, padding: '10px 14px', color: '#15803d', fontWeight: 700, whiteSpace: 'nowrap' }}>
                       ₹{(seller.totalEarnings || 0).toLocaleString('en-IN')}
                     </td>
                     <td style={{ ...s.td, padding: '10px 14px' }}>
-                      <span style={{ color: seller.accuracyScore >= 95 ? '#22c55e' : seller.accuracyScore >= 90 ? '#f59e0b' : '#ef4444', fontWeight: 600 }}>
+                      <span style={{ color: seller.accuracyScore >= 95 ? '#15803d' : seller.accuracyScore >= 90 ? '#b45309' : '#b91c1c', fontWeight: 600 }}>
                         {seller.accuracyScore}%
                       </span>
                     </td>
@@ -272,11 +274,11 @@ export default function Analytics() {
 
         {/* Top Cities */}
         <div style={{ ...s.card, padding: 0, overflow: 'hidden' }}>
-          <div style={{ padding: '14px 18px', borderBottom: '1px solid #1f2535', ...s.cardTitle }}>
+          <div style={{ padding: '14px 18px', borderBottom: '1px solid #e4e7ec', ...s.cardTitle }}>
             Top Cities by Activity
           </div>
           {topCities.length === 0 ? (
-            <div style={{ padding: 32, textAlign: 'center', color: '#9ca3af', fontSize: 13 }}>
+            <div style={{ padding: 32, textAlign: 'center', color: '#5b6472', fontSize: 13 }}>
               No city data yet
             </div>
           ) : (
@@ -288,15 +290,15 @@ export default function Analytics() {
                   <div key={city.city} style={{ marginBottom: 14 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 5 }}>
                       <span style={{ fontWeight: 500 }}>
-                        <span style={{ color: '#9ca3af', marginRight: 8 }}>#{i + 1}</span>
+                        <span style={{ color: '#5b6472', marginRight: 8 }}>#{i + 1}</span>
                         {city.city}
                       </span>
-                      <span style={{ color: '#9ca3af' }}>
+                      <span style={{ color: '#5b6472' }}>
                         {city.totalListings} listings · {(city.totalViews || 0).toLocaleString()} views
                       </span>
                     </div>
-                    <div style={{ height: 4, background: '#1f2535', borderRadius: 99 }}>
-                      <div style={{ height: '100%', width: `${pct}%`, background: '#3b82f6', borderRadius: 99, transition: 'width .8s ease' }} />
+                    <div style={{ height: 4, background: '#e4e7ec', borderRadius: 99 }}>
+                      <div style={{ height: '100%', width: `${pct}%`, background: '#1d4ed8', borderRadius: 99, transition: 'width .8s ease' }} />
                     </div>
                   </div>
                 )
@@ -310,19 +312,19 @@ export default function Analytics() {
       <div style={{ ...s.card, marginTop: 20 }}>
         <div style={s.cardTitle}>Alert Subscriptions</div>
         {!subs ? (
-          <div style={{ padding: 20, textAlign: 'center', color: '#9ca3af', fontSize: 13 }}>No data available</div>
+          <div style={{ padding: 20, textAlign: 'center', color: '#5b6472', fontSize: 13 }}>No data available</div>
         ) : (
           <>
             <div className="grid g5" style={{ marginTop: 14 }}>
-              <MiniStat label="Active" value={subs.activeSubscriptions} color="#22c55e" />
-              <MiniStat label="Inactive" value={subs.inactiveSubscriptions} color="#6b7280" />
-              <MiniStat label="Unique Subscribers" value={subs.uniqueActiveSubscribers} color="#3b82f6" />
-              <MiniStat label="New This Month" value={subs.newThisMonth} color="#a78bfa"
+              <MiniStat label="Active" value={subs.activeSubscriptions} color="#15803d" />
+              <MiniStat label="Inactive" value={subs.inactiveSubscriptions} color="#374151" />
+              <MiniStat label="Unique Subscribers" value={subs.uniqueActiveSubscribers} color="#1d4ed8" />
+              <MiniStat label="New This Month" value={subs.newThisMonth} color="#6d28d9"
                 sub={subs.monthOverMonthGrowthPct == null ? undefined : `${subs.monthOverMonthGrowthPct > 0 ? '+' : ''}${subs.monthOverMonthGrowthPct}% MoM`} />
-              <MiniStat label="Churn Rate (this month)" value={subs.subscriberChurnRate == null ? '—' : `${subs.subscriberChurnRate}%`} color="#ef4444" />
+              <MiniStat label="Churn Rate (this month)" value={subs.subscriberChurnRate == null ? '—' : `${subs.subscriberChurnRate}%`} color="#b91c1c" />
             </div>
             {subs.monthlyRenewalRate == null && (
-              <div style={{ marginTop: 14, fontSize: 12, color: '#9ca3af' }} title={subs.pendingMetricsNote}>
+              <div style={{ marginTop: 14, fontSize: 12, color: '#5b6472' }} title={subs.pendingMetricsNote}>
                 ℹ️ Monthly renewal rate: — ({subs.pendingMetricsNote})
               </div>
             )}
@@ -336,18 +338,18 @@ export default function Analytics() {
 const MiniStat = ({ label, value, color, sub }) => (
   <div style={s.miniStat}>
     <div style={{ fontFamily: "'Poppins',sans-serif", fontSize: 22, fontWeight: 800, color }}>{value}</div>
-    <div style={{ color: '#9ca3af', fontSize: 11, fontWeight: 500, textTransform: 'uppercase', letterSpacing: '.3px', marginTop: 2 }}>{label}</div>
-    {sub && <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 3 }}>{sub}</div>}
+    <div style={{ color: '#5b6472', fontSize: 11, fontWeight: 500, textTransform: 'uppercase', letterSpacing: '.3px', marginTop: 2 }}>{label}</div>
+    {sub && <div style={{ fontSize: 11, color: '#5b6472', marginTop: 3 }}>{sub}</div>}
   </div>
 )
 
 // ─── STYLES ───────────────────────────────────────────────────────────────
 const s = {
   pageTitle: { fontFamily: "'Poppins',sans-serif", fontSize: 22, fontWeight: 800 },
-  pageSub: { color: '#9ca3af', fontSize: 13, marginTop: 4 },
+  pageSub: { color: '#5b6472', fontSize: 13, marginTop: 4 },
   card: {
-    background: '#111318',
-    border: '1px solid #1f2535',
+    background: '#ffffff',
+    border: '1px solid #e4e7ec',
     borderRadius: 12,
     padding: 20,
   },
@@ -358,14 +360,14 @@ const s = {
     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
   },
   miniStat: {
-    background: '#0e1016', border: '1px solid #1f2535',
+    background: '#f5f6f8', border: '1px solid #e4e7ec',
     borderRadius: 8, padding: '10px 14px', flex: 1, textAlign: 'center',
   },
   th: {
     textAlign: 'left', padding: '10px 16px',
-    color: '#9ca3af', fontSize: 11,
+    color: '#5b6472', fontSize: 11,
     textTransform: 'uppercase', letterSpacing: '.5px',
-    fontWeight: 600, borderBottom: '1px solid #1f2535',
+    fontWeight: 600, borderBottom: '1px solid #e4e7ec',
     whiteSpace: 'nowrap',
   },
   td: { padding: '12px 16px', verticalAlign: 'middle' },

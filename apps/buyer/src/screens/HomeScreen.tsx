@@ -25,13 +25,13 @@ import type { Banner, FeedItem, FeedSourceFilter } from '../types/api'
 // neither "Expert Properties" nor "Owner listings" does alone; BrowsePropertyScreen
 // reuses the same two existing search API functions those two screens already
 // call, it does not introduce a new endpoint or duplicate either screen.
+// Home quick-actions is deliberately kept to these three — Owner listings,
+// My reports and Custom research are still fully reachable (Profile menu,
+// and their own screens/routes are untouched), just not duplicated here.
 const QUICK_ACTIONS = [
-  { icon: '🏆', label: 'Expert Properties', href: '/search' },
-  { icon: '🏠', label: 'Owner listings', href: '/owner-properties' },
+  { icon: '🔎', label: 'Expert Properties', href: '/search' },
   { icon: '🧭', label: 'Browse Property', href: '/browse' },
   { icon: '📰', label: 'Property Updates', href: '/reporter-feed' },
-  { icon: '📖', label: 'My reports', href: '/reports' },
-  { icon: '📝', label: 'Custom research', href: '/requests/new' },
 ] as const
 
 // Buyer Feature Parity — mirrors Buyer Web's Home.tsx FILTERS exactly (same
@@ -328,7 +328,7 @@ const styles = StyleSheet.create({
   heroEyebrow: {
     fontSize: 11,
     fontWeight: '600',
-    color: colors.gold,
+    color: colors.goldText,
     marginBottom: 6,
   },
   heroTitle: {
@@ -410,5 +410,5 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   list: { paddingHorizontal: SCREEN_PADDING },
-  link: { fontSize: 12.5, color: colors.gold, fontWeight: '500' },
+  link: { fontSize: 12.5, color: colors.goldText, fontWeight: '500' },
 })

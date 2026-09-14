@@ -11,11 +11,11 @@ function LoadingScreen() {
   return (
     <div style={{
       minHeight: '100vh',
-      background: '#0a0c10',
+      background: '#F4F1EA',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      color: '#7b8299',
+      color: '#6C7686',
       fontSize: 14,
       fontFamily: "'Sora', sans-serif",
     }}>

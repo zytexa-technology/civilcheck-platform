@@ -400,7 +400,7 @@ const styles = StyleSheet.create({
   searchInput: { flex: 1, color: colors.text, fontSize: 13, paddingVertical: 12 },
   clearGlyph: { fontSize: 13, color: colors.muted, padding: 4 },
   filtersToggle: { alignSelf: 'flex-start', marginHorizontal: SCREEN_PADDING, marginBottom: spacing.sm },
-  filtersToggleText: { fontSize: 11.5, fontWeight: '600', color: colors.gold },
+  filtersToggleText: { fontSize: 11.5, fontWeight: '600', color: colors.goldText },
   filtersPanel: {
     marginHorizontal: SCREEN_PADDING,
     marginBottom: spacing.md,
@@ -440,5 +440,5 @@ const styles = StyleSheet.create({
   locateError: { fontSize: 11, color: colors.muted },
   footerSpinner: { marginVertical: spacing.lg },
   discoveryLink: { alignItems: 'center', paddingHorizontal: spacing.xl, paddingBottom: spacing.lg },
-  discoveryLinkText: { fontSize: 12, fontWeight: '600', color: colors.gold, textAlign: 'center' },
+  discoveryLinkText: { fontSize: 12, fontWeight: '600', color: colors.goldText, textAlign: 'center' },
 })

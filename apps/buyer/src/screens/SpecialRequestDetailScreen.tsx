@@ -243,7 +243,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: spacing.sm,
   },
-  amount: { fontSize: 15, fontWeight: '700', color: colors.gold },
+  amount: { fontSize: 15, fontWeight: '700', color: colors.goldText },
   statusMessage: { fontSize: 12, color: colors.muted, lineHeight: 18 },
   section: { paddingHorizontal: SCREEN_PADDING, marginBottom: spacing.md },
   questions: {

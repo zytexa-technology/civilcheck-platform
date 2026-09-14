@@ -436,7 +436,7 @@ function LockedSection() {
         <View style={styles.lockList}>
           {UNLOCK_FEATURES.map((feature) => (
             <Text key={feature} style={styles.lockItem}>
-              <Text style={{ color: colors.gold }}>✓</Text> {feature}
+              <Text style={{ color: colors.goldText }}>✓</Text> {feature}
             </Text>
           ))}
         </View>
@@ -710,7 +710,7 @@ const styles = StyleSheet.create({
   documentIcon: { fontSize: 18 },
   documentName: { fontSize: 12, fontWeight: '600', color: colors.text },
   documentHint: { fontSize: 10, color: colors.muted, marginTop: 2 },
-  documentGlyph: { fontSize: 15, color: colors.gold },
+  documentGlyph: { fontSize: 15, color: colors.goldText },
   expertNote: {
     fontSize: 12,
     color: colors.muted,

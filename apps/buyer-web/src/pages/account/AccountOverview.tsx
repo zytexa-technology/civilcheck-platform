@@ -151,7 +151,7 @@ export default function AccountOverview() {
 function StatTile({ label, value }: { label: string; value: number | undefined }) {
   return (
     <Card>
-      <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--cc-gold)' }}>{value ?? '—'}</div>
+      <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--cc-gold-text)' }}>{value ?? '—'}</div>
       <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>
         {label}
       </div>

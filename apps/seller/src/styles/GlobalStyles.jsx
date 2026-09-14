@@ -104,10 +104,13 @@ textarea.control{resize:vertical}
 .otp input:focus{outline:none;border-color:var(--ink);box-shadow:0 0 0 4px rgba(16,31,51,.08)}
 
 /* ============ AUTH (centered pages) ============ */
+/* Used to be a dark navy radial gradient with a white graph-paper texture —
+   a deliberate dramatic look for auth, but the one place in this app that
+   was still dark. Same vignette + faint grid concept, in paper tones. */
 .auth{min-height:100dvh;display:flex;align-items:center;justify-content:center;padding:24px;
-  background:radial-gradient(circle at 20% 0%,#1a3050,#0e1c2e 60%);position:relative;overflow:hidden}
-.auth::before{content:"";position:absolute;inset:0;opacity:.5;
-  background-image:linear-gradient(rgba(255,255,255,.04) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.04) 1px,transparent 1px);
+  background:radial-gradient(circle at 20% 0%,#FBF9F4,var(--paper) 60%);position:relative;overflow:hidden}
+.auth::before{content:"";position:absolute;inset:0;opacity:.6;
+  background-image:linear-gradient(rgba(16,31,51,.045) 1px,transparent 1px),linear-gradient(90deg,rgba(16,31,51,.045) 1px,transparent 1px);
   background-size:30px 30px;-webkit-mask-image:radial-gradient(circle at 50% 20%,#000,transparent 75%);mask-image:radial-gradient(circle at 50% 20%,#000,transparent 75%)}
 .auth-card{position:relative;z-index:2;width:100%;max-width:440px;background:var(--surface);border-radius:24px;padding:38px 34px;box-shadow:var(--shadow-lg)}
 .auth-wide{max-width:640px}

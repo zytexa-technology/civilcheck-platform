@@ -98,7 +98,7 @@ export default function SpecialRequestDetail() {
         {!request.advancePaid ? (
           <div className="card">
             <p className="muted" style={{ fontSize: 12, marginBottom: 10 }}>Advance payment due</p>
-            <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--cc-gold)', marginBottom: 12 }}>
+            <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--cc-gold-text)', marginBottom: 12 }}>
               {formatRupees(request.advanceAmount)}
             </div>
             <Button block loading={starting} onClick={() => void handleRetry()}>

@@ -138,7 +138,7 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
     borderRadius: 8,
   },
-  markAllText: { fontSize: 11, fontWeight: '700', color: colors.gold },
+  markAllText: { fontSize: 11, fontWeight: '700', color: colors.goldText },
   list: { paddingHorizontal: SCREEN_PADDING },
   grow: { flex: 1 },
   card: {

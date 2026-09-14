@@ -26,7 +26,7 @@ export function AccountShell() {
                     to={link.to}
                     end={link.end}
                     className="dropdown__item"
-                    style={({ isActive }) => (isActive ? { background: 'var(--cc-surface-2)', color: 'var(--cc-gold)' } : undefined)}
+                    style={({ isActive }) => (isActive ? { background: 'var(--cc-surface-2)', color: 'var(--cc-gold-text)' } : undefined)}
                   >
                     {link.label}
                   </NavLink>

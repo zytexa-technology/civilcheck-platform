@@ -118,9 +118,9 @@ export default function DashboardHome() {
 
   // Pie chart data — real risk badge breakdown, scoped to APPROVED listings
   // (GET /admin/analytics/risk-breakdown), not a fabricated fixed split.
-  const RISK_COLOR = { RED: '#f04444', AMBER: '#f5a000', GREEN: '#23c55e' }
+  const RISK_COLOR = { RED: '#dc2626', AMBER: '#d97706', GREEN: '#16a34a' }
   const pieData = riskBreakdown.map((r) => ({
-    name: r.badge, value: r.count, pct: r.pct, color: RISK_COLOR[r.badge] || '#8890a6',
+    name: r.badge, value: r.count, pct: r.pct, color: RISK_COLOR[r.badge] || '#5b6472',
   }))
   const totalReports = pieData.reduce((sum, r) => sum + r.value, 0)
 
@@ -180,9 +180,9 @@ export default function DashboardHome() {
           <SectionLabel>Monthly revenue trend (₹)</SectionLabel>
           <ResponsiveContainer width="100%" height={240}>
             <BarChart data={monthlyRevenue} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#222736" vertical={false} />
-              <XAxis dataKey="month" tick={{ fill: '#8890a6', fontSize: 12 }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fill: '#8890a6', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => `₹${(v / 1000).toFixed(0)}k`} />
+              <CartesianGrid strokeDasharray="3 3" stroke="#e4e7ec" vertical={false} />
+              <XAxis dataKey="month" tick={{ fill: '#5b6472', fontSize: 12 }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fill: '#5b6472', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => `₹${(v / 1000).toFixed(0)}k`} />
               <Tooltip content={<CustomBarTooltip />} cursor={{ fill: 'rgba(240,165,0,.08)' }} />
               <Bar dataKey="revenue" fill="#f0a500" radius={[6, 6, 0, 0]} maxBarSize={48} />
             </BarChart>

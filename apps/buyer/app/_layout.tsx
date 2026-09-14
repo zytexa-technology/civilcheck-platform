@@ -229,7 +229,7 @@ function MisconfiguredBuildScreen() {
         gap: 10,
       }}
     >
-      <StatusBar style="light" backgroundColor={colors.bg} />
+      <StatusBar style="dark" backgroundColor={colors.bg} />
       <Text style={{ color: colors.text, fontSize: 18, fontWeight: '700', textAlign: 'center' }}>
         This app isn&apos;t set up correctly
       </Text>
@@ -248,7 +248,7 @@ export default function RootLayout() {
 
   return (
     <AuthProvider>
-      <StatusBar style="light" backgroundColor={colors.bg} />
+      <StatusBar style="dark" backgroundColor={colors.bg} />
       <RootNavigator />
     </AuthProvider>
   )

@@ -267,7 +267,7 @@ export default function PropertyDetail() {
 
         <aside className="stack">
           <Card>
-            <div style={{ fontSize: 26, fontWeight: 800, color: 'var(--cc-gold)' }}>
+            <div style={{ fontSize: 26, fontWeight: 800, color: 'var(--cc-gold-text)' }}>
               {property.isPaid ? 'Unlocked' : formatRupees(property.price)}
             </div>
             {!paid ? <p className="muted" style={{ fontSize: 11.5, marginTop: 4 }}>One-time payment · includes GST invoice</p> : null}

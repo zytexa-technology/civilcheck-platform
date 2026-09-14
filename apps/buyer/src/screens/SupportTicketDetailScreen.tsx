@@ -206,7 +206,7 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   humanLink: { alignSelf: 'flex-start' },
-  humanLinkText: { fontSize: 11, fontWeight: '600', color: colors.gold },
+  humanLinkText: { fontSize: 11, fontWeight: '600', color: colors.goldText },
   composerRow: { flexDirection: 'row', alignItems: 'flex-end', gap: spacing.sm },
   composerField: { flex: 1, marginBottom: 0 },
   closedFooter: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm, gap: spacing.sm },

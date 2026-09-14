@@ -306,7 +306,7 @@ const styles = StyleSheet.create({
   breakValue: { fontSize: 12, color: colors.text },
   breakTotal: { borderBottomWidth: 0, marginTop: 2 },
   breakTotalKey: { fontSize: 13, fontWeight: '700', color: colors.text },
-  breakTotalValue: { fontSize: 13, fontWeight: '700', color: colors.gold },
+  breakTotalValue: { fontSize: 13, fontWeight: '700', color: colors.goldText },
   footnote: {
     textAlign: 'center',
     fontSize: 10,

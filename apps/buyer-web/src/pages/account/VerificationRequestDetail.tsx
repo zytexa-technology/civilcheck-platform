@@ -675,7 +675,7 @@ export default function VerificationRequestDetail() {
           {(request.status === 'ACCEPTED' || request.status === 'ADVANCE_PAYMENT_PENDING') && request.advanceAmount ? (
             <>
               <p className="muted" style={{ fontSize: 12, marginBottom: 10 }}>Advance payment due</p>
-              <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--cc-gold)', marginBottom: 12 }}>
+              <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--cc-gold-text)', marginBottom: 12 }}>
                 {formatRupees(request.advanceAmount)}
               </div>
               <Button block loading={startingPay} onClick={() => void startPayment('advance')}>
@@ -685,7 +685,7 @@ export default function VerificationRequestDetail() {
           ) : (request.status === 'COMPLETED' || request.status === 'FINAL_PAYMENT_PENDING') && request.finalAmount ? (
             <>
               <p className="muted" style={{ fontSize: 12, marginBottom: 10 }}>Final payment due</p>
-              <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--cc-gold)', marginBottom: 12 }}>
+              <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--cc-gold-text)', marginBottom: 12 }}>
                 {formatRupees(request.finalAmount)}
               </div>
               <Button block loading={startingPay} onClick={() => void startPayment('final')}>

@@ -1,50 +1,56 @@
 /* ────────────────────────────────────────────────────────────────────────
    CivilCheck Buyer Web — global stylesheet.
-   Dark-only design system, ported from apps/buyer/src/theme (gold accent,
-   card/pill/status language). Hand-rolled CSS, no framework — matches the
-   apps/admin / apps/seller convention of a plain stylesheet over Tailwind.
+   Light-only design system (converted from the original dark palette — see
+   git history for the previous dark values), matching apps/buyer's light
+   theme exactly (gold accent, card/pill/status language). Hand-rolled CSS,
+   no framework — matches the apps/admin / apps/seller convention of a plain
+   stylesheet over Tailwind.
    ──────────────────────────────────────────────────────────────────────── */
 
 :root {
-  --cc-bg: #0a0c10;
-  --cc-surface: #111318;
-  --cc-surface-2: #171b23;
-  --cc-surface-3: #1d2230;
-  --cc-border: #222736;
-  --cc-border-2: #2a3045;
+  --cc-bg: #fafafa;
+  --cc-surface: #ffffff;
+  --cc-surface-2: #f5f6f8;
+  --cc-surface-3: #eef0f3;
+  --cc-border: #e4e7ec;
+  --cc-border-2: #d0d5dd;
 
-  --cc-text: #e6e9f0;
-  --cc-muted: #7b8299;
-  --cc-dim: #3d4560;
+  --cc-text: #12141c;
+  --cc-muted: #5b6472;
+  --cc-dim: #98a2b3;
 
   --cc-gold: #f0a500;
-  --cc-gold-dim: rgba(240, 165, 0, 0.1);
-  --cc-gold-border: rgba(240, 165, 0, 0.3);
-  --cc-gold-glow: rgba(240, 165, 0, 0.22);
+  /* Darker text-safe variant of --cc-gold — see .gold-text below. */
+  --cc-gold-text: #92400e;
+  --cc-gold-dim: rgba(240, 165, 0, 0.12);
+  --cc-gold-border: rgba(240, 165, 0, 0.35);
+  --cc-gold-glow: rgba(240, 165, 0, 0.25);
   --cc-on-gold: #000000;
 
-  --cc-green: #23c55e;
-  --cc-green-dim: rgba(35, 197, 94, 0.1);
-  --cc-green-border: rgba(35, 197, 94, 0.3);
+  --cc-green: #16a34a;
+  --cc-green-dim: rgba(22, 163, 74, 0.12);
+  --cc-green-border: rgba(22, 163, 74, 0.35);
 
-  --cc-red: #f04444;
-  --cc-red-dim: rgba(240, 68, 68, 0.1);
-  --cc-red-border: rgba(240, 68, 68, 0.3);
+  --cc-red: #dc2626;
+  --cc-red-dim: rgba(220, 38, 38, 0.12);
+  --cc-red-border: rgba(220, 38, 38, 0.35);
 
-  --cc-amber: #f5a000;
-  --cc-amber-dim: rgba(245, 160, 0, 0.1);
-  --cc-amber-border: rgba(245, 160, 0, 0.3);
+  --cc-amber: #d97706;
+  --cc-amber-dim: rgba(217, 119, 6, 0.12);
+  --cc-amber-border: rgba(217, 119, 6, 0.35);
 
-  --cc-blue: #4f8ef7;
-  --cc-blue-dim: rgba(79, 142, 247, 0.1);
-  --cc-blue-border: rgba(79, 142, 247, 0.3);
+  --cc-blue: #2563eb;
+  --cc-blue-dim: rgba(37, 99, 235, 0.1);
+  --cc-blue-border: rgba(37, 99, 235, 0.3);
 
-  --cc-violet: #9b6ef7;
-  --cc-violet-dim: rgba(155, 110, 247, 0.12);
-  --cc-violet-border: rgba(155, 110, 247, 0.3);
+  --cc-violet: #7c3aed;
+  --cc-violet-dim: rgba(124, 58, 237, 0.12);
+  --cc-violet-border: rgba(124, 58, 237, 0.3);
 
-  --cc-scrim: rgba(10, 12, 16, 0.88);
-  --cc-hairline: rgba(255, 255, 255, 0.08);
+  /* Backdrop behind modals/lightboxes — deliberately dark regardless of
+     theme, same as any modal scrim. */
+  --cc-scrim: rgba(10, 12, 16, 0.72);
+  --cc-hairline: rgba(16, 24, 40, 0.06);
 
   --cc-radius-sm: 9px;
   --cc-radius-md: 12px;
@@ -55,7 +61,7 @@
   --cc-gutter: 20px;
   --cc-header-h: 64px;
 
-  color-scheme: dark;
+  color-scheme: light;
 }
 
 * {
@@ -275,7 +281,7 @@ ul {
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--cc-gold);
+  color: var(--cc-gold-text);
 }
 
 .h1 {
@@ -304,7 +310,11 @@ ul {
 }
 
 .gold-text {
-  color: var(--cc-gold);
+  /* --cc-gold itself (#f0a500) is a button/icon/border fill colour — as text
+     on the light theme's white/near-white surfaces it fails contrast (~2:1).
+     This darker amber keeps the same accent family with real contrast
+     (~6:1 on white). */
+  color: var(--cc-gold-text);
 }
 
 /* ─── Buttons ───────────────────────────────────────────────────────────── */
@@ -363,7 +373,7 @@ ul {
 
 .btn--ghost {
   background: transparent;
-  color: var(--cc-gold);
+  color: var(--cc-gold-text);
 }
 
 .btn--danger {
@@ -465,7 +475,7 @@ textarea.field__control {
 .chip[aria-pressed='true'] {
   background: var(--cc-gold-dim);
   border-color: var(--cc-gold-border);
-  color: var(--cc-gold);
+  color: var(--cc-gold-text);
 }
 
 /* ─── Cards ─────────────────────────────────────────────────────────────── */
@@ -599,8 +609,10 @@ textarea.field__control {
 }
 
 .tag {
+  /* Overlay tag on top of media (see Badge.tsx's <Tag>) — stays a dark pill
+     with white text regardless of app theme, same as .property-card__name. */
   background: rgba(10, 12, 16, 0.72);
-  color: var(--cc-text);
+  color: #fff;
   border-radius: var(--cc-radius-pill);
   padding: 4px 10px;
   font-size: 10.5px;
@@ -682,7 +694,7 @@ textarea.field__control {
   height: var(--cc-header-h);
   display: flex;
   align-items: center;
-  background: rgba(10, 12, 16, 0.9);
+  background: rgba(255, 255, 255, 0.85);
   backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--cc-border);
 }
@@ -874,7 +886,7 @@ textarea.field__control {
   background: var(--cc-surface);
   border: 1px solid var(--cc-border-2);
   border-radius: var(--cc-radius-md);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 12px 32px rgba(16, 24, 40, 0.12);
   padding: 8px;
   z-index: 50;
 }
@@ -1038,7 +1050,7 @@ textarea.field__control {
 .property-card__price {
   font-size: 16px;
   font-weight: 700;
-  color: var(--cc-gold);
+  color: var(--cc-gold-text);
   margin-top: 2px;
 }
 
@@ -1067,7 +1079,7 @@ textarea.field__control {
   border-radius: var(--cc-radius-sm);
   background: var(--cc-gold-dim);
   border: 1px solid var(--cc-gold-border);
-  color: var(--cc-gold);
+  color: var(--cc-gold-text);
   font-size: 11px;
   font-weight: 700;
   cursor: pointer;
@@ -1098,7 +1110,7 @@ textarea.field__control {
 }
 
 .feed-card__social-btn--active {
-  color: var(--cc-gold);
+  color: var(--cc-gold-text);
 }
 
 .feed-card__social-btn:last-child {
@@ -1329,7 +1341,7 @@ textarea.field__control {
 }
 
 .stepper__label--current {
-  color: var(--cc-gold);
+  color: var(--cc-gold-text);
   font-weight: 700;
 }
 
