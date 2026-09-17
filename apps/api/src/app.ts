@@ -54,6 +54,7 @@ const localOrigins = [
 // guards against.
 const productionOrigins = [
   'https://civilcheck-partner.vercel.app', // Seller/Partner Portal (Vercel)
+  'https://civilcheck-admin.vercel.app', // Admin/SuperAdmin Portal (Vercel)
 ]
 
 const envOrigins = (process.env.FRONTEND_URLS || '')
