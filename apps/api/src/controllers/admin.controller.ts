@@ -1,3 +1,4 @@
+import crypto from 'node:crypto'
 import { Request, Response } from 'express'
 import bcrypt from 'bcryptjs'
 import {
@@ -25,6 +26,7 @@ import {
   resolveVerificationPerformer,
   notifyPerformerOfClaimResolved,
   notifyPerformerOfPayoutEligible,
+  sendEmail,
 } from '../services/notification.service.js'
 import { releaseEarningsOnClaimRejected } from '../services/verificationSettlement.service.js'
 import { getSubscriptionMetrics } from '../services/analytics.service.js'
@@ -2323,6 +2325,36 @@ export const getSpecialRequestPayouts = async (req: Request, res: Response) => {
 
 const PASSWORD_BCRYPT_ROUNDS = 10
 
+// Where the welcome email's login button points. Same "safe default, env
+// override" shape as SELLER_APP_URL in kyc.service.ts — no dedicated env var
+// existed for the Admin Portal's own origin before this (only FRONTEND_URLS,
+// the shared CORS allowlist). Falls back to the admin app's local dev port.
+const ADMIN_PORTAL_URL = process.env.ADMIN_APP_URL || 'http://localhost:5174'
+
+// Server-generated temporary password for a newly created admin — the Super
+// Admin never types this in. CSPRNG-backed (crypto.randomInt, same choice as
+// passwordReset.service.ts's OTP generator — never Math.random()). Built by
+// construction rather than by chance to guarantee it satisfies passwordSchema
+// (packages/shared: 8-72 chars, at least one letter, at least one number)
+// every single time: one fixed letter + one fixed digit + 10 random
+// alphanumeric characters, then shuffled so the letter/digit aren't always
+// in the same two positions.
+function generateTemporaryPassword(): string {
+  const letters = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz' // no I/l/O/0-style confusables
+  const digits = '23456789'
+  const alphanumeric = letters + digits
+
+  const pick = (charset: string) => charset[crypto.randomInt(0, charset.length)] as string
+  const chars = [pick(letters), pick(digits), ...Array.from({ length: 10 }, () => pick(alphanumeric))]
+
+  // Fisher-Yates shuffle, crypto.randomInt-backed.
+  for (let i = chars.length - 1; i > 0; i--) {
+    const j = crypto.randomInt(0, i + 1)
+    ;[chars[i], chars[j]] = [chars[j], chars[i]]
+  }
+  return chars.join('')
+}
+
 const adminListSelect = {
   id: true,
   name: true,
@@ -2393,13 +2425,15 @@ export const getAdminById = async (req: Request, res: Response) => {
 }
 
 // POST /api/admin/admins — body Zod-validated (adminCreateSchema): role can
-// only be SUB_ADMIN or VIEWER.
+// only be SUB_ADMIN or VIEWER. Password is never accepted from the Super
+// Admin — a secure temporary password is always generated server-side (see
+// generateTemporaryPassword above) and mailed to the new admin; the Super
+// Admin never sees it.
 export const createAdmin = async (req: Request, res: Response) => {
-  const { name, email, phone, password, role } = req.body as {
+  const { name, email, phone, role } = req.body as {
     name: string
     email: string
     phone: string
-    password: string
     role: 'SUB_ADMIN' | 'VIEWER'
   }
 
@@ -2409,10 +2443,14 @@ export const createAdmin = async (req: Request, res: Response) => {
     return
   }
 
-  const password_hash = await bcrypt.hash(password, PASSWORD_BCRYPT_ROUNDS)
+  // Exists only in this request's memory for the few lines below — never
+  // logged, never returned in the API response, never re-derivable after
+  // this point (the DB only ever stores the bcrypt hash).
+  const temporaryPassword = generateTemporaryPassword()
+  const password_hash = await bcrypt.hash(temporaryPassword, PASSWORD_BCRYPT_ROUNDS)
 
   const admin = await prisma.admin.create({
-    data: { name, email, phone, password: password_hash, role },
+    data: { name, email, phone, password: password_hash, role, mustChangePassword: true },
     select: adminListSelect,
   })
 
@@ -2422,7 +2460,116 @@ export const createAdmin = async (req: Request, res: Response) => {
     details: `Created ${admin.role} "${admin.name}" (${admin.email})`,
   })
 
-  res.status(201).json({ success: true, message: 'Admin created', admin })
+  // Welcome email — the ONLY place the plaintext temporary password is ever
+  // sent anywhere. A failed send must never fail admin creation itself —
+  // same "notifications never turn into a 500" rule as everywhere else email
+  // is sent in this codebase (see passwordReset.service.ts). Only ever
+  // reached once, right after a brand-new row is created — never on update,
+  // so this can't double-send for the same admin.
+  const loginUrl = `${ADMIN_PORTAL_URL}/login`
+  // "Sub Admin" / "Viewer" — the two roles this endpoint can create
+  // (manageableAdminRole in packages/shared) — read as a friendly label
+  // rather than the raw SUB_ADMIN/VIEWER enum value, for the email only.
+  const roleLabel = admin.role === 'SUB_ADMIN' ? 'Sub Admin' : 'Viewer'
+  const delivery = await sendEmail({
+    to: admin.email,
+    subject: 'Welcome to CivilCheck Admin Portal – Your Account Has Been Created',
+    text:
+      `Welcome to CivilCheck Admin Portal.\n\n` +
+      `Your administrator account has been successfully created by the CivilCheck Super Admin.\n\n` +
+      `Account Details:\n` +
+      `Name: ${admin.name}\n` +
+      `Role: ${roleLabel}\n` +
+      `Email: ${admin.email}\n` +
+      `Temporary Password: ${temporaryPassword}\n\n` +
+      `Login here:\n${loginUrl}\n\n` +
+      `This is a temporary password. For security reasons, please change it immediately after ` +
+      `your first login.\n\n` +
+      `Please do not share your login credentials with anyone.\n\n` +
+      `If you did not expect this account, please contact the CivilCheck Super Admin.\n\n` +
+      `Regards,\nCivilCheck Team\nZytexa Technology LLP`,
+    html:
+      `<div style="font-family:sans-serif;color:#12141c;">` +
+      `<p style="font-size:20px;font-weight:800;margin-bottom:2px;">CivilCheck</p>` +
+      `<p style="font-size:16px;font-weight:700;margin-bottom:16px;">Welcome to CivilCheck Admin Portal</p>` +
+      `<p>Welcome ${admin.name}, your ${roleLabel} account has been created successfully.</p>` +
+      `<p>Your administrator account has been successfully created by the CivilCheck Super Admin.</p>` +
+      `<p><strong>Account Details:</strong><br>` +
+      `Name: ${admin.name}<br>Role: ${roleLabel}<br>Email: ${admin.email}<br>` +
+      `Temporary Password: <strong>${temporaryPassword}</strong></p>` +
+      `<p><a href="${loginUrl}" style="display:inline-block;padding:10px 20px;background:#f0a500;` +
+      `color:#241503;text-decoration:none;border-radius:6px;font-weight:600;">Login to Admin Portal</a></p>` +
+      `<p style="font-size:12px;color:#5b6472;">If the button above doesn't work, copy and paste this ` +
+      `link into your browser:<br><a href="${loginUrl}" style="color:#2563eb;word-break:break-all;">${loginUrl}</a></p>` +
+      `<p>This is a temporary password. For security reasons, please change it immediately after ` +
+      `your first login.</p>` +
+      `<p>Please do not share your login credentials with anyone.</p>` +
+      `<p>If you did not expect this account, please contact the CivilCheck Super Admin.</p>` +
+      `<p style="color:#5b6472;font-size:12px;margin-top:20px;border-top:1px solid #e4e7ec;padding-top:14px;">` +
+      `CivilCheck / Zytexa Technology LLP<br>Authorized Access Only</p></div>`,
+  })
+
+  // Never logs the password/hash — only the delivery outcome. 'logged' means
+  // no email provider is configured at all (see notification.service.ts's
+  // sendEmail: RESEND_API_KEY unset) — surfaced distinctly from a genuine
+  // provider-side failure so an operator can tell "not configured" apart
+  // from "Resend rejected it".
+  const emailSent = delivery.status === 'sent'
+  if (delivery.status === 'logged') {
+    logger.warn(`[admin:createAdmin] welcome email not sent for new admin ${admin.id} — RESEND_API_KEY is not configured`)
+  } else if (delivery.status === 'failed') {
+    logger.error(`[admin:createAdmin] welcome email failed to send for new admin ${admin.id}`)
+  }
+
+  res.status(201).json({
+    success: true,
+    message: emailSent
+      ? `Admin created successfully. A welcome email with temporary login credentials has been sent to ${admin.email}.`
+      : 'Admin created successfully, but the welcome email could not be sent. Please check email configuration.',
+    admin,
+    emailSent,
+  })
+}
+
+// POST /api/admin/change-password — body Zod-validated (adminChangePasswordSchema).
+// Any authenticated admin changing their OWN password (never another
+// admin's) — requires proving the current password first. This is the one
+// route adminMiddleware exempts from its PASSWORD_CHANGE_REQUIRED gate, so
+// it's reachable even while `mustChangePassword` is still true; on success
+// it clears that flag. Distinct from the email-OTP Forgot Password flow
+// (passwordReset.service.ts), which is untouched by this endpoint.
+export const changeOwnPassword = async (req: Request, res: Response) => {
+  const { currentPassword, newPassword } = req.body as { currentPassword: string; newPassword: string }
+  const adminId = req.admin!.id
+
+  const admin = await prisma.admin.findUnique({ where: { id: adminId } })
+  if (!admin) {
+    res.status(404).json({ success: false, message: 'Admin not found' })
+    return
+  }
+
+  const isValid = await bcrypt.compare(currentPassword, admin.password)
+  if (!isValid) {
+    res.status(401).json({ success: false, message: 'Current password is incorrect' })
+    return
+  }
+
+  const newHash = await bcrypt.hash(newPassword, PASSWORD_BCRYPT_ROUNDS)
+
+  // The temporary password becomes unusable the instant this commits — the
+  // old bcrypt hash is fully overwritten, not kept alongside the new one.
+  await prisma.admin.update({
+    where: { id: admin.id },
+    data: { password: newHash, mustChangePassword: false },
+  })
+
+  await recordAudit(req, {
+    action: AuditAction.ADMIN_PASSWORD_CHANGE,
+    target: `Admin:${admin.id}`,
+    details: admin.mustChangePassword ? 'Temporary password changed on first login' : 'Password changed',
+  })
+
+  res.json({ success: true, message: 'Password changed successfully.' })
 }
 
 // PATCH /api/admin/admins/:id — body Zod-validated (adminUpdateSchema)

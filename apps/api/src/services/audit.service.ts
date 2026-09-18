@@ -29,6 +29,9 @@ export const AuditAction = {
   // (lost authenticator). Distinct from ADMIN_2FA_DISABLE, which an admin
   // only ever does to their own account.
   ADMIN_2FA_RESET: 'ADMIN_2FA_RESET',
+  // Self-service — an admin changing their own password (first-login forced
+  // change after a Super-Admin-created account, or a later voluntary change).
+  ADMIN_PASSWORD_CHANGE: 'ADMIN_PASSWORD_CHANGE',
 
   // Admin management (Super Admin CRUD)
   ADMIN_CREATE: 'ADMIN_CREATE',

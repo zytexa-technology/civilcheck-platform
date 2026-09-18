@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import Login from './pages/Login'
 import ForgotPassword from './pages/ForgotPassword'
+import ChangePassword from './pages/ChangePassword'
 import Dashboard from './pages/Dashboard'
 
 // ─── PROTECTED ROUTE ──────────────────────────────────────────────────────
@@ -51,6 +52,16 @@ function AppRoutes() {
       <Route
         path="/forgot-password"
         element={admin ? <Navigate to="/dashboard" replace /> : <ForgotPassword />}
+      />
+
+      {/* Mandatory first-login password change — needs a token (admin truthy)
+          but deliberately NOT wrapped in ProtectedRoute/Dashboard: the admin
+          hasn't really "arrived" at the dashboard yet, and adminMiddleware
+          would 403 every other admin route anyway while mustChangePassword
+          is true (see api/axios.js's PASSWORD_CHANGE_REQUIRED redirect). */}
+      <Route
+        path="/change-password"
+        element={admin ? <ChangePassword /> : <Navigate to="/login" replace />}
       />
 
       {/* Protected routes — sirf logged in admin dekh sakta hai. /* so

@@ -23,6 +23,11 @@ import { hasAcceptedCurrentTerms } from '../services/terms.service.js'
 // harmlessly, everywhere else.
 const TERMS_ACCEPT_PATH = '/terms/accept'
 
+// Mandatory first-login password change (adminMiddleware only — this app has
+// a single /api/admin mount, so req.path is unambiguous, unlike
+// TERMS_ACCEPT_PATH above which is reused across several routers).
+const ADMIN_CHANGE_PASSWORD_PATH = '/change-password'
+
 // Request mein user attach karne ke liye TypeScript ko batana padta hai
 // ki hum req.user add kar rahe hain — nahi bataya toh TypeScript error dega
 declare global {
@@ -450,6 +455,20 @@ export const adminMiddleware = async (req: Request, res: Response, next: NextFun
       where: { id: admin.id },
       data: { lastActivityAt: new Date(now) },
     })
+  }
+
+  // ── Mandatory first-login password change ───────────────────────────────
+  // Set on an admin created by a Super Admin (server-generated temporary
+  // password) — a hard block on every other admin route until they prove
+  // the temporary password and set their own, same "exempt one accept-style
+  // path" shape as TERMS_ACCEPT_PATH in authMiddleware/sellerMiddleware.
+  if (admin.mustChangePassword && req.path !== ADMIN_CHANGE_PASSWORD_PATH) {
+    res.status(403).json({
+      success: false,
+      code: 'PASSWORD_CHANGE_REQUIRED',
+      message: 'You must change your temporary password before continuing',
+    })
+    return
   }
 
   // ── 2FA enrollment grace period (Day 2 carry-over #4) — default OFF ─────

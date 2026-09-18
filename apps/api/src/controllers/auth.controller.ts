@@ -370,6 +370,12 @@ export const adminLogin = async (req: Request, res: Response) => {
     message: 'Admin login successful',
     token,
     admin: { id: admin.id, name: admin.name, email: admin.email, role: admin.role },
+    // Set by createAdmin for a Super-Admin-created account (server-generated
+    // temporary password) — the panel uses this to push straight to
+    // /change-password. Unlike twoFactor.enrollmentRequired below, this one
+    // IS a hard block: adminMiddleware refuses every other route while it's
+    // true (see auth.middleware.ts's PASSWORD_CHANGE_REQUIRED gate).
+    mustChangePassword: admin.mustChangePassword,
     twoFactor: {
       enabled: admin.twoFactorEnabled,
       // The panel uses this to push the admin into /2fa/setup after login.
@@ -621,6 +627,11 @@ export const loginAdminFirebase = async (req: Request, res: Response) => {
     message: 'Admin login successful',
     token,
     admin: { id: admin.id, name: admin.name, email: admin.email, role: admin.role },
+    // In practice always false here — reaching this route at all requires
+    // having already linked a phone via the adminMiddleware-protected
+    // /link-firebase, which itself would have been blocked while true. Kept
+    // for response-shape parity with the email/password login above.
+    mustChangePassword: admin.mustChangePassword,
     twoFactor: { enabled: admin.twoFactorEnabled, enrollmentRequired: !admin.twoFactorEnabled },
   })
 }

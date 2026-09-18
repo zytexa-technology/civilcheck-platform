@@ -93,6 +93,12 @@ model Admin {
   role      AdminRole @default(SUB_ADMIN)
   createdAt DateTime  @default(now())
 
+  // Set true whenever a Super Admin creates this account (server-generated
+  // temporary password) — adminMiddleware hard-blocks every route except
+  // POST /api/admin/change-password until it's cleared. Never true for an
+  // admin who set their own password (e.g. via Forgot Password).
+  mustChangePassword Boolean @default(false)
+
   // 30-min inactivity timeout (PDF 5.1). Set on login, refreshed while active,
   // cleared on logout/expiry — null means "no active session".
   lastActivityAt DateTime?

@@ -54,6 +54,20 @@ API.interceptors.response.use(
       return Promise.reject(error)
     }
 
+    // 403 PASSWORD_CHANGE_REQUIRED — a hard block (unlike the 2FA grace
+    // period above), same shape: session/token still valid, just redirect.
+    // POST /admin/change-password is itself exempt from this check
+    // server-side (auth.middleware.ts's ADMIN_CHANGE_PASSWORD_PATH), so the
+    // change-password page's own submit call always goes through.
+    if (
+      error.response?.status === 403 &&
+      error.response?.data?.code === 'PASSWORD_CHANGE_REQUIRED' &&
+      window.location.pathname !== '/change-password'
+    ) {
+      window.location.href = '/change-password'
+      return Promise.reject(error)
+    }
+
     return Promise.reject(error)
   }
 )

@@ -203,11 +203,16 @@ export type SellerLoginInput = z.infer<typeof sellerLoginSchema>
 
 const manageableAdminRole = z.enum([AdminRole.SUB_ADMIN, AdminRole.VIEWER])
 
+// `password` is no longer collected from the Super Admin — createAdmin now
+// always generates a secure random temporary password server-side (see
+// admin.controller.ts's generateTemporaryPassword). Kept optional rather
+// than removed so this schema doesn't reject a stray field, but the
+// controller never reads it.
 export const adminCreateSchema = z.object({
   name: z.string().trim().min(2, 'Name must be at least 2 characters'),
   email: emailSchema,
   phone: phoneSchema,
-  password: passwordSchema,
+  password: passwordSchema.optional(),
   role: manageableAdminRole.default(AdminRole.SUB_ADMIN),
 })
 export type AdminCreateInput = z.infer<typeof adminCreateSchema>
@@ -222,6 +227,22 @@ export const adminUpdateSchema = z
     message: 'Provide at least one field to update',
   })
 export type AdminUpdateInput = z.infer<typeof adminUpdateSchema>
+
+// POST /api/admin/change-password — an authenticated admin changing their
+// own password (used both for the mandatory first-login change after a
+// Super-Admin-created account, and as a general self-service change).
+// Distinct from passwordResetSchema (apps/api's email-OTP Forgot Password
+// flow), which never requires the current password.
+export const adminChangePasswordSchema = z
+  .object({
+    currentPassword: z.string().min(1, 'Current password is required'),
+    newPassword: passwordSchema,
+  })
+  .refine((v) => v.newPassword !== v.currentPassword, {
+    message: 'New password must be different from the current password',
+    path: ['newPassword'],
+  })
+export type AdminChangePasswordInput = z.infer<typeof adminChangePasswordSchema>
 
 // ─── SELLER PROFILE UPDATE ────────────────────────────────────────────────────
 // PATCH /api/seller/profile had no schema at all (QA audit 2026-08-03, finding

@@ -30,7 +30,7 @@ const ROLES = ['SUB_ADMIN', 'VIEWER']
 
 // ─── CREATE ADMIN MODAL ───────────────────────────────────────────────────
 const CreateAdminModal = ({ onClose, onCreated }) => {
-  const [form, setForm] = useState({ name: '', email: '', phone: '', password: '', role: 'SUB_ADMIN' })
+  const [form, setForm] = useState({ name: '', email: '', phone: '', role: 'SUB_ADMIN' })
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
 
@@ -38,14 +38,14 @@ const CreateAdminModal = ({ onClose, onCreated }) => {
 
   const submit = async () => {
     setErr('')
-    if (!form.name.trim() || !form.email.trim() || !form.phone.trim() || !form.password) {
-      setErr('Name, email, phone and password are all required')
+    if (!form.name.trim() || !form.email.trim() || !form.phone.trim()) {
+      setErr('Name, email and phone are all required')
       return
     }
     setBusy(true)
     try {
-      await createAdmin(form)
-      onCreated()
+      const res = await createAdmin(form)
+      onCreated(res)
       onClose()
     } catch (e) {
       setErr(e.response?.data?.message || e.response?.data?.errors?.[0]?.message || 'Failed to create admin')
@@ -76,14 +76,15 @@ const CreateAdminModal = ({ onClose, onCreated }) => {
       <Field label="Phone" required>
         <input className="control" type="tel" value={form.phone} onChange={(e) => setField('phone', e.target.value)} disabled={busy} />
       </Field>
-      <Field label="Password" required>
-        <input className="control" type="password" value={form.password} onChange={(e) => setField('password', e.target.value)} disabled={busy} />
-      </Field>
       <Field label="Role">
         <select className="control" value={form.role} onChange={(e) => setField('role', e.target.value)} disabled={busy}>
           {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
         </select>
       </Field>
+      <p className="small muted" style={{ marginTop: 4 }}>
+        A secure temporary password will be generated automatically and emailed to this address —
+        they'll be required to set their own password on first login.
+      </p>
     </Modal>
   )
 }
@@ -279,7 +280,10 @@ export default function Admins() {
         </Card>
       )}
 
-      {showCreate && <CreateAdminModal onClose={() => setShowCreate(false)} onCreated={() => { load(); showToast('✅ Admin created') }} />}
+      {showCreate && <CreateAdminModal onClose={() => setShowCreate(false)} onCreated={(res) => {
+        load()
+        showToast(`${res?.emailSent ? '✅' : '⚠️'} ${res?.message || 'Admin created'}`)
+      }} />}
       {editing && <EditAdminModal key={editing.id} admin={editing} onClose={() => setEditing(null)} onAction={handleAction} />}
 
       <ConfirmDialog

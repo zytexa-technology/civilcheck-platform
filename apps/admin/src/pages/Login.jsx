@@ -47,7 +47,7 @@ export default function Login() {
       // An unenrolled admin lands on the security page instead of the
       // dashboard — the backend leaves this a prompt, not a hard block, so
       // they can still navigate away if they need to.
-      navigate(data.twoFactor?.enrollmentRequired ? '/dashboard/security' : '/dashboard')
+      navigate(data.mustChangePassword ? '/change-password' : data.twoFactor?.enrollmentRequired ? '/dashboard/security' : '/dashboard')
     } catch (err) {
       const code = err.response?.data?.code
       if (code === 'TOTP_REQUIRED') {
@@ -87,7 +87,7 @@ export default function Login() {
       const idToken = await confirmOtp(otpConfirmation, otpCode)
       const data = await adminLoginFirebase(idToken, otpTotp.trim())
       login(data.token, data.admin)
-      navigate(data.twoFactor?.enrollmentRequired ? '/dashboard/security' : '/dashboard')
+      navigate(data.mustChangePassword ? '/change-password' : data.twoFactor?.enrollmentRequired ? '/dashboard/security' : '/dashboard')
     } catch (err) {
       const code = err.response?.data?.code
       if (code === 'TOTP_REQUIRED') {

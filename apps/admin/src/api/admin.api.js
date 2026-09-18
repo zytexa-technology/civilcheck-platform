@@ -548,6 +548,15 @@ export const updateAdmin = async (id, data) => {
   return response.data
 }
 
+// Self-service — the CALLING admin changing their own password (used both
+// for the mandatory first-login change after a Super-Admin-created account,
+// and as a general voluntary change). Distinct from the email-OTP Forgot
+// Password flow in auth.api.js.
+export const changeOwnPassword = async (currentPassword, newPassword) => {
+  const response = await API.post('/admin/change-password', { currentPassword, newPassword })
+  return response.data
+}
+
 export const blockAdmin = async (id) => {
   const response = await API.post(`/admin/admins/${id}/block`)
   return response.data

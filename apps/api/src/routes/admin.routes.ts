@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import {
+  adminChangePasswordSchema,
   adminCreateSchema,
   adminUpdateSchema,
   bannerCreateSchema,
@@ -379,6 +380,17 @@ router.get('/special-request-payouts', adminMiddleware, adminController.getSpeci
 // adminCreateSchema/adminUpdateSchema, and every target admin is checked
 // against being SUPER_ADMIN inside the controller — this API structurally
 // cannot touch the protected top-level account.
+// Any admin role changing their OWN password — not superOnly (a SUB_ADMIN or
+// VIEWER created with a temporary password must be able to reach this too).
+// This exact path is what adminMiddleware exempts from its
+// PASSWORD_CHANGE_REQUIRED gate (see auth.middleware.ts's ADMIN_CHANGE_PASSWORD_PATH).
+router.post(
+  '/change-password',
+  adminMiddleware,
+  validateBody(adminChangePasswordSchema),
+  adminController.changeOwnPassword
+)
+
 router.get('/admins', adminMiddleware, superOnly, adminController.listAdmins)
 router.get('/admins/:id', adminMiddleware, superOnly, adminController.getAdminById)
 router.post(
