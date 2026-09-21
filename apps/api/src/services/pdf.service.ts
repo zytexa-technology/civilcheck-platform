@@ -108,7 +108,8 @@ export interface ReportCertificateInput {
     propertyType: string
     khasraNumber: string | null
     surveyNumber: string | null
-    riskBadge: string
+    propertyStatus: string | null
+    disputeType: string | null
     caseExists: boolean
     caseType: string | null
     caseStatus: string | null
@@ -139,8 +140,12 @@ export async function generateReportCertificate(input: ReportCertificateInput): 
   if (listing.surveyNumber) line(doc, `Survey Number: ${listing.surveyNumber}`)
   spacer(doc)
 
-  subheading(doc, 'Risk Assessment')
-  line(doc, `Risk Badge: ${listing.riskBadge}`, { bold: true })
+  subheading(doc, 'Property Status')
+  line(
+    doc,
+    `Property Status: ${listing.propertyStatus === 'CLEAR' ? 'CLEAR PROPERTY' : listing.propertyStatus === 'DISPUTED' ? `DISPUTED PROPERTY${listing.disputeType ? ` (${listing.disputeType[0]}${listing.disputeType.slice(1).toLowerCase()})` : ''}` : 'Not classified'}`,
+    { bold: true }
+  )
   line(doc, `Research Date: ${dateStr(listing.researchDate)}`)
   spacer(doc)
 
@@ -254,8 +259,8 @@ export interface PayoutStatementInput {
 export async function generatePayoutStatement(input: PayoutStatementInput): Promise<Uint8Array> {
   const doc = await newDoc()
 
-  heading(doc, 'Seller Payout Statement')
-  line(doc, input.sellerName ?? 'Unnamed Seller', { bold: true })
+  heading(doc, 'Partner Payout Statement')
+  line(doc, input.sellerName ?? 'Unnamed Partner', { bold: true })
   if (input.sellerPhone) line(doc, input.sellerPhone, { size: 9, color: [0.4, 0.4, 0.4] })
   if (input.sellerPan) line(doc, `PAN: ${input.sellerPan}`, { size: 9, color: [0.4, 0.4, 0.4] })
   line(doc, `Period: ${dateStr(input.period.from)} to ${dateStr(input.period.to)}`, {

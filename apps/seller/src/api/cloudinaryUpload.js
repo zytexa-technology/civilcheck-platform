@@ -42,6 +42,13 @@ const validate = (file, upload) => {
  */
 export async function uploadToCloudinary(file, purpose) {
   const { upload } = await getUploadSignature(purpose)
+  return uploadWithSignature(file, upload)
+}
+
+// Same upload, but with a signature the caller already obtained — used by the
+// pre-account signup Aadhaar step, whose signature comes from the KYC-session
+// endpoint (there is no logged-in seller yet).
+export async function uploadWithSignature(file, upload) {
   validate(file, upload)
 
   if (upload.signature === MOCK_SIGNATURE) {

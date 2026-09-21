@@ -121,7 +121,7 @@ export default function Analytics() {
         <StatCard icon="🏦" label="Platform Revenue (40%)"
           value={`₹${(overview?.revenue?.platformRevenue || 0).toLocaleString('en-IN')}`}
           color="#15803d"
-          sub="After seller commission"
+          sub="After partner commission"
         />
         <StatCard icon="📦" label="Total Transactions"
           value={overview?.revenue?.totalTransactions || 0}
@@ -131,7 +131,7 @@ export default function Analytics() {
         <StatCard icon="👥" label="Total Users"
           value={(overview?.users?.totalBuyers || 0) + (overview?.users?.totalSellers || 0)}
           color="#6d28d9"
-          sub={`${overview?.users?.totalBuyers || 0} buyers · ${overview?.users?.totalSellers || 0} sellers`}
+          sub={`${overview?.users?.totalBuyers || 0} users · ${overview?.users?.totalSellers || 0} partners`}
         />
       </div>
 
@@ -142,8 +142,8 @@ export default function Analytics() {
         <div style={s.card}>
           <div style={s.cardTitle}>Users Breakdown</div>
           {[
-            { label: 'Total Buyers',      value: overview?.users?.totalBuyers || 0,     total: (overview?.users?.totalBuyers || 0) + (overview?.users?.totalSellers || 0), color: '#1d4ed8' },
-            { label: 'Approved Sellers',  value: overview?.users?.approvedSellers || 0, total: overview?.users?.totalSellers || 1, color: '#15803d' },
+            { label: 'Total Users',       value: overview?.users?.totalBuyers || 0,     total: (overview?.users?.totalBuyers || 0) + (overview?.users?.totalSellers || 0), color: '#1d4ed8' },
+            { label: 'Approved Partners', value: overview?.users?.approvedSellers || 0, total: overview?.users?.totalSellers || 1, color: '#15803d' },
             { label: 'Pending KYC',       value: overview?.users?.pendingSellers || 0,  total: overview?.users?.totalSellers || 1, color: '#c2410c' },
           ].map(item => (
             <ProgressBar key={item.label} {...item} />
@@ -151,11 +151,11 @@ export default function Analytics() {
           <div style={{ display: 'flex', gap: 10, marginTop: 16, flexWrap: 'wrap' }}>
             <div style={s.miniStat}>
               <div style={{ fontSize: 18, fontWeight: 800, color: '#1d4ed8' }}>{overview?.users?.totalBuyers || 0}</div>
-              <div style={{ fontSize: 11, color: '#5b6472' }}>Buyers</div>
+              <div style={{ fontSize: 11, color: '#5b6472' }}>Users</div>
             </div>
             <div style={s.miniStat}>
               <div style={{ fontSize: 18, fontWeight: 800, color: '#15803d' }}>{overview?.users?.approvedSellers || 0}</div>
-              <div style={{ fontSize: 11, color: '#5b6472' }}>Active Sellers</div>
+              <div style={{ fontSize: 11, color: '#5b6472' }}>Active Partners</div>
             </div>
             <div style={s.miniStat}>
               <div style={{ fontSize: 18, fontWeight: 800, color: '#c2410c' }}>{overview?.users?.pendingSellers || 0}</div>
@@ -224,13 +224,13 @@ export default function Analytics() {
         {/* Top Sellers */}
         <div style={{ ...s.card, padding: 0, overflow: 'hidden' }}>
           <div style={{ padding: '14px 18px', borderBottom: '1px solid #e4e7ec', ...s.cardTitle }}>
-            Top Sellers by Earnings
+            Top Partners by Earnings
           </div>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
                 <tr style={{ background: '#f5f6f8' }}>
-                  {['#', 'Seller', 'Badge', 'Earnings', 'Accuracy'].map(h => (
+                  {['#', 'Partner', 'Badge', 'Earnings', 'Accuracy'].map(h => (
                     <th key={h} style={{ ...s.th, padding: '9px 14px', whiteSpace: 'nowrap' }}>{h}</th>
                   ))}
                 </tr>

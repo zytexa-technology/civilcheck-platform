@@ -368,6 +368,11 @@ router.get('/alert-subs', adminMiddleware, adminController.getAllAlertSubs)
 // read-only job); the manual write is limited to the roles that can actually
 // mutate anything, so a VIEWER cannot inject entries into the trail.
 router.get('/audit-logs', adminMiddleware, adminController.getAuditLogs)
+
+// SuperAdmin-only history of deleted/deactivated/blocked/suspended accounts and
+// deleted/removed posts — a read model over AuditLog (see admin.controller.ts).
+router.get('/deleted-accounts', adminMiddleware, superOnly, adminController.getDeletedAccounts)
+router.get('/deleted-posts', adminMiddleware, superOnly, adminController.getDeletedPosts)
 router.post('/audit-logs', adminMiddleware, listingQC, adminController.createAuditLog)
 
 router.get('/special-request-payouts', adminMiddleware, adminController.getSpecialRequestPayouts)

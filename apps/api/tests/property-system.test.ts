@@ -39,6 +39,7 @@ describe('property system (Phase 2)', () => {
         propertyType: 'RESIDENTIAL',
         city: 'Jaipur',
         tehsil: 'Sanganer',
+        propertyStatus: 'CLEAR',
         caseExists: false,
         price: 199,
         researchDate: new Date().toISOString(),
@@ -63,6 +64,7 @@ describe('property system (Phase 2)', () => {
         propertyType: 'RESIDENTIAL',
         city: 'Jaipur',
         tehsil: 'Sanganer',
+        propertyStatus: 'CLEAR',
         caseExists: false,
         price: 199,
         researchDate: new Date().toISOString(),
@@ -75,6 +77,7 @@ describe('property system (Phase 2)', () => {
       .post('/api/seller/properties')
       .set('Authorization', `Bearer ${owner.token}`)
       .send({
+        propertyStatus: 'CLEAR',
         title: `${marker} Flat`,
         area: '1200',
         city: 'Jaipur',
@@ -100,7 +103,8 @@ describe('property system (Phase 2)', () => {
     const res = await request(app)
       .post('/api/seller/properties')
       .set('Authorization', `Bearer ${expert.token}`)
-      .send({ title: 'Expert-attempt', area: '1000' })
+      .send({
+        propertyStatus: 'CLEAR', title: 'Expert-attempt', area: '1000' })
     expect(res.status).toBe(403)
   })
 
@@ -135,18 +139,18 @@ describe('property system (Phase 2)', () => {
     const res = await request(app).get('/api/properties/feed').query({ city: 'Jaipur', limit: 50 })
     expect(res.status).toBe(200)
 
-    const items = res.body.results as Array<{ id: string; source: string; riskBadge: string | null; uploadedBy: string }>
+    const items = res.body.results as Array<{ id: string; source: string; propertyStatus: string | null; uploadedBy: string }>
     const listingItem = items.find((i) => i.id === listingId)
     const propertyItem = items.find((i) => i.id === propertyId)
 
     expect(listingItem).toBeDefined()
     expect(listingItem?.source).toBe('EXPERT_REPORT')
     expect(listingItem?.uploadedBy).toBe('EXPERT')
-    expect(listingItem?.riskBadge).not.toBeNull()
+    expect(listingItem?.propertyStatus).not.toBeNull()
 
     expect(propertyItem).toBeDefined()
     expect(propertyItem?.source).toBe('OWNER_LISTING')
     expect(propertyItem?.uploadedBy).toBe('OWNER')
-    expect(propertyItem?.riskBadge).toBeNull()
+    expect(propertyItem?.propertyStatus).toBe('CLEAR') // Owner-declared alert (client shows green)
   })
 })

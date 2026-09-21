@@ -1,15 +1,13 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { cancelAlert, getAlertHistory, getMyAlerts } from '../../api/alert.api'
-import { cancelSubscription, getMySubscriptions, subscribeToAlerts } from '../../api/subscription.api'
 import { Badge } from '../../components/Badge'
-import { Button } from '../../components/Button'
-import { EmptyState, ErrorState, InlineNotice, LoadingState } from '../../components/States'
+import { EmptyState, ErrorState, LoadingState } from '../../components/States'
 import { errorMessage } from '../../lib/errors'
-import { formatDate, formatPaise, riskTone, subscriptionTone } from '../../lib/format'
-import type { AlertHistoryResponse, MyAlertsResponse, Subscription } from '../../types/api'
+import { formatDate, alertTone } from '../../lib/format'
+import type { AlertHistoryResponse, MyAlertsResponse } from '../../types/api'
 
-type Tab = 'watching' | 'history' | 'subscription'
+type Tab = 'watching' | 'history'
 
 export default function Alerts() {
   const [tab, setTab] = useState<Tab>('watching')
@@ -26,12 +24,9 @@ export default function Alerts() {
         <button type="button" className="chip" aria-pressed={tab === 'history'} onClick={() => setTab('history')}>
           History
         </button>
-        <button type="button" className="chip" aria-pressed={tab === 'subscription'} onClick={() => setTab('subscription')}>
-          Subscription
-        </button>
       </div>
 
-      {tab === 'watching' ? <Watching /> : tab === 'history' ? <History /> : <SubscriptionTab />}
+      {tab === 'watching' ? <Watching /> : <History />}
     </div>
   )
 }
@@ -72,7 +67,7 @@ function Watching() {
             <Link to={`/reports/${entry.property.id}`} style={{ fontWeight: 700, fontSize: 13.5 }}>
               {entry.property.address}
             </Link>
-            <Badge tone={riskTone(entry.property.riskBadge)} />
+            <Badge tone={alertTone(entry.property.propertyStatus, entry.property.disputeType)} />
           </div>
           <div className="spread" style={{ marginTop: 8 }}>
             <span className="muted" style={{ fontSize: 11.5 }}>
@@ -120,86 +115,6 @@ function History() {
           </span>
         </div>
       ))}
-    </div>
-  )
-}
-
-function SubscriptionTab() {
-  const [subs, setSubs] = useState<Subscription[] | null>(null)
-  const [error, setError] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [notice, setNotice] = useState('')
-
-  const load = () => {
-    queueMicrotask(() => {
-      setError('')
-      setSubs(null)
-    })
-    getMySubscriptions()
-      .then((res) => setSubs(res.subscriptions))
-      .catch((err) => setError(errorMessage(err, "Couldn't load your subscription.")))
-  }
-  useEffect(load, [])
-
-  const active = subs?.find((s) => s.status === 'ACTIVE' || s.status === 'CREATED')
-
-  const handleSubscribe = async () => {
-    setBusy(true)
-    setNotice('')
-    try {
-      await subscribeToAlerts()
-      setNotice('Subscription started — it will activate once payment authorization completes.')
-      load()
-    } catch (err) {
-      setNotice(errorMessage(err, 'Could not start subscription.'))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const handleCancel = async (id: string) => {
-    setBusy(true)
-    try {
-      await cancelSubscription(id)
-      load()
-    } catch (err) {
-      setNotice(errorMessage(err, 'Could not cancel subscription.'))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  if (error) return <ErrorState message={error} onRetry={load} />
-  if (subs === null) return <LoadingState />
-
-  return (
-    <div className="card">
-      <h3 style={{ fontWeight: 700, fontSize: 14.5, marginBottom: 6 }}>Case-update alerts</h3>
-      <p className="muted" style={{ fontSize: 12.5, lineHeight: 1.6, marginBottom: 14 }}>
-        Get notified whenever there's a change to a case you're tracking — ₹49/month.
-      </p>
-      {notice ? (
-        <div style={{ marginBottom: 14 }}>
-          <InlineNotice message={notice} />
-        </div>
-      ) : null}
-      {active ? (
-        <div className="stack">
-          <div className="row">
-            <Badge tone={subscriptionTone(active.status)} />
-            <span style={{ fontWeight: 600 }}>{formatPaise(active.amount)}/mo</span>
-          </div>
-          {active.status !== 'CANCELLED' ? (
-            <Button variant="danger" loading={busy} onClick={() => void handleCancel(active.id)}>
-              Cancel subscription
-            </Button>
-          ) : null}
-        </div>
-      ) : (
-        <Button loading={busy} onClick={() => void handleSubscribe()}>
-          Subscribe for ₹49/month
-        </Button>
-      )}
     </div>
   )
 }

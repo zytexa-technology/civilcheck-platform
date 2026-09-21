@@ -38,7 +38,7 @@ const mapReq = (r) => ({
   id: r.id,
   title: r.address || 'Special Request',
   type: r.propertyType || 'Verification',
-  buyer: r.buyerName || 'Buyer',
+  buyer: r.buyerName || 'User',
   fee: r.advanceAmount || 0,
   status: STATUS_MAP[r.status] || 'pending',
   adminNote: r.adminNote || null,
@@ -122,7 +122,7 @@ export function ExpertRequestsTable({ limit, go }) {
     <Card style={{ overflowX: 'auto' }}>
       <table className="tbl">
         <thead>
-          <tr>{['Request', 'Type', 'Buyer', 'Fee', 'Status', ''].map((h, i) => <th key={i}>{h}</th>)}</tr>
+          <tr>{['Request', 'Type', 'User', 'Fee', 'Status', ''].map((h, i) => <th key={i}>{h}</th>)}</tr>
         </thead>
         <tbody>
           {list.length === 0 ? (
@@ -341,7 +341,7 @@ export default function ExpertDashboard({ go }) {
       <SectionTitle>Special Request Workflow</SectionTitle>
       <Card style={{ marginBottom: 22 }}>
         <div className="flow">
-          <span className="step done">Buyer Request</span><span className="arw">→</span>
+          <span className="step done">User Request</span><span className="arw">→</span>
           <span className="step done">Super Admin</span><span className="arw">→</span>
           <span className="step now">Assigned to You</span><span className="arw">→</span>
           <span className="step">Accept & Research</span><span className="arw">→</span>

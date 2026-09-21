@@ -15,6 +15,10 @@ import Coverage from './pages/Coverage'
 import Terms from './pages/Terms'
 import Privacy from './pages/Privacy'
 import NotFound from './pages/NotFound'
+import Advertise from './pages/advertise/Advertise'
+import AdvertiserAuth from './pages/advertise/AdvertiserAuth'
+import AdvertiserDashboard from './pages/advertise/AdvertiserDashboard'
+import CreateCampaign from './pages/advertise/CreateCampaign'
 
 import Login from './pages/auth/Login'
 import ForgotPassword from './pages/auth/ForgotPassword'
@@ -91,6 +95,12 @@ export default function App() {
             <Route path="support/:id" element={<SupportTicketDetail />} />
           </Route>
         </Route>
+
+        {/* Advertising platform — separate public area for third-party advertisers */}
+        <Route path="advertise" element={<Advertise />} />
+        <Route path="advertiser/login" element={<AdvertiserAuth />} />
+        <Route path="advertiser/dashboard" element={<AdvertiserDashboard />} />
+        <Route path="advertiser/campaigns/new" element={<CreateCampaign />} />
 
         <Route path="*" element={<NotFound />} />
       </Route>

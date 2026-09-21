@@ -97,6 +97,15 @@ export default function OwnerPropertyDetail() {
                 { label: 'Property type', value: humanize(property.propertyType) },
                 { label: 'Area', value: property.area },
                 { label: 'Age', value: property.age ?? '—' },
+                {
+                  label: 'Property status',
+                  value:
+                    property.propertyStatus === 'DISPUTED'
+                      ? `🔴 DISPUTED PROPERTY${property.disputeType ? ` — ${humanize(property.disputeType)}` : ''}`
+                      : property.propertyStatus === 'CLEAR'
+                        ? '🟢 CLEAR PROPERTY'
+                        : 'Not classified',
+                },
                 { label: 'Listed on', value: formatDate(property.listedSince) },
               ]}
             />

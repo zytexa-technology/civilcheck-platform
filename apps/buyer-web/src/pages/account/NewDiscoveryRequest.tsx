@@ -53,8 +53,8 @@ export default function NewDiscoveryRequest() {
     void getVerificationConfig()
       .then((res) => {
         if (!live) return
-        setMinFee(res.minVerificationFee)
-        setAmount((prev) => prev || String(res.minVerificationFee))
+        setMinFee(res.legalReportMinAmount)
+        setAmount((prev) => prev || String(res.legalReportMinAmount))
       })
       .catch(() => {})
     return () => {
@@ -174,7 +174,7 @@ export default function NewDiscoveryRequest() {
         />
 
         <Button type="submit" size="lg" block loading={busy}>
-          Submit Request
+          I Want Legal Report
         </Button>
       </form>
     </div>

@@ -50,7 +50,7 @@ export async function applyStrikeEscalation(
         body:
           `${seller.name}, one of your listings failed a spot check. This is strike ` +
           `${seller.strikeCount} — on strike ${STRIKE_THRESHOLD} your account will be suspended ` +
-          `and a Rs. ${STRIKE_FINE} fine will apply.`,
+          `and a ₹${STRIKE_FINE} fine will apply.`,
       }
     )
     return {

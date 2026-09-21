@@ -79,7 +79,7 @@ export function ReviewSheet({ visible, onClose, purchaseId, onSubmitted }: Revie
       visible={visible}
       onClose={onClose}
       title="Rate this report"
-      subtitle="Your rating helps other buyers judge how reliable an expert is."
+      subtitle="Your rating helps other users judge how reliable an expert is."
     >
       {error ? <InlineNotice tone="warn" message={error} /> : null}
 

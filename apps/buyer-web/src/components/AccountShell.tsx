@@ -5,7 +5,7 @@ const LINKS = [
   { to: '/account/reports', label: '📄 My reports' },
   { to: '/account/saved', label: '🔖 Saved & liked' },
   { to: '/account/verifications', label: '🔎 Verification requests' },
-  { to: '/account/requests', label: '🧾 Custom research' },
+  { to: '/account/requests', label: '🧾 Request for Legal Reports' },
   { to: '/account/alerts', label: '🔔 Watching & alerts' },
   { to: '/account/support', label: '💬 Support' },
   { to: '/notifications', label: '📥 Notifications' },

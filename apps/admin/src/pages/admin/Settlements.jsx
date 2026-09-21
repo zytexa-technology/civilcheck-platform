@@ -32,7 +32,7 @@ export default function Settlements() {
   }
 
   const columns = [
-    { key: 'seller', header: 'Seller', render: (sl) => (<><div style={{ fontWeight: 600 }}>{sl.sellerName}</div><div className="small muted">{sl.phone}</div></>) },
+    { key: 'seller', header: 'Partner', render: (sl) => (<><div style={{ fontWeight: 600 }}>{sl.sellerName}</div><div className="small muted">{sl.phone}</div></>) },
     { key: 'badge', header: 'Badge' },
     { key: 'totalEarned', header: 'Earned', render: (sl) => `₹${sl.totalEarned.toFixed(0)}` },
     { key: 'settled', header: 'Settled', render: (sl) => <span style={{ color: 'var(--green)' }}>₹{sl.settled.toFixed(0)}</span> },
@@ -46,7 +46,7 @@ export default function Settlements() {
     <div>
       <PageHead
         title="Settlements"
-        subtitle="Per-seller settlement status for the selected month — actual payout happens via the weekly cron"
+        subtitle="Per-partner settlement status for the selected month — actual payout happens via the weekly cron"
         right={
           <div style={{ display: 'flex', gap: 8 }}>
             <select className="control" value={month} onChange={(e) => setMonth(parseInt(e.target.value))} style={{ width: 'auto' }}>
@@ -61,7 +61,7 @@ export default function Settlements() {
 
       {data && (
         <div className="grid g4" style={{ marginBottom: 20 }}>
-          <StatCard tone="blue" icon="👤" value={data.summary.totalSellers} label="Active sellers" />
+          <StatCard tone="blue" icon="👤" value={data.summary.totalSellers} label="Active partners" />
           <StatCard tone="amber" icon="⏳" value={`₹${data.summary.totalPending.toLocaleString('en-IN')}`} label="Total pending" />
           <StatCard tone="green" icon="✅" value={`₹${data.summary.totalSettled.toLocaleString('en-IN')}`} label="Total settled" />
           <StatCard tone="violet" icon="🧾" value={`₹${data.summary.totalTDS.toFixed(0)}`} label="TDS withheld" />
@@ -76,7 +76,7 @@ export default function Settlements() {
             columns={columns}
             rows={loading || !data ? [] : data.sellers}
             getRowKey={(sl) => sl.sellerId}
-            emptyState={<div style={{ padding: 40, textAlign: 'center' }} className="muted small">{loading ? '⏳ Loading…' : 'No seller earnings this month'}</div>}
+            emptyState={<div style={{ padding: 40, textAlign: 'center' }} className="muted small">{loading ? '⏳ Loading…' : 'No partner earnings this month'}</div>}
           />
         </Card>
       )}

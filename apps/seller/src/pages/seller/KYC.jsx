@@ -23,6 +23,7 @@ import {
 import { uploadToCloudinary, UploadError } from '../../api/cloudinaryUpload'
 import { Card, Chip, PageHead, Field } from '../../components/ui'
 import { Icon } from '../../components/Icon'
+import DigilockerVerify from '../../components/DigilockerVerify'
 
 // Profession-aware document label — the same upload slot/field, just
 // labeled for what's actually relevant to review, rather than a
@@ -252,7 +253,7 @@ export default function KYC() {
             <Chip tone={kycStatus === 'APPROVED' ? 'green' : kycStatus === 'REJECTED' ? 'red' : 'amber'}>
               {kycStatus === 'APPROVED' ? '✓ KYC Approved' : kycStatus === 'REJECTED' ? '✗ KYC Rejected' : '⏳ KYC Pending'}
             </Chip>
-            <Chip tone="seal">{badgeEmoji} {badgeLabel} Seller</Chip>
+            <Chip tone="seal">{badgeEmoji} {badgeLabel} Partner</Chip>
           </div>
         }
       />
@@ -283,7 +284,7 @@ export default function KYC() {
                 <div>
                   <div className="dev" style={{ fontSize: 18, fontWeight: 700, color: 'var(--ink)' }}>{profile.fullName || '—'}</div>
                   <div className="small muted dev" style={{ marginTop: 2 }}>{profile.profession}</div>
-                  <div className="xs" style={{ color: 'var(--seal)', marginTop: 4, fontWeight: 600 }}>{badgeEmoji} {badgeLabel} Seller</div>
+                  <div className="xs" style={{ color: 'var(--seal)', marginTop: 4, fontWeight: 600 }}>{badgeEmoji} {badgeLabel} Partner</div>
                 </div>
               </div>
 
@@ -451,6 +452,8 @@ export default function KYC() {
               </button>
             </div>
           </Card>
+
+          <DigilockerVerify />
 
           {/* Identity Document — manual admin review */}
           <Card>

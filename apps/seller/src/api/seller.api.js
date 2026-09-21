@@ -63,25 +63,6 @@ export const getKycDocumentSignedUrl = async (field) => {
   return response.data
 }
 
-// ─── FEATURED-LISTING SUBSCRIPTION (₹499/mo) ──────────────────────────────
-// Razorpay *subscriptions*, not one-off orders: creation returns a mandate to
-// authorize, and the row only goes ACTIVE when Razorpay's webhook confirms the
-// charge. There is deliberately no client-side "verify" call to make here.
-export const createFeaturedSubscription = async (listingId) => {
-  const response = await API.post('/seller/subscriptions/featured', { listingId })
-  return response.data
-}
-
-export const getMySubscriptions = async () => {
-  const response = await API.get('/seller/subscriptions')
-  return response.data
-}
-
-export const cancelSubscription = async (id) => {
-  const response = await API.post(`/seller/subscriptions/${id}/cancel`)
-  return response.data
-}
-
 // ─── LISTINGS ─────────────────────────────────────────────────────────────
 export const getMyListings = async (params = {}) => {
   const response = await API.get('/seller/listings', { params })
@@ -365,5 +346,15 @@ export const markNotificationRead = async (id) => {
 
 export const markAllNotificationsRead = async () => {
   const response = await API.post('/seller/notifications/mark-all-read')
+  return response.data
+}
+// ─── DigiLocker verification (backend runs the whole OAuth flow) ────────────
+export const startDigilockerAuth = async () => {
+  const response = await API.post('/seller/digilocker/auth')
+  return response.data
+}
+
+export const getDigilockerStatus = async () => {
+  const response = await API.get('/seller/digilocker/status')
   return response.data
 }

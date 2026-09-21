@@ -91,10 +91,8 @@ const QUOTE_CHIP = {
   CLOSED: ['red', 'Closed — not selected'],
 }
 
-// RiskBadge (packages/shared enums.ts) — same three values the buyer-side
-// report view and the admin claim/report tooling use. Do not invent extra
-// values here.
-const RISK_OPTIONS = ['GREEN', 'AMBER', 'RED']
+// (The paid verification report no longer has a Green/Amber/Red risk assessment —
+// it carries structured dispute findings instead. See the Submit Report form.)
 
 // Claim.status (Prisma enum, packages/shared validation.ts's claimCreateSchema
 // neighbourhood) → [chip tone, label]. Experts only ever read these — claim
@@ -205,7 +203,7 @@ export default function ExpertVerificationRequests() {
     <>
       <PageHead
         title="Verification Requests"
-        subtitle="Browse open buyer verification requests and submit your quote. The buyer compares all quotes and picks one — you'll be notified if you're selected."
+        subtitle="Browse open user verification requests and submit your quote. The user compares all quotes and picks one — you'll be notified if you're selected."
       />
 
       {!kycApproved && (
@@ -230,7 +228,7 @@ export default function ExpertVerificationRequests() {
       <Card style={{ overflowX: 'auto', marginBottom: 24 }}>
         <table className="tbl">
           <thead>
-            <tr>{['Property', 'Location', 'Type', 'Buyer offer', 'Requested', 'Your quote', ''].map((h, i) => <th key={i}>{h}</th>)}</tr>
+            <tr>{['Property', 'Location', 'Type', 'User offer', 'Requested', 'Your quote', ''].map((h, i) => <th key={i}>{h}</th>)}</tr>
           </thead>
           <tbody>
             {open === null ? (
@@ -342,7 +340,12 @@ function RequestDetailModal({ id, onClose, kycApproved, sellerId, onQuoted, conf
 
   // Buyer Verification Experience enhancement — "Submit Report" (IN_PROGRESS → COMPLETED).
   const [findings, setFindings] = useState('')
-  const [riskAssessment, setRiskAssessment] = useState('')
+  const [report, setReport] = useState({
+    disputeFound: '', disputeType: '', disputeStatus: '', disputeNature: '', caseCategory: '', caseNumber: '',
+    courtName: '', disputeStartYear: '', currentStatusNotes: '', partiesInvolved: '', resolutionOutlook: '',
+    titleFindings: '', expertRemarks: '',
+  })
+  const setReportField = (k, v) => setReport((r) => ({ ...r, [k]: v }))
   const [documentsText, setDocumentsText] = useState('')
   const [imagesText, setImagesText] = useState('')
   const [videosText, setVideosText] = useState('')
@@ -456,6 +459,14 @@ function RequestDetailModal({ id, onClose, kycApproved, sellerId, onQuoted, conf
   }
 
   const handleSubmitReport = async () => {
+    if (!report.disputeFound) {
+      setReportError('State whether a dispute or issue was found.')
+      return
+    }
+    if (report.disputeFound === 'yes' && !report.disputeType) {
+      setReportError('Select the dispute type (Civil, Criminal or Other).')
+      return
+    }
     if (findings.trim().length < 20) {
       setReportError('Findings must be at least 20 characters.')
       return
@@ -463,15 +474,29 @@ function RequestDetailModal({ id, onClose, kycApproved, sellerId, onQuoted, conf
     setReportBusy(true)
     setReportError('')
     try {
+      const found = report.disputeFound === 'yes'
+      const text = (v) => (v && v.trim() ? v.trim() : undefined)
       await submitVerificationReport(id, {
+        disputeFound: found,
+        disputeType: found ? report.disputeType : undefined,
+        disputeStatus: found ? (report.disputeStatus || undefined) : undefined,
+        disputeNature: found ? text(report.disputeNature) : undefined,
+        caseCategory: found ? text(report.caseCategory) : undefined,
+        caseNumber: found ? text(report.caseNumber) : undefined,
+        courtName: found ? text(report.courtName) : undefined,
+        disputeStartYear: found && report.disputeStartYear ? Number(report.disputeStartYear) : undefined,
+        currentStatusNotes: found ? text(report.currentStatusNotes) : undefined,
+        partiesInvolved: found ? text(report.partiesInvolved) : undefined,
+        resolutionOutlook: found ? text(report.resolutionOutlook) : undefined,
+        titleFindings: text(report.titleFindings),
+        expertRemarks: text(report.expertRemarks),
         findings: findings.trim(),
-        riskAssessment: riskAssessment || undefined,
         documents: parseUrlList(documentsText),
         images: parseUrlList(imagesText),
         videos: parseUrlList(videosText),
       })
       await refreshDetail()
-      toast('Report submitted — the buyer will be asked for the final payment')
+      toast('Report submitted — the user will be asked for the final payment')
     } catch (err) {
       const status = err?.response?.status
       const msg = err?.response?.data?.message
@@ -499,10 +524,17 @@ function RequestDetailModal({ id, onClose, kycApproved, sellerId, onQuoted, conf
     }
   }
 
+  // Request for Legal Reports (DISCOVERY): an offer/counter-offer must be at least this (no maximum).
+  const minQuote = request?.source === 'DISCOVERY' ? (config?.legalReportMinAmount ?? 2499) : 0
+
   const submit = async () => {
     const fee = Number(amount)
     if (!fee || fee <= 0) {
       setSubmitError('Enter a valid quote amount.')
+      return
+    }
+    if (minQuote && fee < minQuote) {
+      setSubmitError(`Minimum legal report request amount is ₹${minQuote.toLocaleString('en-IN')}.`)
       return
     }
     setSubmitting(true)
@@ -511,7 +543,7 @@ function RequestDetailModal({ id, onClose, kycApproved, sellerId, onQuoted, conf
       const res = await submitVerificationQuote(id, { proposedFee: fee, message: message.trim() || undefined })
       setMyQuote(res.quote)
       setConfirmingQuote(false)
-      toast('Quote submitted — waiting for the buyer to review it')
+      toast('Quote submitted — waiting for the user to review it')
       onQuoted?.()
     } catch (err) {
       const status = err?.response?.status
@@ -662,21 +694,22 @@ function RequestDetailModal({ id, onClose, kycApproved, sellerId, onQuoted, conf
               <div className="xs muted">Requested</div>
               <div className="small dev">{formatDate(request.createdAt)}</div>
             </div>
-            {request.riskAssessment || request.report?.riskAssessment ? (
-              <div>
-                <div className="xs muted">Risk assessment</div>
-                <div className="small dev">{request.report?.riskAssessment}</div>
-              </div>
-            ) : null}
           </div>
 
           <Card style={{ padding: 14, background: 'var(--paper-2)' }}>
-            <div className="xs muted" style={{ marginBottom: 4 }}>Buyer Offer</div>
+            <div className="xs muted" style={{ marginBottom: 4 }}>User Offer</div>
             <div className="dev" style={{ fontSize: 18, fontWeight: 700 }}>₹{Number(request.buyerInitialOfferAmount).toLocaleString('en-IN')}</div>
             <p className="xs muted dev" style={{ marginTop: 4 }}>
-              This is the buyer's initial budget, not a fixed price — accept it as-is or submit your own charge.
+              This is the buyer's offer, not a fixed price — accept it as-is or send a counter-offer with your own price.
             </p>
           </Card>
+
+          {request.questions ? (
+            <Card style={{ padding: 14 }}>
+              <div className="xs muted" style={{ marginBottom: 4 }}>What the buyer wants checked</div>
+              <p className="small dev" style={{ whiteSpace: 'pre-wrap' }}>{request.questions}</p>
+            </Card>
+          ) : null}
 
           {myQuote ? (
             <Card style={{ padding: 14 }}>
@@ -709,16 +742,27 @@ function RequestDetailModal({ id, onClose, kycApproved, sellerId, onQuoted, conf
               ) : (
                 <>
                   {submitError ? <p className="small dev" style={{ color: 'var(--danger)', marginBottom: 8 }}>{submitError}</p> : null}
+                  <button
+                    className="btn btn-primary btn-block"
+                    style={{ marginBottom: 12 }}
+                    onClick={() => {
+                      setAmount(String(request.buyerInitialOfferAmount))
+                      setSubmitError('')
+                      setConfirmingQuote(true)
+                    }}
+                  >
+                    Accept Offer — ₹{Number(request.buyerInitialOfferAmount).toLocaleString('en-IN')}
+                  </button>
                   <p className="xs muted dev" style={{ marginBottom: 8 }}>
-                    Submit ₹{Number(request.buyerInitialOfferAmount).toLocaleString('en-IN')} unchanged to accept the
-                    buyer's offer, or enter a different amount to counter-offer.
+                    Or send a Counter Offer: the buyer will see your price next to their original offer and can accept it.
                   </p>
-                  <Field label="Your verification charge (₹)" required>
+                  <Field label="Counter Offer Amount (₹)" required>
                     <input
                       className="control"
                       type="number"
-                      min="1"
+                      min={minQuote || 1}
                       step="1"
+                      placeholder={minQuote ? `Minimum ₹${minQuote.toLocaleString('en-IN')}` : undefined}
                       value={amount}
                       onChange={(e) => setAmount(e.target.value)}
                     />
@@ -742,11 +786,12 @@ function RequestDetailModal({ id, onClose, kycApproved, sellerId, onQuoted, conf
                     onClick={() => {
                       const fee = Number(amount)
                       if (!fee || fee <= 0) { setSubmitError('Enter a valid quote amount.'); return }
+                      if (minQuote && fee < minQuote) { setSubmitError(`Minimum legal report request amount is ₹${minQuote.toLocaleString('en-IN')}.`); return }
                       setSubmitError('')
                       setConfirmingQuote(true)
                     }}
                   >
-                    Review &amp; Submit Quote
+                    Review &amp; Send Counter Offer
                   </button>
                 </>
               )}
@@ -777,14 +822,75 @@ function RequestDetailModal({ id, onClose, kycApproved, sellerId, onQuoted, conf
           ) : null}
 
           {/* Buyer Verification Experience enhancement — "Submit Report".
-              Fields mirror verificationReportCreateSchema exactly: findings
-              (required, min 20 chars), riskAssessment (optional RiskBadge
-              enum), documents/images/videos (optional URL arrays). */}
+              Fields mirror verificationReportCreateSchema exactly (structured
+              dispute findings + detailed findings; no risk colour). */}
           {isAssignedToMe && request.status === 'IN_PROGRESS' ? (
             <div>
               <SectionTitle>Submit Report</SectionTitle>
               {reportError ? <p className="small dev" style={{ color: 'var(--danger)', marginBottom: 8 }}>{reportError}</p> : null}
-              <Field label="Findings" required>
+              {/* Structured findings — no Green/Amber/Red rating; the buyer already sees the
+                  property's Clear/Disputed alert. Fields mirror verificationReportCreateSchema. */}
+              <Field label="Was a dispute / issue found?" required>
+                <select className="control" value={report.disputeFound} onChange={(e) => setReportField('disputeFound', e.target.value)}>
+                  <option value="">Select…</option>
+                  <option value="yes">Yes — a dispute / issue was found</option>
+                  <option value="no">No dispute / issue found</option>
+                </select>
+              </Field>
+              {report.disputeFound === 'yes' ? (
+                <>
+                  <div className="row">
+                    <Field label="Dispute type" required>
+                      <select className="control" value={report.disputeType} onChange={(e) => setReportField('disputeType', e.target.value)}>
+                        <option value="">Select…</option>
+                        <option value="CIVIL">Civil</option>
+                        <option value="CRIMINAL">Criminal</option>
+                        <option value="OTHER">Other</option>
+                      </select>
+                    </Field>
+                    <Field label="Current status of the matter" optional>
+                      <select className="control" value={report.disputeStatus} onChange={(e) => setReportField('disputeStatus', e.target.value)}>
+                        <option value="">— Not specified —</option>
+                        <option value="ACTIVE">Active / ongoing</option>
+                        <option value="RESOLVED">Resolved</option>
+                        <option value="UNKNOWN">Unknown</option>
+                      </select>
+                    </Field>
+                  </div>
+                  <Field label="Nature of the dispute" optional>
+                    <input className="control" placeholder="e.g. Ownership dispute, encroachment, partition" value={report.disputeNature} onChange={(e) => setReportField('disputeNature', e.target.value)} />
+                  </Field>
+                  <div className="row">
+                    <Field label="Case type / category" optional>
+                      <input className="control" value={report.caseCategory} onChange={(e) => setReportField('caseCategory', e.target.value)} />
+                    </Field>
+                    <Field label="Case number / reference" optional>
+                      <input className="control" value={report.caseNumber} onChange={(e) => setReportField('caseNumber', e.target.value)} />
+                    </Field>
+                  </div>
+                  <div className="row">
+                    <Field label="Court / authority" optional>
+                      <input className="control" value={report.courtName} onChange={(e) => setReportField('courtName', e.target.value)} />
+                    </Field>
+                    <Field label="Dispute started (year)" optional>
+                      <input className="control" inputMode="numeric" placeholder="e.g. 2022" value={report.disputeStartYear} onChange={(e) => setReportField('disputeStartYear', e.target.value.replace(/\D/g, '').slice(0, 4))} />
+                    </Field>
+                  </div>
+                  <Field label="Current case / status information" optional>
+                    <textarea className="control" rows={2} value={report.currentStatusNotes} onChange={(e) => setReportField('currentStatusNotes', e.target.value)} />
+                  </Field>
+                  <Field label="Parties involved (where legally appropriate)" optional>
+                    <textarea className="control" rows={2} value={report.partiesInvolved} onChange={(e) => setReportField('partiesInvolved', e.target.value)} />
+                  </Field>
+                  <Field label="Resolution / outlook" optional>
+                    <textarea className="control" rows={2} placeholder="Whether the dispute may be resolved, and the current situation" value={report.resolutionOutlook} onChange={(e) => setReportField('resolutionOutlook', e.target.value)} />
+                  </Field>
+                </>
+              ) : null}
+              <Field label="Ownership / title findings" optional>
+                <textarea className="control" rows={3} value={report.titleFindings} onChange={(e) => setReportField('titleFindings', e.target.value)} />
+              </Field>
+              <Field label="Detailed findings" required>
                 <textarea
                   className="control"
                   rows={5}
@@ -793,11 +899,8 @@ function RequestDetailModal({ id, onClose, kycApproved, sellerId, onQuoted, conf
                   onChange={(e) => setFindings(e.target.value)}
                 />
               </Field>
-              <Field label="Risk assessment" optional>
-                <select className="control" value={riskAssessment} onChange={(e) => setRiskAssessment(e.target.value)}>
-                  <option value="">— Not specified —</option>
-                  {RISK_OPTIONS.map((r) => <option key={r} value={r}>{r}</option>)}
-                </select>
+              <Field label="Expert remarks / recommendations" optional>
+                <textarea className="control" rows={3} value={report.expertRemarks} onChange={(e) => setReportField('expertRemarks', e.target.value)} />
               </Field>
               <Field label="Documents (optional)" optional>
                 <input
@@ -931,7 +1034,7 @@ function RequestDetailModal({ id, onClose, kycApproved, sellerId, onQuoted, conf
               buyer-web's own gate: a thread can't exist before assignment). */}
           {isAssignedToMe && request.status !== 'OPEN' ? (
             <div>
-              <SectionTitle>Messages with Buyer</SectionTitle>
+              <SectionTitle>Messages with User</SectionTitle>
               {messagesError ? <p className="small dev" style={{ color: 'var(--danger)', marginBottom: 8 }}>{messagesError}</p> : null}
               <Card style={{ padding: 12, maxHeight: 260, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {messages === null ? (
@@ -954,7 +1057,7 @@ function RequestDetailModal({ id, onClose, kycApproved, sellerId, onQuoted, conf
                     >
                       <div className="small dev">{m.body}</div>
                       <div className="xs muted dev" style={{ marginTop: 4, textAlign: m.senderRole === 'PROFESSIONAL' ? 'right' : 'left' }}>
-                        {m.senderRole === 'PROFESSIONAL' ? 'You' : 'Buyer'} · {formatDate(m.createdAt)}
+                        {m.senderRole === 'PROFESSIONAL' ? 'You' : 'User'} · {formatDate(m.createdAt)}
                       </div>
                     </div>
                   ))
@@ -965,7 +1068,7 @@ function RequestDetailModal({ id, onClose, kycApproved, sellerId, onQuoted, conf
                 <input
                   className="control"
                   style={{ flex: 1 }}
-                  placeholder="Write a message to the buyer…"
+                  placeholder="Write a message to the user…"
                   value={messageDraft}
                   onChange={(e) => setMessageDraft(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter' && !messageBusy) handleSendMessage() }}

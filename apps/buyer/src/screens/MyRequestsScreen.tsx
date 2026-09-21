@@ -47,7 +47,7 @@ export function MyRequestsScreen() {
   return (
     <Screen scroll refreshing={refreshing} onRefresh={() => void handleRefresh()}>
       <ScreenHeader
-        title="Custom research requests"
+        title="Request for Legal Reports"
         backFallback="/profile"
         right={
           <TouchableOpacity
@@ -69,7 +69,7 @@ export function MyRequestsScreen() {
           icon="📝"
           title="No research requests yet"
           description="If a property isn't in our database, ask a verified expert in that tehsil to research it for you."
-          actionLabel="Request custom research"
+          actionLabel="Request for Legal Reports"
           onAction={() => router.push('/requests/new')}
         />
       ) : (

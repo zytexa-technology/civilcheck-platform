@@ -200,7 +200,7 @@ GET    /admin/analytics/funnel          - Free check → paid conversion funnel 
 GET    /admin/analytics/top-sellers     - Top earning sellers                  (any admin)
 GET    /admin/analytics/top-cities      - Most active cities                   (any admin)
 GET    /admin/analytics/monthly-revenue - Month-over-month revenue             (any admin)
-GET    /admin/analytics/risk-breakdown  - GREEN/AMBER/RED distribution         (any admin)
+GET    /admin/analytics/risk-breakdown  - Clear / Disputed / Unclassified counts (any admin)
 GET    /admin/analytics/subscriptions   - Alert subscription dashboard         (any admin)
 ```
 

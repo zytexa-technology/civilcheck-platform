@@ -8,7 +8,7 @@
 // "admin oversees everything" (admin.controller.ts).
 // ─────────────────────────────────────────────────────────────────────────────
 import { Request, Response } from 'express'
-import type { PurchaseVerifyInput } from '@civilcheck/shared'
+import { LEGAL_REPORT_MIN_AMOUNT, type PurchaseVerifyInput } from '@civilcheck/shared'
 import prisma from '../lib/prisma.js'
 import logger from '../lib/logger.js'
 import { getRazorpayKeyId, RazorpayError, verifyPaymentSignature } from '../lib/razorpay.js'
@@ -37,6 +37,8 @@ import {
   submitVerificationReport,
   type CreateVerificationRequestInput,
   type ProfessionalActor,
+  publicReport,
+  type SubmitReportInput,
 } from '../services/verification.service.js'
 import {
   notifySeller,
@@ -64,6 +66,8 @@ export const getMarketplaceConfig = async (_req: Request, res: Response) => {
   res.json({
     success: true,
     minVerificationFee: settings.minVerificationFee,
+    // Request for Legal Reports (DISCOVERY) floor — flat, no maximum. See LEGAL_REPORT_MIN_AMOUNT.
+    legalReportMinAmount: LEGAL_REPORT_MIN_AMOUNT,
     platformCommissionPercent,
     expertCommissionPercent: round2(100 - platformCommissionPercent),
   })
@@ -151,6 +155,7 @@ export const createRequest = async (req: Request, res: Response) => {
     desiredTehsil,
     desiredPropertyType,
     desiredKhasraOrSurvey,
+    questions,
   } = req.body as CreateVerificationRequestInput
 
   try {
@@ -164,6 +169,7 @@ export const createRequest = async (req: Request, res: Response) => {
       desiredTehsil,
       desiredPropertyType,
       desiredKhasraOrSurvey,
+      questions,
     })
     void notifyBuyer(userId, {
       type: 'verification',
@@ -293,7 +299,7 @@ export const getRequestById = async (req: Request, res: Response) => {
     request: {
       ...rest,
       reportAvailable: Boolean(report),
-      report: reportVisible ? report : null,
+      report: reportVisible && report ? publicReport(report) : null,
     },
   })
 }
@@ -538,7 +544,7 @@ export const getReport = async (req: Request, res: Response) => {
     return
   }
 
-  res.json({ success: true, report: request.report })
+  res.json({ success: true, report: publicReport(request.report) })
 }
 
 // POST /api/verification-requests/:id/cancel
@@ -911,7 +917,7 @@ export const submitQuote = async (req: Request, res: Response) => {
 
     res.status(201).json({
       success: true,
-      message: 'Quote submitted — waiting for the buyer to review it.',
+      message: 'Quote submitted — waiting for the user to review it.',
       quote,
     })
   } catch (err) {
@@ -1001,27 +1007,18 @@ export const linkListing = async (req: Request, res: Response) => {
 export const submitReport = async (req: Request, res: Response) => {
   const id = req.params.id as string
   const actor = resolveActor(req)
-  const { findings, riskAssessment, documents, images, videos } = req.body as {
-    findings: string
-    riskAssessment?: 'GREEN' | 'AMBER' | 'RED'
-    documents: string[]
-    images: string[]
-    videos: string[]
-  }
+  // req.body already passed verificationReportCreateSchema (validateBody), so it
+  // is exactly the structured-findings shape; unknown keys (e.g. a legacy
+  // riskAssessment) were stripped there.
+  const body = req.body as SubmitReportInput
 
   try {
-    const report = await submitVerificationReport(id, actor, {
-      findings,
-      riskAssessment,
-      documents,
-      images,
-      videos,
-    })
+    const report = await submitVerificationReport(id, actor, body)
     void notifyBuyerVerificationCompleted(id)
     res.status(201).json({
       success: true,
-      message: 'Verification report submitted. The buyer will be asked for the remaining payment.',
-      report,
+      message: 'Verification report submitted. The user will be asked for the remaining payment.',
+      report: publicReport(report),
     })
   } catch (err) {
     if (err instanceof VerificationError) {

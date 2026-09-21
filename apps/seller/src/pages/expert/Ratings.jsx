@@ -34,7 +34,7 @@ export default function ExpertRatings() {
 
   return (
     <>
-      <PageHead title="Ratings & Reviews" subtitle="Buyers ka feedback." />
+      <PageHead title="Ratings & Reviews" subtitle="Users ka feedback." />
 
       {/* Summary */}
       <Card style={{ padding: 24, display: 'flex', gap: 24, alignItems: 'center', marginBottom: 20, maxWidth: 520 }}>

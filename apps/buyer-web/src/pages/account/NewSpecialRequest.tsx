@@ -1,26 +1,20 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { specialRequestCreateSchema, PropertyType } from '@civilcheck/shared'
-import { createSpecialRequest, verifySpecialRequestAdvance } from '../../api/specialRequest.api'
-import { useAuth } from '../../context/AuthContext'
+import { PropertyType, LEGAL_REPORT_MIN_AMOUNT, LEGAL_REPORT_MIN_AMOUNT_MESSAGE } from '@civilcheck/shared'
+import { createVerificationRequest, getVerificationConfig } from '../../api/verification.api'
 import { Button } from '../../components/Button'
 import { Input, Select, Textarea } from '../../components/Field'
 import { InlineNotice } from '../../components/States'
-import { PaymentModal } from '../../components/PaymentModal'
-import { errorMessage } from '../../lib/errors'
+import { errorMessage, errorStatus } from '../../lib/errors'
 import { formatRupees, humanize } from '../../lib/format'
-import type { CheckoutOrder } from '../../types/api'
 
-const TIERS = [
-  { amount: 999, label: 'Basic', desc: 'A quick check against public records' },
-  { amount: 2499, label: 'Standard', desc: 'Site visit plus document review' },
-  { amount: 4999, label: 'Deep dive', desc: 'Full investigation with expert opinion' },
-]
+// "Request for Legal Reports" (formerly Custom Research). There are no fixed plans any more:
+// the buyer enters their own offer (minimum ₹2,499, no maximum). The request goes into the
+// existing verification marketplace — Experts accept the offer or counter it, the buyer
+// accepts one, and the existing 50% + 50% payments then run on the agreed price. Nothing is
+// charged when this form is submitted.
 
-// Handoff shape from Browse Property's "Can't find the property you're
-// looking for?" CTA — SpecialRequest has no khasra/survey field, so that
-// value (if the buyer entered one) is folded into the questions prefill
-// instead of dropped.
+// Handoff shape from Browse Property's "Can't find the property you're looking for?" CTA.
 interface BrowsePropertyHandoff {
   address?: string
   city?: string
@@ -32,7 +26,6 @@ interface BrowsePropertyHandoff {
 export default function NewSpecialRequest() {
   const navigate = useNavigate()
   const location = useLocation()
-  const { user } = useAuth()
   const handoff = (location.state as BrowsePropertyHandoff | null) ?? null
 
   const [address, setAddress] = useState(handoff?.address ?? '')
@@ -42,49 +35,60 @@ export default function NewSpecialRequest() {
   const [questions, setQuestions] = useState(
     handoff?.khasraNumber ? `Khasra/Survey number: ${handoff.khasraNumber}` : '',
   )
-  const [advanceAmount, setAdvanceAmount] = useState(999)
+  const [minAmount, setMinAmount] = useState<number>(LEGAL_REPORT_MIN_AMOUNT)
+  const [amount, setAmount] = useState('')
 
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [formError, setFormError] = useState('')
   const [busy, setBusy] = useState(false)
 
-  const [requestId, setRequestId] = useState<string | null>(null)
-  const [order, setOrder] = useState<CheckoutOrder | null>(null)
-  const [keyId, setKeyId] = useState<string | null>(null)
-  const [payOpen, setPayOpen] = useState(false)
+  useEffect(() => {
+    let live = true
+    void getVerificationConfig()
+      .then((res) => {
+        if (live && res.legalReportMinAmount) setMinAmount(res.legalReportMinAmount)
+      })
+      .catch(() => {})
+    return () => {
+      live = false
+    }
+  }, [])
+
+  const validate = (): boolean => {
+    const errs: Record<string, string> = {}
+    if (address.trim().length < 5) errs.address = 'Address must be at least 5 characters.'
+    if (city.trim().length < 2) errs.city = 'City is required.'
+    if (tehsil.trim().length < 2) errs.tehsil = 'Tehsil is required.'
+    if (questions.trim().length < 10) errs.questions = 'Describe what you want checked (min 10 characters).'
+    const n = Number(amount)
+    if (!amount || !Number.isFinite(n) || n <= 0) errs.amount = 'Enter your offer amount.'
+    else if (n < minAmount) errs.amount = LEGAL_REPORT_MIN_AMOUNT_MESSAGE
+    setFieldErrors(errs)
+    return Object.keys(errs).length === 0
+  }
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
+    if (busy) return
     setFormError('')
-
-    const parsed = specialRequestCreateSchema.safeParse({
-      address,
-      city,
-      tehsil,
-      propertyType,
-      questions,
-      documents: [],
-      advanceAmount,
-    })
-    if (!parsed.success) {
-      const errs: Record<string, string> = {}
-      for (const issue of parsed.error.issues) {
-        if (issue.path[0]) errs[String(issue.path[0])] = issue.message
-      }
-      setFieldErrors(errs)
-      return
-    }
-    setFieldErrors({})
+    if (!validate()) return
 
     setBusy(true)
     try {
-      const res = await createSpecialRequest(parsed.data)
-      setRequestId(res.requestId)
-      setOrder(res.order)
-      setKeyId(res.razorpayKeyId)
-      setPayOpen(true)
+      const res = await createVerificationRequest({
+        source: 'DISCOVERY',
+        initialOfferAmount: Number(amount),
+        desiredAddress: address.trim(),
+        desiredCity: city.trim(),
+        desiredTehsil: tehsil.trim(),
+        desiredPropertyType: propertyType,
+        questions: questions.trim(),
+      })
+      navigate(`/account/verifications/${res.request.id}`)
     } catch (err) {
-      setFormError(errorMessage(err, "Couldn't submit your request."))
+      const status = errorStatus(err)
+      if (status === 409) setFormError('You already have an active request for this location and property type.')
+      else setFormError(errorMessage(err, "Couldn't submit your request."))
     } finally {
       setBusy(false)
     }
@@ -93,7 +97,7 @@ export default function NewSpecialRequest() {
   return (
     <div style={{ maxWidth: 560 }}>
       <h1 className="h2" style={{ marginBottom: 20 }}>
-        Request custom research
+        Request for Legal Reports
       </h1>
 
       {formError ? (
@@ -124,60 +128,27 @@ export default function NewSpecialRequest() {
           hint="Minimum 10 characters."
         />
 
-        <div>
-          <div className="field__label" style={{ marginBottom: 8 }}>
-            Research depth
-          </div>
-          <div className="stack">
-            {TIERS.map((tier) => (
-              <button
-                key={tier.amount}
-                type="button"
-                onClick={() => setAdvanceAmount(tier.amount)}
-                className="card"
-                style={{
-                  textAlign: 'left',
-                  cursor: 'pointer',
-                  borderColor: advanceAmount === tier.amount ? 'var(--cc-gold)' : 'var(--cc-border)',
-                  background: advanceAmount === tier.amount ? 'var(--cc-gold-dim)' : 'var(--cc-surface)',
-                }}
-              >
-                <div className="spread">
-                  <span style={{ fontWeight: 700, fontSize: 13.5 }}>{tier.label}</span>
-                  <span className="gold-text" style={{ fontWeight: 700 }}>
-                    {formatRupees(tier.amount)}
-                  </span>
-                </div>
-                <p className="muted" style={{ fontSize: 11.5, marginTop: 4 }}>
-                  {tier.desc}
-                </p>
-              </button>
-            ))}
-          </div>
-        </div>
+        <Input
+          label="Your Offer Amount (₹)"
+          type="number"
+          inputMode="numeric"
+          min={minAmount}
+          step="1"
+          placeholder="Enter your offer"
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+          error={fieldErrors.amount}
+          hint={`Enter your offer. Minimum ${formatRupees(minAmount)}; there is no maximum.`}
+        />
+        <InlineNotice
+          tone="info"
+          message="This is your offer, not a payment. Experts can accept it or counter with their own price — you only pay after you accept a price, and only 50% up front."
+        />
 
         <Button type="submit" size="lg" block loading={busy}>
-          Continue to payment
+          Submit request
         </Button>
       </form>
-
-      <PaymentModal
-        open={payOpen}
-        onClose={() => setPayOpen(false)}
-        order={order}
-        razorpayKeyId={keyId}
-        prefill={{ name: user?.name ?? undefined, email: user?.email ?? undefined, contact: user?.phone }}
-        successTitle="Request submitted!"
-        successMessage="An expert will review your request and get started shortly."
-        successButtonLabel="View request"
-        onPaid={async (result) => {
-          if (requestId) await verifySpecialRequestAdvance(requestId, result)
-        }}
-        onSuccess={() => {
-          setPayOpen(false)
-          if (requestId) navigate(`/account/requests/${requestId}`)
-        }}
-      />
     </div>
   )
 }

@@ -130,8 +130,8 @@ async function computeEarningsSummary(sellerId: string): Promise<EarningsSummary
       // Rs. 500 se kam hua toh agle hafte carry forward
       willBeProcessed: pendingAmount >= 500,
       message: pendingAmount < 500
-        ? `Rs. ${pendingAmount} pending — another Rs. ${(500 - pendingAmount).toFixed(2)} is needed to reach the Rs. 500 minimum payout threshold`
-        : `Rs. ${pendingAmount.toFixed(2)} will be transferred to your bank next Monday`
+        ? `₹${pendingAmount} pending — another ₹${(500 - pendingAmount).toFixed(2)} is needed to reach the ₹500 minimum payout threshold`
+        : `₹${pendingAmount.toFixed(2)} will be transferred to your bank next Monday`
     }
   }
 }
@@ -189,7 +189,8 @@ export const getDashboard = async (req: Request, res: Response) => {
       city: l.city,
       propertyType: l.propertyType,
       status: l.status,
-      riskBadge: l.riskBadge,
+      propertyStatus: l.propertyStatus,
+      disputeType: l.disputeType,
       price: l.price,
       views: l.views,
       totalSales: l._count.purchases,
@@ -228,7 +229,8 @@ export const getTransactions = async (req: Request, res: Response) => {
             address: true,
             city: true,
             price: true,
-            riskBadge: true,
+            propertyStatus: true,
+            disputeType: true,
           }
         }
       },

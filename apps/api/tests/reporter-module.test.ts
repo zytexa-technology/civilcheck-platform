@@ -69,7 +69,8 @@ describe('reporter module', () => {
     const res = await request(app)
       .post('/api/seller/properties')
       .set('Authorization', `Bearer ${reporter.token}`)
-      .send({ title: 'x', area: '100' })
+      .send({
+        propertyStatus: 'CLEAR', title: 'x', area: '100' })
     expect(res.status).toBe(403)
   })
 
@@ -97,6 +98,7 @@ describe('reporter module', () => {
       .set('Authorization', `Bearer ${reporter.token}`)
       .send({
         title: `Reporter Test Post ${Date.now()}`,
+        address: `Plot 1, Reporter Test Colony ${Date.now()}, Jaipur`,
         city: 'Jaipur',
         images: ['https://res.cloudinary.com/demo/image/upload/x.jpg'],
       })
@@ -153,7 +155,7 @@ describe('reporter module', () => {
     const create = await request(app)
       .post('/api/seller/reporter-posts')
       .set('Authorization', `Bearer ${reporter.token}`)
-      .send({ images: ['https://res.cloudinary.com/demo/image/upload/x.jpg'] })
+      .send({ address: `Test Property ${Date.now()}-${Math.random()}, Jaipur`, images: ['https://res.cloudinary.com/demo/image/upload/x.jpg'] })
     const id = create.body.post.id
 
     const del = await request(app)
@@ -175,7 +177,7 @@ describe('reporter module', () => {
     await request(app)
       .post('/api/seller/reporter-posts')
       .set('Authorization', `Bearer ${reporter.token}`)
-      .send({ images: ['https://res.cloudinary.com/demo/image/upload/x.jpg'] })
+      .send({ address: `Test Property ${Date.now()}-${Math.random()}, Jaipur`, images: ['https://res.cloudinary.com/demo/image/upload/x.jpg'] })
 
     const after = await request(app)
       .get('/api/seller/reporter/rewards/summary')

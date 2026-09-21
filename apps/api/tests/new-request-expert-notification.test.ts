@@ -98,7 +98,8 @@ describe('New open verification request — eligible Expert notification', () =>
     const createRes = await request(app)
       .post('/api/seller/properties')
       .set('Authorization', `Bearer ${owner.token}`)
-      .send({ title: `New Request Notify Test Flat ${Date.now()}`, area: '1200', city: 'Jaipur', latitude: 26.9124, longitude: 75.7873, documents: docs })
+      .send({
+        propertyStatus: 'CLEAR', title: `New Request Notify Test Flat ${Date.now()}`, area: '1200', city: 'Jaipur', latitude: 26.9124, longitude: 75.7873, documents: docs })
     if (!createRes.body.success) throw new Error(`Property create failed: ${JSON.stringify(createRes.body)}`)
     propertyId = createRes.body.property.id as string
   })

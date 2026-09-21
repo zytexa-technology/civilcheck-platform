@@ -52,11 +52,11 @@ const BuyerModal = ({ buyer, onClose, onDeleted, canManage }) => {
           ['Phone', buyer.phone || '—'],
           ['Email', buyer.email || '—'],
           ['Registered', new Date(buyer.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })],
-          ['Buyer ID', buyer.id],
+          ['User ID', buyer.id],
         ].map(([label, value], i, all) => (
           <div key={label} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: i === all.length - 1 ? 'none' : '1px solid var(--border)', fontSize: 13 }}>
             <span className="muted">{label}</span>
-            <span style={{ fontWeight: 500, fontFamily: label === 'Buyer ID' ? 'monospace' : 'inherit', fontSize: label === 'Buyer ID' ? 11 : 13 }}>{value}</span>
+            <span style={{ fontWeight: 500, fontFamily: label === 'User ID' ? 'monospace' : 'inherit', fontSize: label === 'User ID' ? 11 : 13 }}>{value}</span>
           </div>
         ))}
       </div>
@@ -64,7 +64,7 @@ const BuyerModal = ({ buyer, onClose, onDeleted, canManage }) => {
       <ConfirmDialog
         open={confirmDelete}
         tone="danger"
-        title="Delete this buyer's profile?"
+        title="Delete this user's profile?"
         description={`"${buyer.name || buyer.phone}" will be soft-deleted — their purchase/payment history stays intact for records, but they can no longer log in. This cannot be undone from the UI.`}
         confirmLabel="Delete account"
         loading={deleting}
@@ -95,7 +95,7 @@ export default function Buyers() {
   const handleDeleteBuyer = async (id) => {
     try {
       await deleteBuyer(id)
-      showToast('✅ Buyer account deleted')
+      showToast('✅ User account deleted')
       loadBuyers()
     } catch (err) {
       showToast(`❌ Error: ${err.response?.data?.message || 'Something went wrong'}`)
@@ -131,11 +131,11 @@ export default function Buyers() {
   const columns = [
     {
       key: 'buyer',
-      header: 'Buyer',
+      header: 'User',
       render: (b) => (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'var(--blue-dim)', display: 'grid', placeItems: 'center', fontWeight: 700, fontSize: 13, color: 'var(--blue)', flexShrink: 0 }}>
-            {(b.name || b.phone || 'B')[0].toUpperCase()}
+            {(b.name || b.phone || 'U')[0].toUpperCase()}
           </div>
           <div>
             <div style={{ fontWeight: 600 }}>{b.name || 'Anonymous'}</div>
@@ -153,16 +153,16 @@ export default function Buyers() {
 
   return (
     <div>
-      <PageHead title="Buyer management" subtitle="View all registered buyers, purchase history, and subscriptions" />
+      <PageHead title="User management" subtitle="View all registered users, purchase history, and subscriptions" />
 
       <div className="grid g4" style={{ marginBottom: 20 }}>
-        <StatCard tone="grey" icon="👥" value={total} label="Total buyers" />
+        <StatCard tone="grey" icon="👥" value={total} label="Total users" />
         <StatCard tone="blue" icon="🔔" value={stats.activeAlerts} label="Alert subscribers" />
         <StatCard tone="green" icon="📦" value={stats.totalPurchases} label="Paid purchases" />
         <StatCard tone="gold" icon="💰" value={`₹${stats.totalSpent.toLocaleString('en-IN')}`} label="Total revenue" />
       </div>
 
-      <SearchInput value={search} onChange={setSearch} placeholder="Search buyer name, mobile, email…" style={{ marginBottom: 16 }} />
+      <SearchInput value={search} onChange={setSearch} placeholder="Search user name, mobile, email…" style={{ marginBottom: 16 }} />
 
       {error ? (
         <ErrorState message={error} onRetry={loadBuyers} />
@@ -172,11 +172,11 @@ export default function Buyers() {
             columns={columns}
             rows={loading ? [] : filtered}
             getRowKey={(b) => b.id}
-            emptyState={<div style={{ padding: 40, textAlign: 'center' }} className="muted small">{loading ? '⏳ Loading buyers…' : 'No buyers found'}</div>}
+            emptyState={<div style={{ padding: 40, textAlign: 'center' }} className="muted small">{loading ? '⏳ Loading users…' : 'No users found'}</div>}
           />
           {totalPages > 1 && (
             <div style={{ padding: '14px 20px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
-              <span className="small muted">Page {page} of {totalPages} · {total} total buyers</span>
+              <span className="small muted">Page {page} of {totalPages} · {total} total users</span>
               <div style={{ display: 'flex', gap: 8 }}>
                 <Button size="sm" variant="ghost" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}>← Prev</Button>
                 <Button size="sm" variant="ghost" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages}>Next →</Button>

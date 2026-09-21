@@ -362,6 +362,11 @@ export default function VerificationRequestDetail() {
                         {formatRupees(q.proposedFee)}
                       </span>
                     </div>
+                    <p style={{ fontSize: 12, marginTop: 6 }}>
+                      {q.proposedFee === request.buyerInitialOfferAmount
+                        ? `Accepted your offer of ${formatRupees(request.buyerInitialOfferAmount)}.`
+                        : `Original offer: ${formatRupees(request.buyerInitialOfferAmount)} · Counter offer: ${formatRupees(q.proposedFee)}.`}
+                    </p>
                     {q.quotedBySeller ? (
                       <p className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>
                         {sellerBadgeLong(q.quotedBySeller.badge)} · {q.quotedBySeller.profession.replace(/_/g, ' ')}
@@ -489,9 +494,33 @@ export default function VerificationRequestDetail() {
         })() : null}
 
         {report ? (
-          <SectionCard icon="📄" title="Findings report">
-            <p style={{ fontSize: 13, lineHeight: 1.7, padding: '12px 0' }}>{report.findings}</p>
-            {report.riskAssessment ? <DetailRow label="Risk assessment" value={report.riskAssessment} /> : null}
+          <SectionCard icon="📄" title="Legal verification report">
+            {report.disputeFound === true ? (
+              <>
+                <DetailRow label="Dispute found" value="Yes" />
+                {report.disputeType ? <DetailRow label="Dispute type" value={({ CIVIL: 'Civil', CRIMINAL: 'Criminal', OTHER: 'Other' } as Record<string, string>)[report.disputeType] ?? report.disputeType} /> : null}
+                {report.disputeNature ? <DetailRow label="Nature of dispute" value={report.disputeNature} /> : null}
+                {report.caseCategory ? <DetailRow label="Case type / category" value={report.caseCategory} /> : null}
+                {report.caseNumber ? <DetailRow label="Case number / reference" value={report.caseNumber} /> : null}
+                {report.courtName ? <DetailRow label="Court / authority" value={report.courtName} /> : null}
+                {report.disputeStartYear ? <DetailRow label="Dispute started" value={String(report.disputeStartYear)} /> : null}
+                {report.disputeStatus ? <DetailRow label="Current status" value={({ ACTIVE: 'Active / ongoing', RESOLVED: 'Resolved', UNKNOWN: 'Unknown' } as Record<string, string>)[report.disputeStatus]} /> : null}
+                {report.currentStatusNotes ? <DetailRow label="Status information" value={report.currentStatusNotes} /> : null}
+                {report.partiesInvolved ? <DetailRow label="Parties involved" value={report.partiesInvolved} /> : null}
+                {report.resolutionOutlook ? <DetailRow label="Resolution / outlook" value={report.resolutionOutlook} /> : null}
+              </>
+            ) : report.disputeFound === false ? (
+              <DetailRow label="Dispute found" value="No dispute or issue found" />
+            ) : null}
+            {report.titleFindings ? <DetailRow label="Ownership / title findings" value={report.titleFindings} /> : null}
+            <p className="muted" style={{ fontSize: 11.5, marginTop: 10 }}>Detailed findings</p>
+            <p style={{ fontSize: 13, lineHeight: 1.7, padding: '4px 0 12px', whiteSpace: 'pre-wrap' }}>{report.findings}</p>
+            {report.expertRemarks ? (
+              <>
+                <p className="muted" style={{ fontSize: 11.5 }}>Expert remarks / recommendations</p>
+                <p style={{ fontSize: 13, lineHeight: 1.7, padding: '4px 0 12px', whiteSpace: 'pre-wrap' }}>{report.expertRemarks}</p>
+              </>
+            ) : null}
             {report.documents.length > 0 ? (
               <>
                 <p className="muted" style={{ fontSize: 11.5, marginTop: 6 }}>📥 Download Report</p>

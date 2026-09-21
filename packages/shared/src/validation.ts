@@ -7,13 +7,15 @@ import {
   BannerSeverity,
   CaseStatus,
   CaseType,
+  DisputeType,
   PartnerRole,
   PayoutEligibilityStatus,
   Profession,
+  PropertyClassification,
   PropertyType,
-  RiskBadge,
   SupportTicketCategory,
   SupportTicketPriority,
+  VerificationDisputeStatus,
   VerificationSource,
 } from './enums.js'
 
@@ -159,6 +161,10 @@ export const sellerRegistrationSchema = z
     selfieUrl: z.url('selfieUrl must be a valid URL').optional(),
     barCouncilDoc: z.url('barCouncilDoc must be a valid URL').optional(),
     digitalSignature: z.string().trim().min(2).optional(),
+    // Mandatory Aadhaar KYC session (Reporter/Owner/Expert) — opaque token from
+    // POST /api/seller/kyc-signup/otp/send. Presence is checked here; that the
+    // session is genuinely VERIFIED is enforced server-side in sellerRegister.
+    kycSessionToken: z.string().min(1).max(200).optional(),
   })
   .superRefine((data, ctx) => {
     // Bank details travel as a pair — account number without IFSC is unroutable
@@ -189,6 +195,23 @@ export const sellerRegistrationSchema = z
     }
   })
 export type SellerRegistrationInput = z.infer<typeof sellerRegistrationSchema>
+
+// ─── SIGNUP AADHAAR KYC ───────────────────────────────────────────────────────
+// Shape checks only — the Verhoeff checksum, provider call and all state
+// transitions are enforced server-side (services/aadhaarKyc). Error messages
+// here never echo the submitted value.
+export const aadhaarKycStartSchema = z.object({
+  aadhaarNumber: z.string().min(1, 'Aadhaar number is required').max(20, 'Enter a valid 12-digit Aadhaar number'),
+  sessionToken: z.string().max(200).optional(),
+})
+export const aadhaarKycVerifySchema = z.object({
+  sessionToken: z.string().min(1, 'Verification session is required').max(200),
+  otp: z.string().regex(/^\d{4,8}$/, 'Enter the OTP sent to your Aadhaar-linked mobile number'),
+})
+export const aadhaarKycDocumentSchema = z.object({
+  sessionToken: z.string().min(1, 'Verification session is required').max(200),
+  documentUrl: z.url('documentUrl must be a valid URL'),
+})
 
 export const sellerLoginSchema = z.object({
   email: emailSchema,
@@ -305,6 +328,32 @@ export const identityDocumentUploadSchema = z.object({
 })
 export type IdentityDocumentUploadInput = z.infer<typeof identityDocumentUploadSchema>
 
+// ─── PROPERTY CLASSIFICATION (Expert listing + Owner property) ──────────────
+// propertyStatus CLEAR | DISPUTED; disputeType CIVIL | CRIMINAL | OTHER.
+//   CLEAR    => disputeType must be absent/null
+//   DISPUTED => disputeType required
+// The buyer-facing Red/Green indicator is derived from this server-side; a
+// colour is never accepted from a client (unknown keys are
+// stripped by Zod).
+const classificationShape = {
+  propertyStatus: z.enum(PropertyClassification, { message: 'propertyStatus must be CLEAR or DISPUTED' }),
+  disputeType: z.enum(DisputeType, { message: 'disputeType must be CIVIL, CRIMINAL or OTHER' }).nullable().optional(),
+}
+function refineClassification(
+  data: { propertyStatus?: string; disputeType?: string | null },
+  ctx: z.RefinementCtx
+) {
+  if (data.propertyStatus === 'DISPUTED' && !data.disputeType) {
+    ctx.addIssue({ code: 'custom', path: ['disputeType'], message: 'disputeType is required when the property is DISPUTED' })
+  }
+  if (data.propertyStatus === 'CLEAR' && data.disputeType) {
+    ctx.addIssue({ code: 'custom', path: ['disputeType'], message: 'disputeType must not be set when the property is CLEAR' })
+  }
+  if (data.propertyStatus === undefined && data.disputeType) {
+    ctx.addIssue({ code: 'custom', path: ['propertyStatus'], message: 'propertyStatus is required when disputeType is provided' })
+  }
+}
+
 // ─── LISTING CREATION (PDF 6.3 — all 17 report fields) ───────────────────────
 
 export const listingCreateSchema = z
@@ -315,7 +364,11 @@ export const listingCreateSchema = z
     propertyType: z.enum(PropertyType),
     city: z.string().trim().min(2),
     tehsil: z.string().trim().min(2),
-    caseExists: z.boolean(),
+    ...classificationShape,
+    // Legacy case detail — no longer required; the Clear/Disputed classification
+    // above is what drives the buyer indicator. If a caller says a case exists
+    // its details are still required (unchanged rule below).
+    caseExists: z.boolean().optional(),
     caseNumber: z.string().trim().min(1).optional(),
     caseType: z.enum(CaseType).optional(),
     caseStatus: z.enum(CaseStatus).optional(),
@@ -334,8 +387,8 @@ export const listingCreateSchema = z
     longitude: z.number().min(-180, 'Longitude must be between -180 and 180').max(180, 'Longitude must be between -180 and 180'),
     price: z
       .number()
-      .min(99, 'Price must be at least Rs. 99')
-      .max(4999, 'Price cannot exceed Rs. 4999'),
+      .min(99, 'Price must be at least ₹99')
+      .max(4999, 'Price cannot exceed ₹4,999'),
     sellerNotes: z.string().trim().min(1).optional(),
     documents: z.array(z.url()).default([]),
     images: z.array(z.url()).default([]),
@@ -343,6 +396,7 @@ export const listingCreateSchema = z
     researchDate: z.coerce.date(),
   })
   .superRefine((data, ctx) => {
+    refineClassification(data, ctx)
     if (data.caseExists) {
       for (const field of ['caseNumber', 'caseType', 'caseStatus', 'courtName'] as const) {
         if (!data[field]) {
@@ -373,6 +427,8 @@ export type ListingCreateInput = z.infer<typeof listingCreateSchema>
 
 export const listingUpdateSchema = z
   .object({
+    propertyStatus: classificationShape.propertyStatus.optional(),
+    disputeType: classificationShape.disputeType,
     caseStatus: z.enum(CaseStatus).optional(),
     caseNumber: z.string().trim().min(1).optional(),
     courtName: z.string().trim().min(2).optional(),
@@ -385,11 +441,12 @@ export const listingUpdateSchema = z
     videos: z.array(z.url()).optional(),
     price: z
       .number()
-      .min(99, 'Price must be at least Rs. 99')
-      .max(4999, 'Price cannot exceed Rs. 4999')
+      .min(99, 'Price must be at least ₹99')
+      .max(4999, 'Price cannot exceed ₹4,999')
       .optional(),
   })
   .superRefine((data, ctx) => {
+    refineClassification(data, ctx)
     if (data.loanDefault && !data.lenderName) {
       ctx.addIssue({
         code: 'custom',
@@ -418,11 +475,11 @@ export type ListingUpdateInput = z.infer<typeof listingUpdateSchema>
 // toward a required slot. Reduced from 8 to these 3 per the Partner Portal
 // Add Property document-requirement change — every other document type
 // remains fully submittable, just never required.
-export const REQUIRED_PROPERTY_DOCUMENT_TYPES = [
-  'SALE_DEED',
-  'ELECTRICITY_BILL',
-  'OWNER_AADHAAR',
-] as const
+// Owner Add Property now collects ONE mandatory document — the Ownership Document — instead
+// of the earlier Sale Deed / Electricity Bill / Owner Aadhaar set. Stored in the existing
+// Property.documents ({ type, url }[]) under this type; other types (incl. those legacy
+// ones on existing properties) remain accepted and are never required.
+export const REQUIRED_PROPERTY_DOCUMENT_TYPES = ['OWNERSHIP_DOCUMENT'] as const
 export type RequiredPropertyDocumentType = (typeof REQUIRED_PROPERTY_DOCUMENT_TYPES)[number]
 
 export const propertyDocumentSchema = z.object({
@@ -432,6 +489,7 @@ export const propertyDocumentSchema = z.object({
 export type PropertyDocumentInput = z.infer<typeof propertyDocumentSchema>
 
 export const propertyCreateSchema = z.object({
+  ...classificationShape,
   title: z.string().trim().min(2, 'Title must be at least 2 characters'),
   area: z.string().trim().min(1, 'Area is required'),
   age: z.string().trim().min(1).optional(),
@@ -448,11 +506,16 @@ export const propertyCreateSchema = z.object({
   documents: z.array(propertyDocumentSchema).default([]),
   images: z.array(z.url()).default([]),
   videos: z.array(z.url()).default([]),
-})
+}).superRefine(refineClassification)
 export type PropertyCreateInput = z.infer<typeof propertyCreateSchema>
 
 export const propertyUpdateSchema = z
   .object({
+    propertyStatus: classificationShape.propertyStatus.optional(),
+    disputeType: classificationShape.disputeType,
+    // Replace (or, for a legacy property, add) the Ownership Document without touching the
+    // other stored documents.
+    ownershipDocumentUrl: z.url('ownershipDocumentUrl must be a valid URL').optional(),
     title: z.string().trim().min(2).optional(),
     area: z.string().trim().min(1).optional(),
     age: z.string().trim().min(1).optional(),
@@ -470,6 +533,7 @@ export const propertyUpdateSchema = z
     videos: z.array(z.url()).optional(),
   })
   .superRefine((data, ctx) => {
+    refineClassification(data, ctx)
     // Both optional here (an edit shouldn't force re-supplying a location
     // that's already stored — see property-owner.controller.ts's
     // `latitude: latitude ?? existing.latitude`), but a partial pair (one
@@ -487,7 +551,20 @@ export type PropertyUpdateInput = z.infer<typeof propertyUpdateSchema>
 
 // ─── REPORTER POST (property-information/news content, not a listing) ───────
 
+// The property's REAL location/address (what the uploaded media shows) — never
+// the Reporter's own location. Required on create; on update it may be omitted
+// (keeps the stored one) but can never be blanked out or replaced with junk.
+export const reporterPostAddressSchema = z
+  .string()
+  .trim()
+  .min(5, 'Property location / address is required (at least 5 characters).')
+  .max(300, 'Property location / address is too long (max 300 characters).')
+  .refine((v) => /[\p{L}\p{N}]{3,}/u.test(v), {
+    message: 'Enter the actual location/address of the property (letters or numbers, not just symbols).',
+  })
+
 export const reporterPostCreateSchema = z.object({
+  address: reporterPostAddressSchema,
   title: z.string().trim().min(2).optional(),
   description: z.string().trim().min(2).optional(),
   images: z.array(z.url()).min(1, 'At least one image is required'),
@@ -499,6 +576,7 @@ export const reporterPostCreateSchema = z.object({
 export type ReporterPostCreateInput = z.infer<typeof reporterPostCreateSchema>
 
 export const reporterPostUpdateSchema = z.object({
+  address: reporterPostAddressSchema.optional(),
   title: z.string().trim().min(2).optional(),
   description: z.string().trim().min(2).optional(),
   images: z.array(z.url()).min(1).optional(),
@@ -520,8 +598,8 @@ export const specialRequestCreateSchema = z.object({
   documents: z.array(z.url()).default([]),
   advanceAmount: z
     .number()
-    .min(999, 'Advance must be at least Rs. 999')
-    .max(4999, 'Advance cannot exceed Rs. 4999'),
+    .min(999, 'Advance must be at least ₹999')
+    .max(4999, 'Advance cannot exceed ₹4,999'),
 })
 export type SpecialRequestCreateInput = z.infer<typeof specialRequestCreateSchema>
 
@@ -562,14 +640,6 @@ export const pushPreferenceSchema = z.object({
   enabled: z.boolean(),
 })
 export type PushPreferenceInput = z.infer<typeof pushPreferenceSchema>
-
-// ─── SUBSCRIPTIONS (PDF 7.7 / 3.3) ───────────────────────────────────────────
-
-// Body for POST /api/seller/subscriptions/featured — which listing to feature.
-export const featuredSubscriptionSchema = z.object({
-  listingId: z.uuid('listingId must be a valid id'),
-})
-export type FeaturedSubscriptionInput = z.infer<typeof featuredSubscriptionSchema>
 
 // ─── ADMIN AUTH + 2FA (PDF 5.1) ──────────────────────────────────────────────
 
@@ -800,6 +870,13 @@ export type ReviewCreateInput = z.infer<typeof reviewCreateSchema>
 // Exactly one of listingId/propertyId, matching `source` — enforced here
 // (edge validation) AND by a DB CHECK constraint (defense in depth, same
 // pattern as sellerRegistrationSchema's bank-pair superRefine).
+// "Request for Legal Reports" (formerly Custom Research): the buyer names their own price.
+// Minimum ₹2,499, deliberately NO maximum. Applies to legal-report requests for a property
+// that is not on CivilCheck yet (source DISCOVERY) — both the buyer's offer and any
+// Expert counter-offer must clear it. Enforced server-side in verification.service.ts.
+export const LEGAL_REPORT_MIN_AMOUNT = 2499
+export const LEGAL_REPORT_MIN_AMOUNT_MESSAGE = 'Minimum legal report request amount is ₹2,499.'
+
 export const verificationRequestCreateSchema = z
   .object({
     source: z.enum(VerificationSource),
@@ -821,6 +898,8 @@ export const verificationRequestCreateSchema = z
     desiredTehsil: z.string().trim().min(2).optional(),
     desiredPropertyType: z.enum(PropertyType).optional(),
     desiredKhasraOrSurvey: z.string().trim().min(1).optional(),
+    // What the buyer wants the legal report to find out (Request for Legal Reports form).
+    questions: z.string().trim().min(10, 'Describe what you want checked (min 10 characters)').max(2000).optional(),
   })
   .superRefine((data, ctx) => {
     if (data.source === VerificationSource.LISTING && !data.listingId) {
@@ -869,13 +948,40 @@ export const verificationQuoteCreateSchema = z.object({
 })
 export type VerificationQuoteCreateInput = z.infer<typeof verificationQuoteCreateSchema>
 
-export const verificationReportCreateSchema = z.object({
-  findings: z.string().trim().min(20, 'Findings must be at least 20 characters'),
-  riskAssessment: z.enum(RiskBadge).optional(),
-  documents: z.array(z.url()).default([]),
-  images: z.array(z.url()).default([]),
-  videos: z.array(z.url()).default([]),
-})
+// Paid Legal Verification Report — DETAILED FINDINGS, not a colour rating. The
+// Green/Amber/Red risk assessment was removed from this report (the buyer already
+// sees the property's Clear/Disputed alert before ordering it); a stray
+// `riskAssessment` in a request body is simply ignored (Zod strips unknown keys).
+const optionalText = (max: number) => z.string().trim().min(1).max(max).optional()
+export const verificationReportCreateSchema = z
+  .object({
+    // Was a dispute / issue found on the property at all?
+    disputeFound: z.boolean({ message: 'State whether a dispute or issue was found (disputeFound)' }),
+    disputeType: z.enum(DisputeType, { message: 'disputeType must be CIVIL, CRIMINAL or OTHER' }).nullable().optional(),
+    disputeNature: optionalText(500), // e.g. "Ownership dispute", "Encroachment"
+    caseCategory: optionalText(200), // case type / category
+    caseNumber: optionalText(100), // case number / reference, where legally appropriate
+    courtName: optionalText(200), // court / authority
+    disputeStartYear: z.number().int().min(1900).max(new Date().getFullYear() + 1).optional(),
+    disputeStatus: z.enum(VerificationDisputeStatus).optional(), // ACTIVE | RESOLVED | UNKNOWN
+    currentStatusNotes: optionalText(2000), // current case / status information
+    partiesInvolved: optionalText(1000), // where legally appropriate
+    titleFindings: optionalText(3000), // ownership / title-related findings
+    resolutionOutlook: optionalText(2000), // whether/how it may be resolved; current situation
+    findings: z.string().trim().min(20, 'Findings must be at least 20 characters'), // detailed expert findings
+    expertRemarks: optionalText(3000), // remarks / recommendations
+    documents: z.array(z.url()).default([]), // supporting documents / evidence
+    images: z.array(z.url()).default([]),
+    videos: z.array(z.url()).default([]),
+  })
+  .superRefine((data, ctx) => {
+    if (data.disputeFound && !data.disputeType) {
+      ctx.addIssue({ code: 'custom', path: ['disputeType'], message: 'disputeType is required when a dispute was found' })
+    }
+    if (!data.disputeFound && data.disputeType) {
+      ctx.addIssue({ code: 'custom', path: ['disputeType'], message: 'disputeType must not be set when no dispute was found' })
+    }
+  })
 export type VerificationReportCreateInput = z.infer<typeof verificationReportCreateSchema>
 
 export const verificationCancelSchema = z.object({
@@ -1037,3 +1143,77 @@ export const supportKnowledgeUpsertSchema = z.object({
   active: z.boolean().default(true),
 })
 export type SupportKnowledgeUpsertInput = z.infer<typeof supportKnowledgeUpsertSchema>
+
+// ─── ADVERTISING PLATFORM ───────────────────────────────────────────────────
+// Direct advertiser -> CivilCheck ad buying. NOT property-restricted: any
+// legitimate business can advertise (moderated by Superadmin approval).
+// Billing is CPM only. Minimum budget ₹100, deliberately NO maximum.
+export const AD_MIN_BUDGET_RUPEES = 100
+export const AD_MIN_BUDGET_MESSAGE = 'Minimum campaign budget is ₹100.'
+// Reference CPM (₹ per 1,000 impressions). The server's own copy in
+// advertising.config.ts is authoritative; this only feeds the estimate preview.
+export const AD_REFERENCE_CPM_RUPEES = 100
+
+export const advertiserRegisterSchema = z
+  .object({
+    name: z.string().trim().min(2, 'Enter your name'),
+    companyName: z.string().trim().min(2, 'Enter your business / company name').max(100),
+    email: emailSchema,
+    phone: z.string().trim().min(6).max(20).optional(),
+    password: passwordSchema,
+  })
+export type AdvertiserRegisterInput = z.infer<typeof advertiserRegisterSchema>
+
+export const advertiserLoginSchema = z.object({
+  email: emailSchema,
+  password: z.string().min(1, 'Password is required'),
+})
+
+// Only http(s) — javascript:, data:, etc. are rejected.
+const adDestinationUrl = z
+  .string()
+  .trim()
+  .max(2000)
+  .refine((v) => {
+    try {
+      const u = new URL(v)
+      return u.protocol === 'http:' || u.protocol === 'https:'
+    } catch {
+      return false
+    }
+  }, 'Destination URL must be a valid http:// or https:// link')
+
+export const adCampaignCreateSchema = z
+  .object({
+    businessName: z.string().trim().min(2, 'Enter the advertiser / business name').max(100),
+    title: z.string().trim().min(2, 'Enter an advertisement title').max(120),
+    description: z.string().trim().min(2, 'Enter a description').max(500),
+    creativeType: z.enum(['IMAGE', 'VIDEO']),
+    creativeUrl: z.url('The advertisement creative must be uploaded first'),
+    ctaText: z.string().trim().min(2, 'Enter the button text').max(30),
+    destinationUrl: adDestinationUrl,
+    // Rupees, whole numbers. Minimum ₹100; no maximum.
+    budget: z
+      .number({ message: 'Enter your advertising budget' })
+      .int('Budget must be a whole number of rupees')
+      .min(AD_MIN_BUDGET_RUPEES, AD_MIN_BUDGET_MESSAGE),
+    platform: z.enum(['WEB', 'MOBILE', 'BOTH']).default('BOTH'),
+    startDate: z.coerce.date().optional(),
+    endDate: z.coerce.date().optional(),
+  })
+  .superRefine((d, ctx) => {
+    if (d.endDate && d.endDate.getTime() <= Date.now()) {
+      ctx.addIssue({ code: 'custom', path: ['endDate'], message: 'End date must be in the future' })
+    }
+    if (d.startDate && d.endDate && d.endDate <= d.startDate) {
+      ctx.addIssue({ code: 'custom', path: ['endDate'], message: 'End date must be after the start date' })
+    }
+  })
+export type AdCampaignCreateInput = z.infer<typeof adCampaignCreateSchema>
+
+export const adCampaignRejectSchema = z.object({
+  reason: z.string().trim().min(10, 'Give a rejection reason (min 10 characters)').max(500),
+})
+
+export const adTrackSchema = z.object({ token: z.string().min(20).max(2000) })
+

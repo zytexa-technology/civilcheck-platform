@@ -173,7 +173,7 @@ export async function createAdjustment(
   adminId: string
 ): Promise<RewardTransaction> {
   const seller = await prisma.seller.findUnique({ where: { id: sellerId }, select: { id: true, deletedAt: true } })
-  if (!seller || seller.deletedAt) throw new RewardError('Seller not found', 404)
+  if (!seller || seller.deletedAt) throw new RewardError('Partner not found', 404)
 
   return prisma.rewardTransaction.create({
     data: {

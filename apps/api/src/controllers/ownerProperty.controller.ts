@@ -30,6 +30,9 @@ function formatOwnerProperty(property: Property & { seller: { name: string; badg
     tehsil: property.tehsil,
     address: property.address,
     propertyType: property.propertyType,
+    // Clear / Disputed declared by the Owner. Clients derive the Green/Red alert from these.
+    propertyStatus: property.propertyStatus,
+    disputeType: property.disputeType,
     health: property.health,
     views: property.views,
     // Renamed from `verifiedSince` — this is when the listing was published/
@@ -62,7 +65,7 @@ function formatOwnerProperty(property: Property & { seller: { name: string; badg
 // found a Property even when its address/city/tehsil matched exactly.
 // ─────────────────────────────────────────────────────────────────────────────
 export const searchOwnerProperties = async (req: Request, res: Response) => {
-  const { query, city, tehsil, propertyType, page = '1', limit = '10' } = req.query
+  const { query, city, tehsil, propertyType, propertyStatus, page = '1', limit = '10' } = req.query
 
   const pageNum = Math.max(1, parseInt(page as string, 10) || 1)
   const limitNum = Math.min(50, Math.max(1, parseInt(limit as string, 10) || 10))
@@ -81,6 +84,7 @@ export const searchOwnerProperties = async (req: Request, res: Response) => {
   if (city) where.city = { contains: city as string, mode: 'insensitive' }
   if (tehsil) where.tehsil = { contains: tehsil as string, mode: 'insensitive' }
   if (propertyType) where.propertyType = propertyType as PropertyType
+  if (propertyStatus === 'CLEAR' || propertyStatus === 'DISPUTED') where.propertyStatus = propertyStatus
 
   const [properties, total] = await Promise.all([
     prisma.property.findMany({

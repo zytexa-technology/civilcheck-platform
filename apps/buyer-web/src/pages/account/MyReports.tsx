@@ -4,7 +4,7 @@ import { getMyPurchases } from '../../api/purchase.api'
 import { Badge } from '../../components/Badge'
 import { EmptyState, ErrorState, LoadingState } from '../../components/States'
 import { errorMessage } from '../../lib/errors'
-import { formatDate, formatRupees, riskTone } from '../../lib/format'
+import { formatDate, formatRupees, alertTone } from '../../lib/format'
 import type { PurchaseWithListing } from '../../types/api'
 
 export default function MyReports() {
@@ -26,7 +26,7 @@ export default function MyReports() {
   if (error) return <ErrorState message={error} onRetry={load} />
   if (purchases === null) return <LoadingState label="Loading your reports…" />
 
-  const highRisk = purchases.filter((p) => p.listing.riskBadge === 'RED').length
+  const highRisk = purchases.filter((p) => p.listing.propertyStatus === 'DISPUTED').length
   const totalSpent = purchases.reduce((sum, p) => sum + p.amountPaid, 0)
 
   return (
@@ -48,7 +48,7 @@ export default function MyReports() {
       ) : (
         <div className="stack">
           {purchases.map((p) => {
-            const tone = riskTone(p.listing.riskBadge)
+            const tone = alertTone(p.listing.propertyStatus, p.listing.disputeType)
             return (
               <Link key={p.id} to={`/reports/${p.listingId}`} className="card" style={{ display: 'block' }}>
                 <div className="spread">

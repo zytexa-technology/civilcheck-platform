@@ -67,16 +67,32 @@ function PhotoUpload({ images, onChange }) {
 }
 
 export default function ReporterAddPost({ go }) {
-  const [form, setForm] = useState({ title: '', description: '', city: '', tehsil: '', sourceName: '', images: [] })
+  const [form, setForm] = useState({ title: '', description: '', address: '', city: '', tehsil: '', sourceName: '', images: [] })
+  const [addressError, setAddressError] = useState('')
   const [busy, setBusy] = useState(false)
 
-  const setField = (k, v) => setForm((f) => ({ ...f, [k]: v }))
+  const setField = (k, v) => {
+    setForm((f) => ({ ...f, [k]: v }))
+    if (k === 'address') setAddressError('')
+  }
+
+  // Mirrors reporterPostAddressSchema (packages/shared) — the API enforces the
+  // same rule, this only saves a round trip.
+  const validateAddress = (v) => {
+    const t = v.trim()
+    if (t.length < 5) return 'Property location / address is required (at least 5 characters).'
+    if (!/[\p{L}\p{N}]{3,}/u.test(t)) return 'Enter the actual location/address of the property, not just symbols.'
+    return ''
+  }
 
   const submit = async () => {
+    const addrErr = validateAddress(form.address)
+    if (addrErr) { setAddressError(addrErr); toast(addrErr); return }
     if (form.images.length === 0) { toast('Kam se kam ek photo daaliye'); return }
     setBusy(true)
     try {
       await createReporterPost({
+        address: form.address.trim(),
         title: form.title.trim() || undefined,
         description: form.description.trim() || undefined,
         city: form.city.trim() || undefined,
@@ -84,7 +100,7 @@ export default function ReporterAddPost({ go }) {
         sourceName: form.sourceName.trim() || undefined,
         images: form.images,
       })
-      toast('Posted — buyer feed me live hai')
+      toast('Posted — user feed me live hai')
       go?.('dash')
     } catch (e) {
       toast(e.response?.data?.message || 'Post nahi hua — dobara try karo')
@@ -95,7 +111,7 @@ export default function ReporterAddPost({ go }) {
 
   return (
     <>
-      <PageHead title="Post a Property Update" subtitle="Submit karte hi yeh Buyer info feed me turant live ho jaata hai — koi admin approval nahi." />
+      <PageHead title="Post a Property Update" subtitle="Submit karte hi yeh User info feed me turant live ho jaata hai — koi admin approval nahi." />
 
       <div className="grid g2" style={{ alignItems: 'start' }}>
         <Card style={{ padding: 22 }}>
@@ -109,6 +125,21 @@ export default function ReporterAddPost({ go }) {
           <Field label="Description">
             <textarea className="control" rows={3} placeholder="Any extra context worth sharing…"
               value={form.description} onChange={(e) => setField('description', e.target.value)} />
+          </Field>
+
+          <Field
+            label="Property Location / Address *"
+            hint="Enter the location/address of the property shown in the uploaded media."
+          >
+            <textarea
+              className="control"
+              rows={2}
+              placeholder="e.g. Plot 14, Sector 5, Malviya Nagar, Jaipur"
+              value={form.address}
+              onChange={(e) => setField('address', e.target.value)}
+              style={addressError ? { borderColor: 'var(--danger)' } : undefined}
+            />
+            {addressError && <div style={{ color: 'var(--danger)', fontSize: 12, marginTop: 6 }}>{addressError}</div>}
           </Field>
 
           <div className="row">
@@ -138,7 +169,7 @@ export default function ReporterAddPost({ go }) {
           <SectionTitle>How Reporting Works</SectionTitle>
           <div className="flow" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 10 }}>
             <p className="small muted dev">1. Photo (newspaper cutting, notice, etc.) aur thodi context daalo.</p>
-            <p className="small muted dev">2. Post karte hi yeh Buyer info feed me turant dikhta hai — koi review wait nahi.</p>
+            <p className="small muted dev">2. Post karte hi yeh User info feed me turant dikhta hai — koi review wait nahi.</p>
             <p className="small muted dev">3. Yeh property listing nahi hai — "Reported by CivilCheck Reporter" ke saath dikhta hai, koi Verified badge nahi milta.</p>
             <p className="small muted dev">4. Reward points automatic nahi milte — sirf SuperAdmin manual adjustment se.</p>
           </div>

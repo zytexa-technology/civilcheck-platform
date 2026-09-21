@@ -430,12 +430,12 @@ export async function notifyPerformerOfClaimSubmitted(
     await notifySeller(performer.seller, {
       type: 'claim',
       title: 'A claim was raised on your verification',
-      body: '⚠️ Buyer has submitted a claim regarding your verification report. An admin will review it.',
+      body: '⚠️ User has submitted a claim regarding your verification report. An admin will review it.',
     })
   } else if (performer.type === 'ADMIN' || performer.type === 'SUPER_ADMIN') {
     await notifyOneAdmin(performer.admin, {
       subject: 'CivilCheck — Claim submitted',
-      body: `⚠️ Buyer has submitted a claim regarding the verification you handled. Verification: ${context.verificationRequestId} · Claim: ${context.claimId}`,
+      body: `⚠️ User has submitted a claim regarding the verification you handled. Verification: ${context.verificationRequestId} · Claim: ${context.claimId}`,
     })
   }
 }
@@ -473,10 +473,10 @@ export async function notifyPerformerOfPayoutEligible(
 
   const body =
     releaseReason === 'BUYER_ACCEPTED'
-      ? 'Buyer accepted the verification report. Your 70% Expert payout is now eligible for processing.'
+      ? 'User accepted the verification report. Your 70% Expert payout is now eligible for processing.'
       : releaseReason === 'CLAIM_REJECTED'
         ? 'The claim on your verification was rejected. Your Expert payout is now eligible for processing.'
-        : 'The buyer’s 7-day claim window expired with no claim. Your Expert payout is now eligible for processing.'
+        : 'The user’s 7-day claim window expired with no claim. Your Expert payout is now eligible for processing.'
 
   await notifySeller(performer.seller, { type: 'payment', title: 'Expert payout eligible', body })
 }

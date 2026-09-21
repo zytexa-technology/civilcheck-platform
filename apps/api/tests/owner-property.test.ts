@@ -17,6 +17,7 @@ describe('owner properties (self-published, buyer-facing)', () => {
       .post('/api/seller/properties')
       .set('Authorization', `Bearer ${seller.token}`)
       .send({
+        propertyStatus: 'CLEAR',
         title: `${uniqueMarker} Flat`,
         area: '1200',
         age: '5 yrs',
@@ -96,7 +97,8 @@ describe('admin property status transitions (only PENDING can be approved/reject
     const res = await request(app)
       .post('/api/seller/properties')
       .set('Authorization', `Bearer ${sellerToken}`)
-      .send({ title, area: '1000', documents: docs(title) })
+      .send({
+        propertyStatus: 'CLEAR', title, area: '1000', documents: docs(title) })
     return res.body.property.id as string
   }
 

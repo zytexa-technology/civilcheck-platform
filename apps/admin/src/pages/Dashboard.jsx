@@ -30,6 +30,8 @@ import Payments from './admin/Payments'
 import AdminSettlements from './admin/Settlements'
 import Security from './admin/Security'
 import SupportDashboard from './admin/SupportDashboard'
+import DeletedRecords from './admin/DeletedRecords'
+import Advertisements from './admin/Advertisements'
 
 // ─── NAV ITEMS ────────────────────────────────────────────────────────────
 // `id` doubles as the route path segment under /dashboard/*.
@@ -39,13 +41,13 @@ const NAV = [
   { id: 'analytics', icon: '📈', label: 'Analytics', title: 'Analytics' },
   { section: 'Management' },
   { id: 'admins', icon: '🛡️', label: 'Admins', title: 'Admin Management' },
-  { id: 'sellers', icon: '👤', label: 'Sellers', title: 'Seller Management' },
-  { id: 'listings', icon: '🏠', label: 'Listings', title: 'Property Listings' },
+  { id: 'sellers', icon: '👤', label: 'Partners', title: 'Partner Management' },
+  { id: 'listings', icon: '🏠', label: 'Expert Posts', title: 'Expert Posts' },
   { id: 'properties', icon: '🏘️', label: 'Owner Properties', title: 'Owner Properties' },
   { id: 'reporter-posts', icon: '📰', label: 'Reporter Posts', title: 'Reporter Posts' },
   { id: 'rewards', icon: '🎁', label: 'Reward Ledger', title: 'Reporter Reward Ledger' },
   { id: 'finance', icon: '💰', label: 'Financial Dashboard', title: 'Financial Dashboard' },
-  { id: 'buyers', icon: '👤', label: 'Buyers', title: 'Buyers' },
+  { id: 'buyers', icon: '👤', label: 'Users', title: 'Users' },
   { id: 'special', icon: '🔍', label: 'Special Requests', title: 'Special Requests' },
   { id: 'verification-requests', icon: '🧾', label: 'Verification Requests', title: 'Verification Requests' },
   { id: 'claims', icon: '⚖️', label: 'Claims', title: 'Claims Review' },
@@ -55,12 +57,14 @@ const NAV = [
   { section: 'Finance' },
   { id: 'payments', icon: '💳', label: 'Payments', title: 'Payments' },
   { id: 'settlements', icon: '🏦', label: 'Settlements', title: 'Settlements' },
-  { id: 'payout-ledger', icon: '📒', label: 'Payout Ledger', title: 'Seller Payout Ledger' },
+  { id: 'payout-ledger', icon: '📒', label: 'Payout Ledger', title: 'Partner Payout Ledger' },
   { id: 'refunds', icon: '↩️', label: 'Refunds', title: 'Refunds' },
   { section: 'Setting' },
   { id: 'reports', icon: '📋', label: 'Reports', title: 'Reports' },
   { id: 'alertsubs', icon: '🔔', label: 'Alert Subs', title: 'Alert Subs' },
   { id: 'audit-log', icon: '🧾', label: 'Audit Log', title: 'Audit Log' },
+  { id: 'deleted', icon: '🗑️', label: 'Deleted / Removed', title: 'Deleted / Removed', superOnly: true },
+  { id: 'advertisements', icon: '📣', label: 'Advertisements', title: 'Advertisements', superOnly: true },
   { id: 'security', icon: '🔒', label: 'Security', title: 'Security' },
   { id: 'settings', icon: '⚙️', label: 'Settings', title: 'Settings' },
 ]
@@ -132,7 +136,7 @@ export default function Dashboard() {
         </div>
 
         <div className="admin-nav">
-          {NAV.map((n, i) => {
+          {NAV.filter((n) => !n.superOnly || admin?.role === 'SUPER_ADMIN').map((n, i) => {
             if (n.section) {
               return (
                 <div key={i} className="admin-nav-section">
@@ -224,6 +228,14 @@ export default function Dashboard() {
             <Route path="reports" element={<Reports />} />
             <Route path="alertsubs" element={<AlertSubs />} />
             <Route path="audit-log" element={<AuditLog />} />
+            <Route
+              path="advertisements"
+              element={admin?.role === 'SUPER_ADMIN' ? <Advertisements /> : <Navigate to="/dashboard" replace />}
+            />
+            <Route
+              path="deleted"
+              element={admin?.role === 'SUPER_ADMIN' ? <DeletedRecords /> : <Navigate to="/dashboard" replace />}
+            />
             <Route path="security" element={<Security />} />
             <Route path="settings" element={<Settings />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />

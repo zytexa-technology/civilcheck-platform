@@ -9,46 +9,9 @@ import { useAuth } from '../../context/AuthContext'
 import { createProperty } from '../../api/seller.api'
 import { uploadToCloudinary, UploadError } from '../../api/cloudinaryUpload'
 import { Icon } from '../../components/Icon'
-import { Card, Chip, Field, PageHead, SectionTitle, toast } from '../../components/ui'
+import { Card, Field, PageHead, toast } from '../../components/ui'
 import MediaUpload from '../../components/MediaUpload'
 import LocationCapture from '../../components/LocationCapture'
-
-// `type` is the machine key the backend checks against
-// REQUIRED_PROPERTY_DOCUMENT_TYPES (packages/shared/src/validation.ts) — it
-// must submit these exactly once each, so every document sent to the API now
-// carries its type, not just a bare URL (audit 2026-09-01, finding #1: the
-// backend used to only count "N URLs", never checking which document each
-// one actually was). Reduced from 8 to these 3 mandatory documents per the
-// Partner Portal Add Property document-requirement change — the other 5
-// (Registry, Khata, Mutation, Property Tax Receipt, PAN Card) moved to
-// OPT_DOCS below, keeping their real type keys so Admin still shows the
-// correct document name; they just no longer block submission.
-const REQ_DOCS = [
-  { label: 'Sale Deed', type: 'SALE_DEED' },
-  { label: 'Electricity Bill', type: 'ELECTRICITY_BILL' },
-  { label: 'Owner Aadhaar', type: 'OWNER_AADHAAR' },
-]
-// Property Photos/Videos and Google Map Location used to live here as fake
-// document-upload slots (a "location" was just an uploaded screenshot).
-// Phase 2 gives them real backing instead — MediaUpload (images/videos
-// fields) and LocationCapture (real GPS) below.
-//
-// Optional docs — the backend never requires their type (it isn't one of the
-// now-3 REQUIRED_PROPERTY_DOCUMENT_TYPES keys), so none of these block
-// submission. The five with a real machine `type` (moved out of REQ_DOCS
-// above) are still tagged with it for Admin's document-name display; the
-// original three (NOC, Builder Documents, Encumbrance Certificate) use their
-// own label as `type`, same as before this change.
-const OPT_DOCS = [
-  { label: 'Registry', type: 'REGISTRY' },
-  { label: 'Khata', type: 'KHATA' },
-  { label: 'Mutation', type: 'MUTATION' },
-  { label: 'Property Tax Receipt', type: 'PROPERTY_TAX_RECEIPT' },
-  { label: 'PAN Card', type: 'PAN_CARD' },
-  { label: 'NOC', type: 'NOC' },
-  { label: 'Builder Documents', type: 'Builder Documents' },
-  { label: 'Encumbrance Certificate', type: 'Encumbrance Certificate' },
-]
 
 // Same canonical values as Prisma's PropertyType enum / seller/NewListing.jsx
 // PROPERTY_FIELDS keys — apps/seller has no dependency on @civilcheck/shared,
@@ -66,54 +29,48 @@ export default function OwnerAddProperty({ go }) {
   const [form, setForm] = useState({
     title: '', area: '', age: '', city: seller?.city || '',
     tehsil: '', address: '', propertyType: '', images: [], videos: [], latitude: null, longitude: null,
+    // Clear / Dispute (required). The Green/Red indicator users see is derived by the
+    // server from this — the Owner never picks a colour.
+    propertyStatus: '', disputeType: '',
   })
-  // name → { url, mock, name } once uploaded to Cloudinary; nothing here
-  // reports "uploaded" until a real URL comes back.
-  const [uploaded, setUploaded] = useState({})
-  const [uploading, setUploading] = useState('') // doc name currently in flight
+  // The single mandatory Ownership Document: { url, mock, name } once uploaded to Cloudinary;
+  // nothing reports "uploaded" until a real URL comes back.
+  const [ownershipDoc, setOwnershipDoc] = useState(null)
+  const [uploading, setUploading] = useState(false)
   const [busy, setBusy] = useState(false)
 
   const setField = (k, v) => setForm((f) => ({ ...f, [k]: v }))
 
-  const handleFile = async (name, file) => {
-    setUploading(name)
+  const handleOwnershipFile = async (file) => {
+    setUploading(true)
     try {
       const { url, mock } = await uploadToCloudinary(file, 'property-document')
-      setUploaded((u) => ({ ...u, [name]: { url, mock, name: file.name } }))
+      setOwnershipDoc({ url, mock, name: file.name })
     } catch (err) {
       toast(err instanceof UploadError
         ? err.message
         : (err?.response?.data?.message || 'Upload fail ho gaya — dobara try karein'))
     } finally {
-      setUploading('')
+      setUploading(false)
     }
   }
 
-  const anyMock = Object.values(uploaded).some((d) => d.mock)
+  const anyMock = !!ownershipDoc?.mock
 
   const submit = async () => {
     if (!form.title.trim()) { toast('Title daaliye'); return }
     if (!form.area.trim())  { toast('Area daaliye'); return }
     if (!form.propertyType) { toast('Property type chuniye'); return }
+    if (!form.propertyStatus) { toast('Property Status chuniye — Clear ya Dispute'); return }
+    if (form.propertyStatus === 'DISPUTED' && !form.disputeType) { toast('Dispute Type chuniye — Civil, Criminal ya Other'); return }
     if (form.latitude == null || form.longitude == null) {
       toast('Property Location zaroori hai — "Use My Current Location" par click karein')
       return
     }
-    // REQ_DOCS were shown as mandatory ("*", red chip) but never actually
-    // blocked submission — the backend now enforces the full type
-    // composition too, but this stops the wasted round-trip and matches
-    // seller/NewListing.jsx's existing step-gating discipline (QA audit
-    // 2026-08-03, finding #6).
-    const missingDocs = REQ_DOCS.filter((d) => !uploaded[d.label])
-    if (missingDocs.length) { toast(`Mandatory documents missing: ${missingDocs.map((d) => d.label).join(', ')}`); return }
+    // Ownership Document is mandatory — the backend enforces it too ("Ownership document is required.").
+    if (!ownershipDoc) { toast('Ownership document is required.'); return }
     setBusy(true)
     try {
-      // Each document is tagged with its type — required docs use the
-      // machine key the backend validates against; optional docs carry their
-      // own type too (never checked against the required list, just stored
-      // as extra evidence — see OPT_DOCS above).
-      const requiredDocs = REQ_DOCS.map((d) => ({ type: d.type, url: uploaded[d.label].url }))
-      const optionalDocs = OPT_DOCS.filter((d) => uploaded[d.label]).map((d) => ({ type: d.type, url: uploaded[d.label].url }))
       await createProperty({
         title: form.title.trim(),
         area: form.area,
@@ -122,13 +79,15 @@ export default function OwnerAddProperty({ go }) {
         tehsil: form.tehsil || undefined,
         address: form.address || undefined,
         propertyType: form.propertyType,
+        propertyStatus: form.propertyStatus,
+        disputeType: form.propertyStatus === 'DISPUTED' ? form.disputeType : undefined,
         latitude: form.latitude ?? undefined,
         longitude: form.longitude ?? undefined,
         images: form.images,
         videos: form.videos,
-        documents: [...requiredDocs, ...optionalDocs],
+        documents: [{ type: 'OWNERSHIP_DOCUMENT', url: ownershipDoc.url }],
       })
-      toast('Submitted — Published to Buyers')
+      toast('Submitted — Published to Users')
       go?.('dash')
     } catch (e) {
       toast(e.response?.data?.message || 'Submit nahi hua — dobara try karo')
@@ -139,9 +98,9 @@ export default function OwnerAddProperty({ go }) {
 
   return (
     <>
-      <PageHead title="Add Property" subtitle="Submit karte hi listing Buyers ko turant dikhne lagegi." />
+      <PageHead title="Add Property" subtitle="Submit karte hi listing Users ko turant dikhne lagegi." />
 
-      <div className="grid g2" style={{ alignItems: 'start' }}>
+      <div style={{ maxWidth: 760 }}>
         <Card style={{ padding: 22 }}>
           <h3 className="dev" style={{ fontSize: 16, marginBottom: 16 }}>Property Details</h3>
 
@@ -158,6 +117,27 @@ export default function OwnerAddProperty({ go }) {
               ))}
             </select>
           </Field>
+
+          <Field label="Property Status" required>
+            <select
+              className="control" value={form.propertyStatus}
+              onChange={(e) => setForm((f) => ({ ...f, propertyStatus: e.target.value, disputeType: e.target.value === 'CLEAR' ? '' : f.disputeType }))}
+            >
+              <option value="">Select status...</option>
+              <option value="CLEAR">Clear</option>
+              <option value="DISPUTED">Dispute</option>
+            </select>
+          </Field>
+          {form.propertyStatus === 'DISPUTED' && (
+            <Field label="Dispute Type" required>
+              <select className="control" value={form.disputeType} onChange={(e) => setField('disputeType', e.target.value)}>
+                <option value="">Select dispute type...</option>
+                <option value="CIVIL">Civil</option>
+                <option value="CRIMINAL">Criminal</option>
+                <option value="OTHER">Other</option>
+              </select>
+            </Field>
+          )}
 
           <div className="row">
             <Field label="Area (sq.ft)" required>
@@ -194,6 +174,15 @@ export default function OwnerAddProperty({ go }) {
             onVideosChange={(videos) => setField('videos', videos)}
           />
 
+          <Field label="Ownership Document" required>
+            <DocRow
+              name="Ownership document" required
+              picked={ownershipDoc} busy={uploading}
+              onFile={handleOwnershipFile}
+              onClear={() => setOwnershipDoc(null)}
+            />
+          </Field>
+
           <LocationCapture
             latitude={form.latitude}
             longitude={form.longitude}
@@ -211,31 +200,6 @@ export default function OwnerAddProperty({ go }) {
           </button>
         </Card>
 
-        <div>
-          <Card style={{ padding: '18px 22px', marginBottom: 16 }}>
-            <SectionTitle right={<Chip tone="red">Mandatory</Chip>}>
-              <span style={{ fontSize: 15 }}>Required Documents</span>
-            </SectionTitle>
-            {REQ_DOCS.map((d) => (
-              <DocRow key={d.label} name={d.label} required
-                picked={uploaded[d.label]} busy={uploading === d.label}
-                onFile={(file) => handleFile(d.label, file)}
-                onClear={() => setUploaded((u) => { const n = { ...u }; delete n[d.label]; return n })} />
-            ))}
-          </Card>
-
-          <Card style={{ padding: '18px 22px' }}>
-            <SectionTitle right={<Chip tone="ink">Optional</Chip>}>
-              <span style={{ fontSize: 15 }}>Optional Documents</span>
-            </SectionTitle>
-            {OPT_DOCS.map((d) => (
-              <DocRow key={d.label} name={d.label}
-                picked={uploaded[d.label]} busy={uploading === d.label}
-                onFile={(file) => handleFile(d.label, file)}
-                onClear={() => setUploaded((u) => { const n = { ...u }; delete n[d.label]; return n })} />
-            ))}
-          </Card>
-        </div>
       </div>
     </>
   )
@@ -258,7 +222,7 @@ function DocRow({ name, required, picked, busy, onFile, onClear }) {
       <input ref={inputRef} type="file" accept=".pdf,.jpg,.jpeg,.png" style={{ display: 'none' }} onChange={handleChange} />
       <div className="ic"><Icon name="file" size={16} /></div>
       <div className="nm dev">
-        {name}{required && <span className="req"> *</span>}
+        {picked ? picked.name : name}{required && !picked && <span className="req"> *</span>}
         {picked && !picked.mock && (
           <>
             {' · '}

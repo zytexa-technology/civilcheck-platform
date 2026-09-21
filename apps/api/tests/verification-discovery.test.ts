@@ -97,6 +97,7 @@ describe('property discovery — existing LISTING/PROPERTY regression (unchanged
       .post('/api/seller/properties')
       .set('Authorization', `Bearer ${owner.token}`)
       .send({
+        propertyStatus: 'CLEAR',
         title: `Discovery Regression Flat ${Date.now()}`,
         area: '1000',
         city: 'Jaipur',
@@ -425,7 +426,7 @@ describe('property discovery — full DISCOVERY lifecycle (REQUIRES Phase 4A mig
     const res = await request(app)
       .post(`/api/seller/verification-marketplace/${requestId}/report`)
       .set('Authorization', `Bearer ${expertWinner.token}`)
-      .send({ findings: 'No active litigation found on public record for this discovered property.', riskAssessment: 'GREEN', documents: [], images: [], videos: [] })
+      .send({ findings: 'No active litigation found on public record for this discovered property.', disputeFound: false, documents: [], images: [], videos: [] })
     expect(res.status).toBe(201)
 
     const detail = await prisma.verificationRequest.findUniqueOrThrow({ where: { id: requestId } })

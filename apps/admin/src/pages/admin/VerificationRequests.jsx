@@ -92,7 +92,7 @@ export default function VerificationRequests() {
     { key: 'title', header: 'Property', render: (r) => <b>{propertySummary(r).title}</b> },
     { key: 'location', header: 'Location', render: (r) => propertySummary(r).location },
     { key: 'type', header: 'Type', render: (r) => propertySummary(r).type },
-    { key: 'buyerInitialOfferAmount', header: 'Buyer offer', render: (r) => `₹${Number(r.buyerInitialOfferAmount).toLocaleString('en-IN')}` },
+    { key: 'buyerInitialOfferAmount', header: 'User offer', render: (r) => `₹${Number(r.buyerInitialOfferAmount).toLocaleString('en-IN')}` },
     { key: 'createdAt', header: 'Requested', render: (r) => formatDate(r.createdAt) },
     {
       key: 'myQuote',
@@ -136,7 +136,7 @@ export default function VerificationRequests() {
     <div>
       <PageHead
         title="Verification Requests"
-        subtitle="Browse open buyer verification requests and submit a quote. The buyer compares every quote and picks one — this never accepts on their behalf."
+        subtitle="Browse open user verification requests and submit a quote. The user compares every quote and picks one — this never accepts on their behalf."
       />
 
       {!canParticipate && (
@@ -183,7 +183,7 @@ export default function VerificationRequests() {
         id={selectedId}
         onClose={() => setSelectedId(null)}
         canQuote={canParticipate}
-        onQuoted={(msg) => { load(); showToast(msg || 'Quote submitted — waiting for the buyer to review it') }}
+        onQuoted={(msg) => { load(); showToast(msg || 'Quote submitted — waiting for the user to review it') }}
       />
 
       <Toast message={toast} onDismiss={() => setToast('')} />
@@ -191,11 +191,7 @@ export default function VerificationRequests() {
   )
 }
 
-// Property Verification Marketplace report's riskAssessment — matches
-// @civilcheck/shared's RiskBadge enum exactly (packages/shared/src/enums.ts:
-// GREEN/AMBER/RED). Hardcoded here rather than importing the package since
-// this plain-JS admin app doesn't otherwise depend on @civilcheck/shared.
-const RISK_OPTIONS = ['GREEN', 'AMBER', 'RED']
+// (The verification report has no Green/Amber/Red assessment any more — structured dispute findings instead.)
 
 function csvToUrlArray(str) {
   return str.split(',').map((s) => s.trim()).filter(Boolean)
@@ -216,7 +212,12 @@ function RequestDetailModal({ id, onClose, canQuote, onQuoted }) {
   const [startLoading, setStartLoading] = useState(false)
   const [startError, setStartError] = useState('')
   const [findings, setFindings] = useState('')
-  const [riskAssessment, setRiskAssessment] = useState('')
+  const [report, setReport] = useState({
+    disputeFound: '', disputeType: '', disputeStatus: '', disputeNature: '', caseCategory: '', caseNumber: '',
+    courtName: '', disputeStartYear: '', currentStatusNotes: '', partiesInvolved: '', resolutionOutlook: '',
+    titleFindings: '', expertRemarks: '',
+  })
+  const setReportField = (k, v) => setReport((r) => ({ ...r, [k]: v }))
   const [documentsStr, setDocumentsStr] = useState('')
   const [imagesStr, setImagesStr] = useState('')
   const [videosStr, setVideosStr] = useState('')
@@ -327,6 +328,14 @@ function RequestDetailModal({ id, onClose, canQuote, onQuoted }) {
   }
 
   const handleSubmitReport = async () => {
+    if (!report.disputeFound) {
+      setReportError('State whether a dispute or issue was found')
+      return
+    }
+    if (report.disputeFound === 'yes' && !report.disputeType) {
+      setReportError('Select the dispute type (Civil, Criminal or Other)')
+      return
+    }
     if (findings.trim().length < 20) {
       setReportError('Findings must be at least 20 characters')
       return
@@ -334,9 +343,23 @@ function RequestDetailModal({ id, onClose, canQuote, onQuoted }) {
     setReportSubmitting(true)
     setReportError('')
     try {
+      const found = report.disputeFound === 'yes'
+      const text = (v) => (v && v.trim() ? v.trim() : undefined)
       const res = await submitVerificationReport(id, {
+        disputeFound: found,
+        disputeType: found ? report.disputeType : undefined,
+        disputeStatus: found ? (report.disputeStatus || undefined) : undefined,
+        disputeNature: found ? text(report.disputeNature) : undefined,
+        caseCategory: found ? text(report.caseCategory) : undefined,
+        caseNumber: found ? text(report.caseNumber) : undefined,
+        courtName: found ? text(report.courtName) : undefined,
+        disputeStartYear: found && report.disputeStartYear ? Number(report.disputeStartYear) : undefined,
+        currentStatusNotes: found ? text(report.currentStatusNotes) : undefined,
+        partiesInvolved: found ? text(report.partiesInvolved) : undefined,
+        resolutionOutlook: found ? text(report.resolutionOutlook) : undefined,
+        titleFindings: text(report.titleFindings),
+        expertRemarks: text(report.expertRemarks),
         findings: findings.trim(),
-        riskAssessment: riskAssessment || undefined,
         documents: csvToUrlArray(documentsStr),
         images: csvToUrlArray(imagesStr),
         videos: csvToUrlArray(videosStr),
@@ -407,7 +430,7 @@ function RequestDetailModal({ id, onClose, canQuote, onQuoted }) {
           </div>
 
           <Card style={{ padding: 14 }}>
-            <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>Buyer Offer</div>
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>User Offer</div>
             <div style={{ fontSize: 18, fontWeight: 700 }}>₹{Number(request.buyerInitialOfferAmount).toLocaleString('en-IN')}</div>
             <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
               This is the buyer's initial budget, not a fixed price — accept it as-is or submit your own charge.
@@ -490,7 +513,63 @@ function RequestDetailModal({ id, onClose, canQuote, onQuoted }) {
             <div>
               <h4 style={{ marginBottom: 8 }}>Submit Verification Report</h4>
               {reportError && <p style={{ color: 'var(--danger, #c0392b)', fontSize: 13, marginBottom: 8 }}>{reportError}</p>}
-              <Field label="Findings" required hint="Minimum 20 characters.">
+              {/* Structured findings — no Green/Amber/Red rating (the buyer already sees the property's
+                  Clear/Disputed alert). Mirrors verificationReportCreateSchema. */}
+              <Field label="Was a dispute / issue found?" required>
+                <select className="control" value={report.disputeFound} onChange={(e) => setReportField('disputeFound', e.target.value)}>
+                  <option value="">Select…</option>
+                  <option value="yes">Yes — a dispute / issue was found</option>
+                  <option value="no">No dispute / issue found</option>
+                </select>
+              </Field>
+              {report.disputeFound === 'yes' && (
+                <>
+                  <Field label="Dispute type" required>
+                    <select className="control" value={report.disputeType} onChange={(e) => setReportField('disputeType', e.target.value)}>
+                      <option value="">Select…</option>
+                      <option value="CIVIL">Civil</option>
+                      <option value="CRIMINAL">Criminal</option>
+                      <option value="OTHER">Other</option>
+                    </select>
+                  </Field>
+                  <Field label="Current status of the matter" optional>
+                    <select className="control" value={report.disputeStatus} onChange={(e) => setReportField('disputeStatus', e.target.value)}>
+                      <option value="">— Not specified —</option>
+                      <option value="ACTIVE">Active / ongoing</option>
+                      <option value="RESOLVED">Resolved</option>
+                      <option value="UNKNOWN">Unknown</option>
+                    </select>
+                  </Field>
+                  <Field label="Nature of the dispute" optional>
+                    <input className="control" placeholder="e.g. Ownership dispute" value={report.disputeNature} onChange={(e) => setReportField('disputeNature', e.target.value)} />
+                  </Field>
+                  <Field label="Case type / category" optional>
+                    <input className="control" value={report.caseCategory} onChange={(e) => setReportField('caseCategory', e.target.value)} />
+                  </Field>
+                  <Field label="Case number / reference" optional>
+                    <input className="control" value={report.caseNumber} onChange={(e) => setReportField('caseNumber', e.target.value)} />
+                  </Field>
+                  <Field label="Court / authority" optional>
+                    <input className="control" value={report.courtName} onChange={(e) => setReportField('courtName', e.target.value)} />
+                  </Field>
+                  <Field label="Dispute started (year)" optional>
+                    <input className="control" inputMode="numeric" value={report.disputeStartYear} onChange={(e) => setReportField('disputeStartYear', e.target.value.replace(/\D/g, '').slice(0, 4))} />
+                  </Field>
+                  <Field label="Current case / status information" optional>
+                    <textarea className="control" rows={2} value={report.currentStatusNotes} onChange={(e) => setReportField('currentStatusNotes', e.target.value)} />
+                  </Field>
+                  <Field label="Parties involved" optional hint="Where legally appropriate.">
+                    <textarea className="control" rows={2} value={report.partiesInvolved} onChange={(e) => setReportField('partiesInvolved', e.target.value)} />
+                  </Field>
+                  <Field label="Resolution / outlook" optional>
+                    <textarea className="control" rows={2} value={report.resolutionOutlook} onChange={(e) => setReportField('resolutionOutlook', e.target.value)} />
+                  </Field>
+                </>
+              )}
+              <Field label="Ownership / title findings" optional>
+                <textarea className="control" rows={3} value={report.titleFindings} onChange={(e) => setReportField('titleFindings', e.target.value)} />
+              </Field>
+              <Field label="Detailed findings" required hint="Minimum 20 characters.">
                 <textarea
                   className="control"
                   rows={4}
@@ -499,11 +578,8 @@ function RequestDetailModal({ id, onClose, canQuote, onQuoted }) {
                   onChange={(e) => setFindings(e.target.value)}
                 />
               </Field>
-              <Field label="Risk assessment" optional>
-                <select className="control" value={riskAssessment} onChange={(e) => setRiskAssessment(e.target.value)}>
-                  <option value="">— Not assessed —</option>
-                  {RISK_OPTIONS.map((r) => <option key={r} value={r}>{r}</option>)}
-                </select>
+              <Field label="Expert remarks / recommendations" optional>
+                <textarea className="control" rows={3} value={report.expertRemarks} onChange={(e) => setReportField('expertRemarks', e.target.value)} />
               </Field>
               <Field label="Documents" optional hint="Comma-separated URLs.">
                 <input className="control" value={documentsStr} onChange={(e) => setDocumentsStr(e.target.value)} placeholder="https://…, https://…" />
@@ -522,7 +598,7 @@ function RequestDetailModal({ id, onClose, canQuote, onQuoted }) {
 
           {isAssignee && request.status !== 'OPEN' && (
             <Card style={{ padding: 14 }}>
-              <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8 }}>Conversation with the buyer</div>
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8 }}>Conversation with the user</div>
               {messagesError && <p style={{ color: 'var(--danger, #c0392b)', fontSize: 13, marginBottom: 8 }}>{messagesError}</p>}
               {messages === null ? (
                 <LoadingState label="Loading messages…" />
@@ -543,7 +619,7 @@ function RequestDetailModal({ id, onClose, canQuote, onQuoted }) {
                     >
                       <div style={{ fontSize: 12.5, lineHeight: 1.5 }}>{m.body}</div>
                       <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 4 }}>
-                        {m.senderRole === 'PROFESSIONAL' ? 'You' : 'Buyer'} · {new Date(m.createdAt).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                        {m.senderRole === 'PROFESSIONAL' ? 'You' : 'User'} · {new Date(m.createdAt).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
                       </div>
                     </div>
                   ))}

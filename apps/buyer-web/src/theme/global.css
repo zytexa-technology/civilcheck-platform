@@ -610,8 +610,12 @@ textarea.field__control {
 
 .tag {
   /* Overlay tag on top of media (see Badge.tsx's <Tag>) — stays a dark pill
-     with white text regardless of app theme, same as .property-card__name. */
-  background: rgba(10, 12, 16, 0.72);
+     with white text regardless of app theme, same as .property-card__name.
+     0.82 (not 0.72) matches this project's own darker scrim token (see
+     apps/buyer/src/theme/index.ts's `scrim`) — needed so the "Posted by …"
+     attribution stays readable over bright/light property photos, where the
+     lighter overlay let too much of the image show through. */
+  background: rgba(10, 12, 16, 0.82);
   color: #fff;
   border-radius: var(--cc-radius-pill);
   padding: 4px 10px;

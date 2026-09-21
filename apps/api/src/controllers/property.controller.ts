@@ -1,6 +1,6 @@
 import { Request, Response } from 'express'
 import jwt from 'jsonwebtoken'
-import { Listing, Seller, Prisma, PropertyType, RiskBadge } from '@prisma/client'
+import { Listing, Seller, Prisma, PropertyType, PropertyClassification } from '@prisma/client'
 import prisma from '../lib/prisma.js'
 import logger from '../lib/logger.js'
 import { JWT_SECRET } from '../lib/jwt.js'
@@ -63,7 +63,8 @@ function formatFreePreview(listing: Listing & { seller: Pick<Seller, 'badge'> })
     tehsil: listing.tehsil,
     propertyType: listing.propertyType,
     caseExists: listing.caseExists,       // FREE ✅
-    riskBadge: listing.riskBadge,         // FREE ✅ — expert-only assessment, set at creation
+    propertyStatus: listing.propertyStatus, // FREE ✅ CLEAR | DISPUTED — the listing's alert (null = legacy, not classified)
+    disputeType: listing.disputeType,       // FREE ✅ CIVIL | CRIMINAL | OTHER when DISPUTED
     loanDefault: listing.loanDefault,     // FREE ✅
     price: listing.price,
     views: listing.views,
@@ -104,7 +105,8 @@ function formatPaidReport(listing: Listing & { seller: Pick<Seller, 'phone' | 'n
     tehsil: listing.tehsil,
     propertyType: listing.propertyType,
     caseExists: listing.caseExists,
-    riskBadge: listing.riskBadge,
+    propertyStatus: listing.propertyStatus,
+    disputeType: listing.disputeType,
     loanDefault: listing.loanDefault,
     price: listing.price,
     researchDate: listing.researchDate,
@@ -147,7 +149,7 @@ export const searchProperties = async (req: Request, res: Response) => {
     city,         // city filter
     tehsil,       // tehsil filter
     propertyType, // RESIDENTIAL, COMMERCIAL, etc.
-    riskBadge,    // GREEN, AMBER, RED
+    propertyStatus, // CLEAR | DISPUTED
     minPrice,     // price range
     maxPrice,
     page = '1',
@@ -160,6 +162,14 @@ export const searchProperties = async (req: Request, res: Response) => {
   const skip = (pageNum - 1) * limitNum
 
   const q = typeof query === 'string' ? query.trim() : ''
+
+  // Clear / Disputed filter (the only property-status filter). Unclassified legacy rows match neither.
+  const wantedStatus: 'CLEAR' | 'DISPUTED' | null =
+    propertyStatus === 'CLEAR' ? 'CLEAR' : propertyStatus === 'DISPUTED' ? 'DISPUTED' : null
+  if (propertyStatus && !wantedStatus) {
+    res.json({ success: true, total: 0, page: pageNum, totalPages: 0, results: [] })
+    return
+  }
 
   // ─── FULL-TEXT SEARCH PATH (PDF 13) ─────────────────────────────────────
   // Jab buyer ne text query di ho, Postgres FTS use karo — GIN-indexed
@@ -176,7 +186,9 @@ export const searchProperties = async (req: Request, res: Response) => {
     // Enum ko text ke roop me compare karte hain — invalid value error ke bajaye
     // simply zero rows deta hai.
     if (propertyType) conditions.push(Prisma.sql`"propertyType"::text = ${propertyType as string}`)
-    if (riskBadge) conditions.push(Prisma.sql`"riskBadge"::text = ${riskBadge as string}`)
+    if (wantedStatus) {
+      conditions.push(Prisma.sql`"propertyStatus"::text = ${wantedStatus}`)
+    }
     if (minPrice) conditions.push(Prisma.sql`"price" >= ${parseFloat(minPrice as string)}`)
     if (maxPrice) conditions.push(Prisma.sql`"price" <= ${parseFloat(maxPrice as string)}`)
 
@@ -245,7 +257,7 @@ export const searchProperties = async (req: Request, res: Response) => {
   if (city) where.city = { contains: city as string, mode: 'insensitive' }
   if (tehsil) where.tehsil = { contains: tehsil as string, mode: 'insensitive' }
   if (propertyType) where.propertyType = propertyType as PropertyType
-  if (riskBadge) where.riskBadge = riskBadge as RiskBadge
+  if (wantedStatus) where.propertyStatus = wantedStatus
   if (minPrice || maxPrice) {
     const price: Prisma.FloatFilter = {}
     if (minPrice) price.gte = parseFloat(minPrice as string)
@@ -419,7 +431,8 @@ export const freeCaseCheck = async (req: Request, res: Response) => {
 
     // FREE information
     caseExists: listing.caseExists,
-    riskBadge: listing.riskBadge,
+    propertyStatus: listing.propertyStatus,
+    disputeType: listing.disputeType,
     loanDefault: listing.loanDefault,
     address: listing.address,
     city: listing.city,
@@ -435,8 +448,8 @@ export const freeCaseCheck = async (req: Request, res: Response) => {
     // Paid unlock ka CTA
     unlockPrice: listing.price,
     cta: listing.caseExists || listing.loanDefault
-      ? `Unlock the full report for just Rs. ${listing.price} and protect your life savings`
-      : `Unlock the full verification report for Rs. ${listing.price}`,
+      ? `Unlock the full report for just ₹${listing.price.toLocaleString('en-IN')} and protect your life savings`
+      : `Unlock the full verification report for ₹${listing.price.toLocaleString('en-IN')}`,
   }
   freeCheckCache.set(cacheKey, payload)
   res.json({ ...payload, cacheHit: false })
@@ -563,7 +576,8 @@ interface FeedItem {
   address: string | null
   propertyType: PropertyType | null // null for a Reporter post — no propertyType on that model
   uploadedBy: string
-  riskBadge: RiskBadge | null // Expert-only assessment — null for an Owner listing/Reporter post
+  propertyStatus: PropertyClassification | null
+  disputeType: 'CIVIL' | 'CRIMINAL' | 'OTHER' | null
   price: number | null // null for a free Owner listing / Reporter post
   isFree: boolean
   images: string[]
@@ -666,7 +680,8 @@ export const getPropertyFeed = async (req: Request, res: Response) => {
     address: l.address,
     propertyType: l.propertyType,
     uploadedBy: l.uploaderRole,
-    riskBadge: l.riskBadge,
+    propertyStatus: l.propertyStatus,
+    disputeType: l.disputeType,
     price: l.price,
     isFree: false,
     images: l.images,
@@ -690,7 +705,8 @@ export const getPropertyFeed = async (req: Request, res: Response) => {
     address: p.address,
     propertyType: p.propertyType,
     uploadedBy: p.uploaderRole,
-    riskBadge: null, // no expert has assessed this listing yet (verification marketplace — later phase)
+    propertyStatus: p.propertyStatus,
+    disputeType: p.disputeType,
     price: null,
     isFree: true,
     images: p.images,
@@ -711,10 +727,11 @@ export const getPropertyFeed = async (req: Request, res: Response) => {
     title: r.title || 'Property update',
     city: r.city,
     tehsil: r.tehsil,
-    address: null,
+    address: r.address,
     propertyType: null,
     uploadedBy: 'REPORTER',
-    riskBadge: null, // a Reporter post is informational — never eligible for a risk assessment
+    propertyStatus: null,
+    disputeType: null,
     price: null,
     isFree: true,
     images: r.images,
@@ -806,7 +823,8 @@ export const getMyEngagedProperties = async (req: Request, res: Response) => {
     address: l.address,
     propertyType: l.propertyType,
     uploadedBy: l.uploaderRole,
-    riskBadge: l.riskBadge,
+    propertyStatus: l.propertyStatus,
+    disputeType: l.disputeType,
     price: l.price,
     isFree: false,
     images: l.images,
@@ -830,7 +848,8 @@ export const getMyEngagedProperties = async (req: Request, res: Response) => {
     address: p.address,
     propertyType: p.propertyType,
     uploadedBy: p.uploaderRole,
-    riskBadge: null,
+    propertyStatus: p.propertyStatus,
+    disputeType: p.disputeType,
     price: null,
     isFree: true,
     images: p.images,
@@ -851,10 +870,11 @@ export const getMyEngagedProperties = async (req: Request, res: Response) => {
     title: r.title || 'Property update',
     city: r.city,
     tehsil: r.tehsil,
-    address: null,
+    address: r.address,
     propertyType: null,
     uploadedBy: 'REPORTER',
-    riskBadge: null,
+    propertyStatus: null,
+    disputeType: null,
     price: null,
     isFree: true,
     images: r.images,

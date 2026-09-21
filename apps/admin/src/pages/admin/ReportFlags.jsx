@@ -132,7 +132,7 @@ export default function ReportFlags() {
 
   return (
     <div>
-      <PageHead title="Report flags" subtitle="Buyer-submitted 'outdated / inaccurate' flags on live listings" />
+      <PageHead title="Report flags" subtitle="User-submitted 'outdated / inaccurate' flags on live listings" />
 
       <select className="control" value={statusFilter} onChange={(e) => changeFilter(e.target.value)} style={{ width: 'auto', marginBottom: 16 }}>
         <option value="PENDING">Pending</option>

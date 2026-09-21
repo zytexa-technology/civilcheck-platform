@@ -8,6 +8,12 @@ import { notifySeller } from '../services/notification.service.js'
 import { sendWelcomeVerificationEmail } from '../services/emailVerification.service.js'
 import { clientIp } from '../services/audit.service.js'
 import { hasAcceptedCurrentTerms, recordTermsAcceptance, TermsError } from '../services/terms.service.js'
+import {
+  KycError,
+  KYC_REQUIRED_MESSAGE,
+  DUPLICATE_AADHAAR_MESSAGE,
+  requireVerifiedSession,
+} from '../services/aadhaarKyc/aadhaarKyc.service.js'
 
 // bcrypt has a hard 72-byte input limit; sellerRegistrationSchema's
 // passwordSchema already caps input at 72 characters so this only guards
@@ -38,6 +44,7 @@ export const sellerRegister = async (req: Request, res: Response) => {
   const {
     phone, name, email, address, password, city, state, profession, bankAccount, ifsc, partnerRole,
     tcAccepted, selfieUrl, barCouncilDoc, digitalSignature, licenseNumber, yearsOfExperience,
+    kycSessionToken,
   } = req.body
 
   // Basic validation — yeh sab fields zaroori hain
@@ -70,8 +77,40 @@ export const sellerRegister = async (req: Request, res: Response) => {
     if (existingPhone && existingPhone.id !== existingEmail?.id) {
       res.status(409).json({
         success: false,
-        message: 'Is phone number se seller already registered hai'
+        message: 'Is phone number se partner already registered hai'
       })
+      return
+    }
+
+    // Mandatory Aadhaar KYC — Reporter, Property Owner and Expert cannot
+    // create an account without a VERIFIED session (Aadhaar OTP verified by
+    // the KYC provider AND the Aadhaar photo uploaded). Enforced here, not in
+    // the UI: a missing/invalid partnerRole is rejected too, so omitting the
+    // role is not a way around it. A retry after a partial signup passes the
+    // same session (it may already be linked to this very seller row).
+    if (partnerRole !== 'OWNER' && partnerRole !== 'REPORTER' && partnerRole !== 'EXPERT') {
+      res.status(403).json({ success: false, message: KYC_REQUIRED_MESSAGE, code: 'KYC_REQUIRED' })
+      return
+    }
+    let kycSession
+    try {
+      kycSession = await requireVerifiedSession(kycSessionToken, existingEmail?.id)
+    } catch (e) {
+      if (e instanceof KycError) {
+        res.status(e.status).json({ success: false, message: e.message, code: e.code })
+        return
+      }
+      throw e
+    }
+    // One identity <-> one Partner account. A verified account already holding
+    // this Aadhaar blocks signup (generic message — never reveals which
+    // account); an abandoned, email-unverified signup does not.
+    const aadhaarHolder = await prisma.seller.findUnique({
+      where: { aadhaarHash: kycSession.aadhaarHash },
+      select: { id: true, emailVerified: true },
+    })
+    if (aadhaarHolder && aadhaarHolder.id !== existingEmail?.id && aadhaarHolder.emailVerified) {
+      res.status(409).json({ success: false, message: DUPLICATE_AADHAAR_MESSAGE, code: 'KYC_DUPLICATE_AADHAAR' })
       return
     }
 
@@ -117,6 +156,18 @@ export const sellerRegister = async (req: Request, res: Response) => {
       digitalSignature: digitalSignature || null,
       // Owner → APPROVED immediately; everyone else keeps the schema default.
       ...(instantApprove ? { kycStatus: 'APPROVED' as const } : {}),
+      // Aadhaar KYC evidence (the number itself is never stored). The Aadhaar
+      // photo lives in the existing private identity-document slot and stays
+      // subject to the existing manual admin identity review (PENDING) — OTP
+      // success alone never auto-approves anything.
+      aadhaarKycStatus: 'VERIFIED' as const,
+      aadhaarVerified: true,
+      aadhaarHash: kycSession.aadhaarHash,
+      aadhaarLast4: kycSession.aadhaarLast4,
+      aadhaarVerifiedAt: kycSession.verifiedAt ?? new Date(),
+      identityDocumentUrl: kycSession.documentUrl,
+      identityDocumentUploadedAt: new Date(),
+      identityVerificationStatus: 'PENDING' as const,
       // baaki sab default values schema se aayenge:
       // badge: BRONZE, kycStatus: PENDING, accuracyScore: 100, totalEarnings: 0
     }
@@ -124,9 +175,40 @@ export const sellerRegister = async (req: Request, res: Response) => {
     // A previously abandoned signup (unverified row already sitting on this
     // exact email — a verified one already short-circuited with 409 above)
     // is updated in place rather than rejected or duplicated.
-    const seller = existingEmail
-      ? await prisma.seller.update({ where: { id: existingEmail.id }, data: sellerData })
-      : await prisma.seller.create({ data: { ...sellerData, emailVerified: false } })
+    // Seller write + session link (+ releasing the identity from a different,
+    // abandoned unverified signup) commit atomically, so a failure leaves no
+    // half-linked KYC state; the unique aadhaarHash index is the last line of
+    // defence against two concurrent signups claiming one identity.
+    let seller
+    try {
+      seller = await prisma.$transaction(async (tx) => {
+        if (aadhaarHolder && aadhaarHolder.id !== existingEmail?.id) {
+          await tx.seller.update({
+            where: { id: aadhaarHolder.id },
+            data: { aadhaarHash: null, aadhaarLast4: null, aadhaarKycStatus: null, aadhaarVerified: false, aadhaarVerifiedAt: null },
+          })
+        }
+        const saved = existingEmail
+          ? await tx.seller.update({ where: { id: existingEmail.id }, data: sellerData })
+          : await tx.seller.create({ data: { ...sellerData, emailVerified: false } })
+        // An earlier abandoned attempt of this same seller may hold the 1:1 link.
+        await tx.partnerKycSession.updateMany({ where: { sellerId: saved.id, id: { not: kycSession.id } }, data: { sellerId: null } })
+        await tx.partnerKycSession.update({
+          where: { id: kycSession.id },
+          data: { sellerId: saved.id, consumedAt: kycSession.consumedAt ?? new Date() },
+        })
+        return saved
+      }, { maxWait: 15000, timeout: 30000 })
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        const target = JSON.stringify(e.meta?.target ?? '')
+        if (target.includes('aadhaarHash')) {
+          res.status(409).json({ success: false, message: DUPLICATE_AADHAAR_MESSAGE, code: 'KYC_DUPLICATE_AADHAAR' })
+          return
+        }
+      }
+      throw e
+    }
 
     // Mandatory Terms & Conditions / Privacy Policy consent — sellerData's
     // own tcAccepted (compliance checkbox, PDF 6.1) is preserved exactly as
@@ -400,7 +482,7 @@ export const getKycStatus = async (req: Request, res: Response) => {
   })
 
   if (!seller) {
-    res.status(404).json({ success: false, message: 'Seller not found' })
+    res.status(404).json({ success: false, message: 'Partner not found' })
     return
   }
 
@@ -480,7 +562,8 @@ export const getSellerProfile = async (req: Request, res: Response) => {
           address: true,
           city: true,
           status: true,
-          riskBadge: true,
+          propertyStatus: true,
+          disputeType: true,
           views: true,
           price: true,
           createdAt: true,
@@ -492,7 +575,7 @@ export const getSellerProfile = async (req: Request, res: Response) => {
   })
 
   if (!seller) {
-    res.status(404).json({ success: false, message: 'Seller not found' })
+    res.status(404).json({ success: false, message: 'Partner not found' })
     return
   }
 
@@ -581,7 +664,7 @@ export const getSellerReviews = async (req: Request, res: Response) => {
       id: r.id,
       rating: r.rating,
       comment: r.comment,
-      reviewerName: r.user.name || 'Buyer',
+      reviewerName: r.user.name || 'User',
       createdAt: r.createdAt,
     })),
   })

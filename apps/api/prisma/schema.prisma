@@ -183,6 +183,25 @@ model Seller {
   // a live indicator, and removing a column from a table with real
   // production rows is avoided by default in this codebase.
   aadhaarVerified                   Boolean                     @default(false)
+  // Mandatory signup Aadhaar KYC (Reporter / Owner / Expert). The Aadhaar
+  // number itself is NEVER stored — only a keyed HMAC (aadhaarHash, used to
+  // enforce one identity <-> one Partner account) and the last 4 digits for
+  // masked display. aadhaarKycStatus is null for partners who signed up
+  // before this requirement existed (they are not retroactively blocked).
+  // The Aadhaar photo reuses identityDocumentUrl below (private / authenticated).
+  aadhaarKycStatus                  AadhaarKycStatus?
+  aadhaarHash                       String?                     @unique
+  aadhaarLast4                      String?
+  aadhaarVerifiedAt                 DateTime?
+  kycSession                        PartnerKycSession?
+  // DigiLocker identity verification result (additive evidence — it never
+  // changes kycStatus / identityVerificationStatus, admin review stays in
+  // charge). No token, no document contents, no Aadhaar data are stored;
+  // digilockerProvider is always 'DIGILOCKER' — there is no mock/test provider.
+  digilockerStatus                  DigilockerStatus?
+  digilockerProvider                String?
+  digilockerVerifiedAt              DateTime?
+  digilockerAuthStates              DigilockerAuthState[]
   barCouncilDoc                     String? // Cloudinary URL — Bar Council / CE registration certificate
   selfieUrl                         String? // Cloudinary URL — KYC selfie (PDF 6.1)
   tcAccepted                        Boolean                     @default(false) // T&C checkbox (PDF 6.1 compliance)
@@ -308,7 +327,15 @@ model Listing {
   // so this is always EXPERT today — kept as a real column rather than
   // derived from Seller so the attribution is stable and query-cheap.
   uploaderRole        PartnerRole
-  riskBadge           RiskBadge // Expert-only — set at creation, never buyer/owner-editable
+  // Seller-declared classification (CLEAR | DISPUTED) + dispute category. Null
+  // only for legacy rows created before this field existed - they are NOT
+  // back-filled (unknown intent). The old riskBadge below is NOT derived from anything any more.
+  propertyStatus      PropertyClassification?
+  disputeType         DisputeType?
+  // DEPRECATED legacy Green/Amber/Red badge. No longer written or returned by any API — the
+  // visible alert is propertyStatus/disputeType above. Kept (nullable) only so pre-existing
+  // rows and their history are not destroyed.
+  riskBadge           RiskBadge?
   price               Float
   sellerNotes         String?
   documents           String[] // non-media supporting documents (PDFs etc.)
@@ -664,6 +691,11 @@ model AuditLog {
   target    String?
   details   String?
   ipAddress String?
+  // Structured snapshot of what was acted on, captured at write time so the
+  // SuperAdmin "Deleted / Removed" history stays complete even after the
+  // referenced row is hard-deleted (e.g. an Admin). Nullable: rows written
+  // before this column existed have none, and readers fall back to `details`.
+  metadata  Json?
   createdAt DateTime @default(now())
 
   @@index([createdAt])
@@ -803,6 +835,10 @@ model Property {
   // the route level, so this is always OWNER — Reporter creates ReporterPost
   // rows instead (see below), never Property, and Expert never has either.
   uploaderRole PartnerRole
+  // Owner-declared classification (see Listing.propertyStatus). Null = legacy,
+  // not classified.
+  propertyStatus PropertyClassification?
+  disputeType    DisputeType?
   // Audit 2026-09-01 (Admin Document Type Visibility): non-media supporting
   // documents, stored as { type, url }[] so Admin can show the real document
   // name instead of "Document N" — see propertyDocumentSchema in
@@ -872,6 +908,20 @@ model ReporterPost {
   city   String?
   tehsil String?
 
+  // The REAL location of the property shown in the media — never the
+  // Reporter's own location. Required for every new/edited post (enforced by
+  // reporterPostCreateSchema + the controller); nullable here only because
+  // posts created before this field existed have none on file.
+  address String?
+  // Lower-cased/punctuation-stripped/abbreviation-folded form of `address`
+  // (see reporterPostDedupe.service.ts) — the address half of the duplicate
+  // rule. Never shown to anyone.
+  addressNormalized String?
+  // Content fingerprints of `images`, same order (sha256:<hex> of the file
+  // bytes; see mediaFingerprint.service.ts) — the media half of the
+  // duplicate rule. Never shown to anyone.
+  imageHashes String[] @default([])
+
   status ReporterPostStatus @default(PUBLISHED)
 
   createdAt DateTime @default(now())
@@ -879,6 +929,7 @@ model ReporterPost {
 
   @@index([status])
   @@index([sellerId])
+  @@index([addressNormalized])
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -1110,6 +1161,9 @@ model VerificationRequest {
   desiredTehsil         String?
   desiredPropertyType   PropertyType?
   desiredKhasraOrSurvey String?
+  // "Request for Legal Reports" (formerly Custom Research): what the buyer wants checked.
+  // Nullable/additive — earlier requests never had it.
+  questions             String?
 
   // Frozen from PlatformSetting.minVerificationFee at creation — the floor
   // buyerInitialOfferAmount had to meet, NOT a floor on provider quotes (see
@@ -1253,8 +1307,25 @@ model VerificationReport {
   latitude        Float?
   longitude       Float?
 
-  findings       String
-  riskAssessment RiskBadge? // professional's own assessment — independent of any riskBadge on the source Listing
+  findings       String // detailed expert findings
+  // DEPRECATED — the paid verification report no longer carries a Green/Amber/Red
+  // assessment. Never written or returned any more; column kept (nullable) so
+  // existing rows are not lost. Safe to drop in a later, deliberate migration.
+  riskAssessment RiskBadge?
+  // Structured findings (all nullable: legacy reports pre-date them).
+  disputeFound       Boolean?
+  disputeType        DisputeType?
+  disputeNature      String?
+  caseCategory       String?
+  caseNumber         String?
+  courtName          String?
+  disputeStartYear   Int?
+  disputeStatus      VerificationDisputeStatus?
+  currentStatusNotes String?
+  partiesInvolved    String?
+  titleFindings      String?
+  resolutionOutlook  String?
+  expertRemarks      String?
   documents      String[]   @default([])
   images         String[]   @default([])
   videos         String[]   @default([])
@@ -2110,3 +2181,225 @@ model PropertyComment {
 
   @@index([targetType, targetId, createdAt])
 }
+
+// Signup-time Aadhaar KYC lifecycle. NOT_STARTED is the absence of a session.
+enum AadhaarKycStatus {
+  OTP_PENDING
+  OTP_VERIFIED
+  DOCUMENT_PENDING
+  VERIFIED
+  FAILED
+}
+
+// Pre-account KYC session. Signup is unauthenticated (no Seller/JWT exists
+// yet), so the Aadhaar OTP + photo steps hang off this row; the client holds
+// only an opaque random token (stored here as a SHA-256 hash). Holds NO
+// Aadhaar number and NO OTP — the OTP lives with the KYC provider, we keep
+// only the provider's opaque reference.
+model PartnerKycSession {
+  id           String           @id @default(uuid(7))
+  tokenHash    String           @unique
+  status       AadhaarKycStatus @default(OTP_PENDING)
+  aadhaarHash  String
+  aadhaarLast4 String
+  providerRef  String?
+  otpSendCount Int              @default(0)
+  otpAttempts  Int              @default(0)
+  lastOtpAt    DateTime?
+  documentUrl  String?
+  verifiedAt   DateTime?
+  expiresAt    DateTime
+  consumedAt   DateTime?
+  sellerId     String?          @unique
+  seller       Seller?          @relation(fields: [sellerId], references: [id], onDelete: SetNull)
+  createdAt    DateTime         @default(now())
+
+  @@index([aadhaarHash, createdAt])
+  @@index([expiresAt])
+}
+
+enum DigilockerStatus {
+  PENDING
+  VERIFIED
+  FAILED
+}
+
+// Single-use OAuth `state` for the DigiLocker authorization flow. Only a hash
+// of the state is stored; the row binds the callback to the seller who started
+// it, expires quickly, and is consumed atomically on first use.
+model DigilockerAuthState {
+  id        String    @id @default(uuid(7))
+  stateHash String    @unique
+  sellerId  String
+  seller    Seller    @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  mock      Boolean   @default(false) // unused (there is no mock provider); column kept — schema changes here are additive-only
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([sellerId])
+  @@index([expiresAt])
+}
+
+enum PropertyClassification {
+  CLEAR
+  DISPUTED
+}
+
+enum DisputeType {
+  CIVIL
+  CRIMINAL
+  OTHER
+}
+
+// Paid verification report: factual status of the dispute the professional found.
+enum VerificationDisputeStatus {
+  ACTIVE
+  RESOLVED
+  UNKNOWN
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ADVERTISING PLATFORM — a separate monetisation module. Third-party advertisers
+// (any legitimate business, NOT property-restricted) buy in-feed ad space on the
+// Buyer Web and Buyer App. Fully isolated from property/verification payments.
+// All money is integer PAISE (BigInt) — no floats. Billing is CPM only
+// (cpmPaise per 1,000 valid impressions); clicks are analytics, never billed.
+// ─────────────────────────────────────────────────────────────────────────────
+model Advertiser {
+  id           String       @id @default(uuid(7))
+  name         String
+  companyName  String
+  email        String       @unique
+  phone        String?
+  passwordHash String
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  campaigns    AdCampaign[]
+}
+
+enum AdCampaignStatus {
+  DRAFT
+  PAYMENT_PENDING
+  PENDING_APPROVAL
+  ACTIVE
+  PAUSED
+  REJECTED
+  EXHAUSTED
+  EXPIRED
+  COMPLETED
+}
+
+enum AdCreativeType {
+  IMAGE
+  VIDEO
+}
+
+enum AdPlatform {
+  WEB
+  MOBILE
+  BOTH
+}
+
+// Extensible: only BUYER_FEED exists in v1.
+enum AdPlacement {
+  BUYER_FEED
+}
+
+model AdCampaign {
+  id             String           @id @default(uuid(7))
+  advertiserId   String
+  advertiser     Advertiser       @relation(fields: [advertiserId], references: [id])
+  businessName   String
+  title          String
+  description    String
+  creativeType   AdCreativeType
+  creativeUrl    String
+  ctaText        String
+  destinationUrl String
+  platform       AdPlatform       @default(BOTH)
+  placement      AdPlacement      @default(BUYER_FEED)
+  status         AdCampaignStatus @default(DRAFT)
+
+  // Money in integer paise. spentPaise is derived by the server from impressions
+  // (impressions * cpmPaise / 1000) — never written from client input.
+  budgetPaise BigInt
+  spentPaise  BigInt @default(0)
+  cpmPaise    Int // snapshot of the CPM at creation (10000 = ₹100 per 1,000 impressions)
+  impressions Int    @default(0)
+  clicks      Int    @default(0)
+
+  startDate         DateTime?
+  endDate           DateTime?
+  rejectionReason   String?
+  approvedAt        DateTime?
+  approvedByAdminId String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  payments AdvertisingPayment[]
+  events   AdEvent[]
+
+  @@index([advertiserId])
+  @@index([status])
+}
+
+enum AdPaymentStatus {
+  CREATED
+  PAID
+  FAILED
+}
+
+enum AdRefundStatus {
+  NOT_REQUIRED
+  PENDING
+  PROCESSING
+  REFUNDED
+  FAILED
+}
+
+// Advertising payments are deliberately separate from PaymentOrder (property /
+// verification payments). Revenue = sum of PAID rows.
+model AdvertisingPayment {
+  id                String          @id @default(uuid(7))
+  campaignId        String
+  campaign          AdCampaign      @relation(fields: [campaignId], references: [id])
+  razorpayOrderId   String          @unique
+  razorpayPaymentId String?
+  amountPaise       BigInt
+  status            AdPaymentStatus @default(CREATED)
+  paidAt            DateTime?
+  createdAt         DateTime        @default(now())
+
+  // Refund of a REJECTED, never-started campaign (full payment only). Every value here is
+  // computed by the server from this payment row — no client input ever reaches these fields.
+  refundStatus      AdRefundStatus  @default(NOT_REQUIRED)
+  refundAmountPaise BigInt?
+  razorpayRefundId  String?         @unique
+  refundedAt        DateTime?
+  refundError       String?
+
+  @@index([campaignId])
+}
+
+enum AdEventType {
+  IMPRESSION
+  CLICK
+}
+
+// Minimal event log. (type, nonce) is unique: the nonce is issued by the server
+// inside the signed ad token, so a retry / re-render / replay of the same
+// display or click can never be counted twice.
+model AdEvent {
+  id         String      @id @default(uuid(7))
+  campaignId String
+  campaign   AdCampaign  @relation(fields: [campaignId], references: [id])
+  type       AdEventType
+  nonce      String
+  platform   AdPlatform
+  createdAt  DateTime    @default(now())
+
+  @@unique([type, nonce])
+  @@index([campaignId, type])
+}
+

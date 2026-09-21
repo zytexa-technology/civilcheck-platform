@@ -468,6 +468,17 @@ export const getAuditLogs = async (params = {}) => {
   return response.data
 }
 
+// SuperAdmin-only history of deleted/deactivated accounts and deleted posts.
+export const getDeletedAccounts = async (params = {}) => {
+  const response = await API.get('/admin/deleted-accounts', { params })
+  return response.data
+}
+
+export const getDeletedPosts = async (params = {}) => {
+  const response = await API.get('/admin/deleted-posts', { params })
+  return response.data
+}
+
 export const createAuditLog = async (action, target, details) => {
   const response = await API.post('/admin/audit-logs', { action, target, details })
   return response.data
@@ -589,3 +600,14 @@ export const resetAdminTwoFactor = async (id) => {
   const response = await API.post(`/admin/admins/${id}/2fa/reset`)
   return response.data
 }
+
+// ─── ADVERTISING PLATFORM (SuperAdmin) ──────────────────────────────────────
+export const getAdSummary = async () => (await API.get('/admin/advertising/summary')).data
+export const getAdCampaigns = async (params = {}) => (await API.get('/admin/advertising/campaigns', { params })).data
+export const approveAdCampaign = async (id) => (await API.post(`/admin/advertising/campaigns/${id}/approve`)).data
+export const rejectAdCampaign = async (id, reason) => (await API.post(`/admin/advertising/campaigns/${id}/reject`, { reason })).data
+export const pauseAdCampaign = async (id) => (await API.post(`/admin/advertising/campaigns/${id}/pause`)).data
+export const resumeAdCampaign = async (id) => (await API.post(`/admin/advertising/campaigns/${id}/resume`)).data
+export const retryAdRefund = async (id) => (await API.post(`/admin/advertising/campaigns/${id}/refund`)).data
+export const stopAdCampaign = async (id) => (await API.post(`/admin/advertising/campaigns/${id}/stop`)).data
+

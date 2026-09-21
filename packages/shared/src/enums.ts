@@ -72,12 +72,32 @@ export const CaseStatus = {
 } as const
 export type CaseStatus = (typeof CaseStatus)[keyof typeof CaseStatus]
 
-export const RiskBadge = {
-  GREEN: 'GREEN',
-  AMBER: 'AMBER',
-  RED: 'RED',
+// Seller-declared property classification (Expert listing + Owner property).
+// The buyer-facing Red/Green indicator is DERIVED from this on the server:
+// CLEAR => GREEN, DISPUTED => RED. There is no third (yellow) state.
+export const PropertyClassification = {
+  CLEAR: 'CLEAR',
+  DISPUTED: 'DISPUTED',
 } as const
-export type RiskBadge = (typeof RiskBadge)[keyof typeof RiskBadge]
+export type PropertyClassification = (typeof PropertyClassification)[keyof typeof PropertyClassification]
+
+// Required when a property is DISPUTED; must be absent when CLEAR.
+export const DisputeType = {
+  CIVIL: 'CIVIL',
+  CRIMINAL: 'CRIMINAL',
+  OTHER: 'OTHER',
+} as const
+export type DisputeType = (typeof DisputeType)[keyof typeof DisputeType]
+
+
+// Paid verification report: is the dispute the professional found still live?
+// (Factual status of the matter — not a risk rating.)
+export const VerificationDisputeStatus = {
+  ACTIVE: 'ACTIVE',
+  RESOLVED: 'RESOLVED',
+  UNKNOWN: 'UNKNOWN',
+} as const
+export type VerificationDisputeStatus = (typeof VerificationDisputeStatus)[keyof typeof VerificationDisputeStatus]
 
 export const ListingStatus = {
   PENDING_REVIEW: 'PENDING_REVIEW',

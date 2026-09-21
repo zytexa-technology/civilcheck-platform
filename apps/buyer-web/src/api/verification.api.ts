@@ -46,6 +46,8 @@ export async function createVerificationRequest(input: {
   desiredTehsil?: string
   desiredPropertyType?: string
   desiredKhasraOrSurvey?: string
+  /** What the buyer wants the legal report to find out (Request for Legal Reports). */
+  questions?: string
 }): Promise<CreateVerificationRequestResponse> {
   const { data } = await client.post<CreateVerificationRequestResponse>(
     '/verification-requests',

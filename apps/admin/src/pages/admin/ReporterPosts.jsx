@@ -48,6 +48,7 @@ const PostModal = ({ post, onClose, onDelete, canDelete }) => {
     <Modal open title="Reporter post" onClose={onClose} size="lg">
       <DetailGrid items={[
         ['Title', post.title || '—'],
+        ['Property address', post.address || '—'],
         ['City', post.city || '—'],
         ['Source', post.sourceName || '—'],
         ['Reported by', post.seller?.name || '—'],
@@ -91,7 +92,7 @@ const PostModal = ({ post, onClose, onDelete, canDelete }) => {
         open={confirmDelete}
         tone="danger"
         title="Remove this post?"
-        description={`"${post.title || 'Untitled post'}" will be removed from the buyer feed. This cannot be undone from the UI.`}
+        description={`"${post.title || 'Untitled post'}" will be removed from the user feed. This cannot be undone from the UI.`}
         confirmLabel="Remove post"
         loading={loading}
         onConfirm={handleDelete}

@@ -119,6 +119,16 @@ export function OwnerPropertyDetailScreen() {
         <DetailRow label="Age" value={property.age ?? '—'} />
         <DetailRow label="Address" value={property.address ?? '—'} />
         <DetailRow label="Uploaded by" value={humanize(property.uploadedBy)} />
+        <DetailRow
+          label="Property status"
+          value={
+            property.propertyStatus === 'DISPUTED'
+              ? `🔴 DISPUTED PROPERTY${property.disputeType ? ` — ${humanize(property.disputeType)}` : ''}`
+              : property.propertyStatus === 'CLEAR'
+                ? '🟢 CLEAR PROPERTY'
+                : 'Not classified'
+          }
+        />
         <DetailRow label="Listed on" value={formatDate(property.listedSince)} last />
       </SectionCard>
 
@@ -155,7 +165,7 @@ export function OwnerPropertyDetailScreen() {
           style={styles.upsellButton}
         />
         <Button
-          label="Request custom research"
+          label="Request for Legal Reports"
           variant="ghost"
           onPress={() => router.push('/requests/new')}
         />

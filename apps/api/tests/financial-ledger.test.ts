@@ -60,6 +60,7 @@ describe('financial ledger + professional payouts (Phase 4B)', () => {
       .post('/api/seller/properties')
       .set('Authorization', `Bearer ${owner.token}`)
       .send({
+        propertyStatus: 'CLEAR',
         title: `Financial Ledger Test Property ${Date.now()}`,
         area: '2000',
         documents: Array.from({ length: 8 }, (_, i) => `https://x/doc${i}.pdf`),
@@ -223,7 +224,7 @@ describe('financial ledger + professional payouts (Phase 4B)', () => {
       .set('Authorization', `Bearer ${expert.token}`)
       .send({
         findings: 'Test findings — no case pending on record for this property.',
-        riskAssessment: 'GREEN',
+        disputeFound: false,
         documents: [],
         images: [],
         videos: [],

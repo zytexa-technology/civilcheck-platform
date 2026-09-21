@@ -137,7 +137,7 @@ const SellerModal = ({ seller, onClose, onAction, canManage }) => {
   }
 
   return (
-    <Modal open title={`Seller details — ${seller.name}`} onClose={onClose} size="lg" footer={
+    <Modal open title={`Partner details — ${seller.name}`} onClose={onClose} size="lg" footer={
       <>
         {canManage && seller.kycStatus === 'PENDING' && (
           <>
@@ -229,6 +229,14 @@ const SellerModal = ({ seller, onClose, onAction, canManage }) => {
         ) : (
           <DetailGrid items={[
             ['T&C accepted', detail?.compliance?.tcAccepted ? 'Yes ✓' : 'No ✗'],
+            ['DigiLocker', ({
+              VERIFIED: 'DigiLocker Verified ✓',
+              PENDING: 'Verification Pending',
+              FAILED: 'Verification Failed',
+            })[detail?.digilocker?.status] || 'Not Verified'],
+            ['Aadhaar KYC', detail?.aadhaarKyc?.status === 'VERIFIED'
+              ? `VERIFIED ✓ · ${detail.aadhaarKyc.maskedAadhaar || ''}${detail.aadhaarKyc.verifiedAt ? ` · ${new Date(detail.aadhaarKyc.verifiedAt).toLocaleDateString('en-IN')}` : ''}`
+              : 'Not completed (signed up before KYC was required)'],
             ['Digital signature', detail?.documents?.digitalSignature || '— not signed —'],
             ['Bank account', detail?.banking?.bankAccountLast4 ? `****${detail.banking.bankAccountLast4}` : 'Not on file'],
             ['IFSC', detail?.banking?.ifsc || 'Not on file'],
@@ -341,7 +349,7 @@ export default function Sellers() {
       if (action === 'delete') await deleteSeller(id)
       if (action === 'approveIdentity') await approveIdentityDocument(id)
       if (action === 'rejectIdentity') await rejectIdentityDocument(id, reasonOrBadge)
-      showToast(`✅ Seller ${action} successfully!`)
+      showToast(`✅ Partner ${action} successfully!`)
       loadSellers()
       loadCounts()
     } catch (err) {
@@ -361,7 +369,7 @@ export default function Sellers() {
   const columns = [
     {
       key: 'seller',
-      header: 'Seller',
+      header: 'Partner',
       render: (s) => (<><div style={{ fontWeight: 600 }}>{s.name}</div><div className="small muted">{s.phone}</div></>),
     },
     { key: 'partnerRole', header: 'Partner role', render: (s) => <Badge tone={s.partnerRole === 'REPORTER' ? 'amber' : s.partnerRole === 'EXPERT' ? 'blue' : 'grey'}>{s.partnerRole || '—'}</Badge> },
@@ -394,10 +402,10 @@ export default function Sellers() {
 
   return (
     <div>
-      <PageHead title="Seller management" subtitle="KYC approval, badge levels, suspend & monitor all sellers" />
+      <PageHead title="Partner management" subtitle="KYC approval, badge levels, suspend & monitor all partners" />
 
       <div className="grid g4" style={{ marginBottom: 20 }}>
-        <StatCard tone="grey" icon="👥" value={counts?.totalSellers ?? '—'} label="Total sellers" />
+        <StatCard tone="grey" icon="👥" value={counts?.totalSellers ?? '—'} label="Total partners" />
         <StatCard tone="green" icon="✅" value={counts?.approvedSellers ?? '—'} label="Approved" />
         <StatCard tone="amber" icon="🟡" value={counts?.pendingSellers ?? '—'} label="Pending KYC" />
         <StatCard tone="red" icon="⛔" value={counts?.suspendedSellers ?? '—'} label="Suspended" />
@@ -428,9 +436,9 @@ export default function Sellers() {
             columns={columns}
             rows={loading ? [] : filtered}
             getRowKey={(s) => s.id}
-            emptyState={<div style={{ padding: 32, textAlign: 'center' }} className="muted small">{loading ? '⏳ Loading sellers…' : 'No sellers found'}</div>}
+            emptyState={<div style={{ padding: 32, textAlign: 'center' }} className="muted small">{loading ? '⏳ Loading partners…' : 'No partners found'}</div>}
           />
-          <Pagination page={page} totalPages={totalPages} total={total} onChange={setPage} noun="sellers" />
+          <Pagination page={page} totalPages={totalPages} total={total} onChange={setPage} noun="partners" />
         </Card>
       )}
 

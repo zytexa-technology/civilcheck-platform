@@ -7,7 +7,7 @@ import { toggleLike, toggleSave } from '../api/feed.api'
 import { useAuth } from '../context/AuthContext'
 import { colors, radius, shadows, spacing } from '../theme'
 import { errorMessage } from '../lib/errors'
-import { formatDate, formatDistance, formatRupees, haversineDistanceKm, humanize, riskTone, sellerBadgeLabel } from '../lib/format'
+import { formatDate, formatDistance, formatRupees, haversineDistanceKm, humanize, alertTone, sellerBadgeLabel } from '../lib/format'
 import type { Coordinates } from '../lib/geolocation'
 import { AuthRequiredSheet } from './AuthRequiredSheet'
 import { CommentSheet } from './CommentSheet'
@@ -37,7 +37,7 @@ interface PropertyCardProps {
 }
 
 export function PropertyCard({ property, onPress, buyerCoords }: PropertyCardProps) {
-  const tone = riskTone(property.riskBadge)
+  const tone = alertTone(property.propertyStatus, property.disputeType)
   const location = property.tehsil ? `${property.tehsil}, ${property.city}` : property.city
   const cover = property.images[0] ?? property.videos[0]
   const distanceLabel = buyerCoords
@@ -175,7 +175,7 @@ export function OwnerPropertyCard({ property, onPress, buyerCoords }: OwnerPrope
 export function ReporterPostCard({ post }: { post: ReporterPost }) {
   const router = useRouter()
   const cover = post.images[0]
-  const location = post.tehsil ? `${post.tehsil}, ${post.city}` : post.city
+  const location = post.address || (post.tehsil ? `${post.tehsil}, ${post.city}` : post.city)
 
   return (
     <View style={[styles.postCard, shadows.card]}>
@@ -198,7 +198,7 @@ export function ReporterPostCard({ post }: { post: ReporterPost }) {
         {location ? <Text style={styles.postMeta}>📍 {location}</Text> : null}
         <View style={styles.postFoot}>
           <View style={styles.uploaderTagStatic}>
-            <Text style={styles.uploaderTagText}>📝 {post.reportedBy}</Text>
+            <Text style={styles.uploaderTagTextStatic}>📝 {post.reportedBy}</Text>
           </View>
           <Text style={styles.postSource}>
             {post.sourceName ? `${post.sourceName} · ` : ''}
@@ -216,7 +216,7 @@ export function ReporterPostCard({ post }: { post: ReporterPost }) {
           onPress={() =>
             router.push({
               pathname: '/discovery-request/new',
-              params: { address: post.title ?? '', city: post.city ?? '', tehsil: post.tehsil ?? '' },
+              params: { address: post.address ?? post.title ?? '', city: post.city ?? '', tehsil: post.tehsil ?? '' },
             })
           }
           accessibilityRole="button"
@@ -287,7 +287,14 @@ export function FeedItemCard({ item, onPress, onChange }: FeedItemCardProps) {
   const router = useRouter()
   const { status } = useAuth()
   const cover = item.images[0] ?? item.videos[0]
-  const location = item.tehsil ? `${item.tehsil}, ${item.city}` : item.city
+  // A Reporter post's address is the property location the Reporter entered;
+  // Expert/Owner feed items keep their existing city/tehsil line.
+  const location =
+    item.uploadedBy === 'REPORTER' && item.address
+      ? item.address
+      : item.tehsil
+        ? `${item.tehsil}, ${item.city}`
+        : item.city
 
   // One shared in-flight flag for both Like and Save, matching Buyer Web's
   // own FeedCard exactly (a single `busy` state there too) — simplest way to
@@ -423,7 +430,7 @@ export function FeedItemCard({ item, onPress, onChange }: FeedItemCardProps) {
           {location ? <Text style={styles.postMeta}>📍 {location}</Text> : null}
           <View style={styles.postFoot}>
             <View style={styles.uploaderTagStatic}>
-              <Text style={styles.uploaderTagText}>📝 {humanize(item.uploadedBy)}</Text>
+              <Text style={styles.uploaderTagTextStatic}>📝 {humanize(item.uploadedBy)}</Text>
             </View>
             <Text style={styles.postSource}>{formatDate(item.createdAt)}</Text>
           </View>
@@ -437,7 +444,7 @@ export function FeedItemCard({ item, onPress, onChange }: FeedItemCardProps) {
             onPress={() =>
               router.push({
                 pathname: '/discovery-request/new',
-                params: { address: item.title ?? '', city: item.city ?? '', tehsil: item.tehsil ?? '' },
+                params: { address: (item.uploadedBy === 'REPORTER' && item.address) || item.title || '', city: item.city ?? '', tehsil: item.tehsil ?? '' },
               })
             }
             accessibilityRole="button"
@@ -452,7 +459,7 @@ export function FeedItemCard({ item, onPress, onChange }: FeedItemCardProps) {
     )
   }
 
-  const tone = item.riskBadge ? riskTone(item.riskBadge) : null
+  const tone = item.propertyStatus ? alertTone(item.propertyStatus, item.disputeType) : null
 
   return (
     <View style={[styles.card, shadows.card]}>
@@ -600,7 +607,10 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   uploaderTag: {
-    backgroundColor: 'rgba(10,12,16,0.72)',
+    // 0.82 (not 0.72) matches theme/index.ts's own `scrim` token — needed so
+    // "Posted by …" stays readable over bright/light property photos, where
+    // the lighter overlay let too much of the image show through.
+    backgroundColor: 'rgba(10,12,16,0.82)',
     paddingHorizontal: 8,
     paddingVertical: 3.5,
     borderRadius: radius.pill,
@@ -684,6 +694,12 @@ const styles = StyleSheet.create({
     paddingVertical: 3.5,
     borderRadius: radius.pill,
   },
+  // Sits on the light `uploaderTagStatic` chip (card body, not a photo
+  // overlay) — distinct from `uploaderTagText` above, which is white and
+  // only legible on that other chip's dark, photo-overlay background.
+  // Reusing white here was the actual "Posted by …" readability bug: white
+  // text on this chip's light surface2 fill was nearly invisible.
+  uploaderTagTextStatic: { fontSize: 10, fontWeight: '700', color: colors.muted },
   healthWrap: { paddingHorizontal: spacing.md, paddingTop: spacing.sm },
   healthRow: {
     flexDirection: 'row',

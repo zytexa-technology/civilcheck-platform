@@ -118,9 +118,9 @@ export default function DashboardHome() {
 
   // Pie chart data — real risk badge breakdown, scoped to APPROVED listings
   // (GET /admin/analytics/risk-breakdown), not a fabricated fixed split.
-  const RISK_COLOR = { RED: '#dc2626', AMBER: '#d97706', GREEN: '#16a34a' }
+  const RISK_COLOR = { DISPUTED: '#dc2626', CLEAR: '#16a34a' } // two statuses; UNCLASSIFIED (legacy) falls back to grey
   const pieData = riskBreakdown.map((r) => ({
-    name: r.badge, value: r.count, pct: r.pct, color: RISK_COLOR[r.badge] || '#5b6472',
+    name: r.status, value: r.count, pct: r.pct, color: RISK_COLOR[r.status] || '#5b6472',
   }))
   const totalReports = pieData.reduce((sum, r) => sum + r.value, 0)
 
@@ -128,7 +128,7 @@ export default function DashboardHome() {
     { key: 'rank', header: '#' },
     {
       key: 'seller',
-      header: 'Seller',
+      header: 'Partner',
       render: (s) => (
         <>
           <div style={{ fontWeight: 600 }}>{s.name}</div>
@@ -171,8 +171,8 @@ export default function DashboardHome() {
       <div className="grid g4" style={{ marginBottom: 16 }}>
         <MetricCard icon="💰" value={`₹${(overview?.revenue?.totalGMV || 0).toLocaleString('en-IN')}`} label="Total revenue (MTD)" />
         <MetricCard icon="📦" value={(overview?.revenue?.totalTransactions || 0).toLocaleString()} label="Reports sold (MTD)" />
-        <MetricCard icon="👥" value={(overview?.users?.totalBuyers || 0).toLocaleString()} label="Total registered buyers" />
-        <MetricCard icon="🏆" value={overview?.users?.approvedSellers || 0} label="Active verified sellers" />
+        <MetricCard icon="👥" value={(overview?.users?.totalBuyers || 0).toLocaleString()} label="Total registered users" />
+        <MetricCard icon="🏆" value={overview?.users?.approvedSellers || 0} label="Active verified partners" />
       </div>
 
       <div className="grid dash-chart-grid" style={{ marginBottom: 16 }}>
@@ -253,7 +253,7 @@ export default function DashboardHome() {
             <Badge tone="red">{(overview?.users?.pendingSellers || 0) + (overview?.listings?.pendingReview || 0)}</Badge>
           </div>
           {[
-            { icon: '🟡', label: 'KYC pending sellers', value: overview?.users?.pendingSellers || 0, tone: 'amber' },
+            { icon: '🟡', label: 'KYC pending partners', value: overview?.users?.pendingSellers || 0, tone: 'amber' },
             { icon: '🏠', label: 'Listings awaiting review', value: overview?.listings?.pendingReview || 0, tone: 'amber' },
             { icon: '✅', label: 'Approved listings', value: overview?.listings?.approved || 0, tone: 'green' },
             { icon: '📊', label: 'Total listings', value: overview?.listings?.total || 0, tone: 'blue' },
@@ -283,13 +283,13 @@ export default function DashboardHome() {
 
       <Card style={{ padding: 0, overflow: 'hidden' }}>
         <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)' }}>
-          <SectionLabel style={{ marginBottom: 0 }}>Top performing sellers</SectionLabel>
+          <SectionLabel style={{ marginBottom: 0 }}>Top performing partners</SectionLabel>
         </div>
         <ResponsiveTable
           columns={sellerColumns}
           rows={sellerRows}
           getRowKey={(s) => s.id}
-          emptyState={<div style={{ padding: 32, textAlign: 'center' }} className="muted small">No approved sellers yet</div>}
+          emptyState={<div style={{ padding: 32, textAlign: 'center' }} className="muted small">No approved partners yet</div>}
         />
       </Card>
     </div>

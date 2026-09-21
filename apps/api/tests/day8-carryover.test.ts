@@ -13,7 +13,6 @@ import {
 } from './helpers.js'
 import { runWeeklySettlement } from '../src/services/settlement.service.js'
 import { getSubscriptionMetrics } from '../src/services/analytics.service.js'
-import { sweepExpiredFeaturedListings } from '../src/services/subscription.service.js'
 import { isTwoFactorEnrollmentOverdue } from '../src/lib/session.js'
 
 // Day 8 — closing out the Day 2/4/6/7 roadmap carry-overs. Each block covers
@@ -26,7 +25,7 @@ import { isTwoFactorEnrollmentOverdue } from '../src/lib/session.js'
 // files get a look-in.
 describe('Day 8 carry-over cleanup', () => {
   let adminToken: string
-  let sellerA: { token: string; sellerId: string; phone: string } // payout + featured-sweep + churn listing
+  let sellerA: { token: string; sellerId: string; phone: string } // payout + churn listing
   let sellerB: { token: string; sellerId: string; phone: string } // auto-match: has a matching-tehsil listing
   let sellerC: { token: string; sellerId: string; phone: string } // auto-match: no matching listing; also manual-assign
   let buyer: { token: string; userId: string; phone: string }
@@ -245,24 +244,6 @@ describe('Day 8 carry-over cleanup', () => {
       expect(metrics.monthlyRenewalRate).toBeNull() // still genuinely blocked
 
       await prisma.alert.deleteMany({ where: { id: alertId } })
-      await prisma.listing.deleteMany({ where: { id: listingId } })
-    })
-  })
-
-  describe('featured-listing expiry sweep', () => {
-    it('clears featured on a listing whose featuredUntil has lapsed', async () => {
-      const listingId = await createApprovedListing(sellerA.token, adminToken)
-
-      await prisma.listing.update({
-        where: { id: listingId },
-        data: { featured: true, featuredUntil: new Date(Date.now() - 60_000) },
-      })
-
-      await sweepExpiredFeaturedListings()
-
-      const updated = await prisma.listing.findUniqueOrThrow({ where: { id: listingId } })
-      expect(updated.featured).toBe(false)
-
       await prisma.listing.deleteMany({ where: { id: listingId } })
     })
   })

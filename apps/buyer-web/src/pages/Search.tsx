@@ -6,7 +6,7 @@ import { Button } from '../components/Button'
 import { Input } from '../components/Field'
 import { CardSkeleton, EmptyState, ErrorState } from '../components/States'
 import { errorMessage } from '../lib/errors'
-import type { FreePreviewProperty, PropertyType, RiskBadge } from '../types/api'
+import type { FreePreviewProperty, PropertyType, PropertyStatus } from '../types/api'
 
 const PROPERTY_TYPES: { value: PropertyType | ''; label: string }[] = [
   { value: '', label: 'All types' },
@@ -16,11 +16,10 @@ const PROPERTY_TYPES: { value: PropertyType | ''; label: string }[] = [
   { value: 'PLOT', label: 'Plot' },
 ]
 
-const RISK_BADGES: { value: RiskBadge | ''; label: string }[] = [
-  { value: '', label: 'Any risk' },
-  { value: 'GREEN', label: '🟢 Clear' },
-  { value: 'AMBER', label: '🟡 Caution' },
-  { value: 'RED', label: '🔴 Risk' },
+const STATUS_FILTERS: { value: PropertyStatus | ''; label: string }[] = [
+  { value: '', label: 'Any status' },
+  { value: 'CLEAR', label: '🟢 Clear' },
+  { value: 'DISPUTED', label: '🔴 Disputed' },
 ]
 
 export default function Search() {
@@ -28,7 +27,7 @@ export default function Search() {
   const query = params.get('q') ?? ''
   const city = params.get('city') ?? ''
   const propertyType = (params.get('type') as PropertyType | null) ?? ''
-  const riskBadge = (params.get('risk') as RiskBadge | null) ?? ''
+  const propertyStatus = (params.get('status') as PropertyStatus | null) ?? ''
 
   const [queryInput, setQueryInput] = useState(query)
   const [cityInput, setCityInput] = useState(city)
@@ -49,7 +48,7 @@ export default function Search() {
       query: query || undefined,
       city: city || undefined,
       propertyType: propertyType || undefined,
-      riskBadge: riskBadge || undefined,
+      propertyStatus: propertyStatus || undefined,
       page: targetPage,
       limit: 12,
     })
@@ -66,7 +65,7 @@ export default function Search() {
   useEffect(() => {
     runSearch(1, true)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, city, propertyType, riskBadge])
+  }, [query, city, propertyType, propertyStatus])
 
   const updateParam = (key: string, value: string) => {
     const next = new URLSearchParams(params)
@@ -120,13 +119,13 @@ export default function Search() {
           ))}
         </div>
         <div className="chip-group">
-          {RISK_BADGES.map((opt) => (
+          {STATUS_FILTERS.map((opt) => (
             <button
               key={opt.value}
               type="button"
               className="chip"
-              aria-pressed={riskBadge === opt.value}
-              onClick={() => updateParam('risk', opt.value)}
+              aria-pressed={propertyStatus === opt.value}
+              onClick={() => updateParam('status', opt.value)}
             >
               {opt.label}
             </button>

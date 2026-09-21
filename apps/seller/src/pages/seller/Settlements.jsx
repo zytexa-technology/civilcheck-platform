@@ -188,7 +188,7 @@ export default function Settlements() {
               <div className="small muted" style={{ marginTop: 4 }}>
                 {pending.meetsThreshold
                   ? <>Payout expected on <strong style={{ color: 'var(--ink)' }}>{nextMonday()}</strong></>
-                  : `Rs. 500 minimum threshold reach nahi hua — ${pending.transactionCount || 0} pending transactions`
+                  : `₹500 minimum threshold reach nahi hua — ${pending.transactionCount || 0} pending transactions`
                 }
               </div>
             </div>

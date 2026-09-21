@@ -72,7 +72,8 @@ describe('Expert-only payout role model — claim recipient vs. payout beneficia
     const createRes = await request(app)
       .post('/api/seller/properties')
       .set('Authorization', `Bearer ${owner.token}`)
-      .send({ title: `Role Model Test Flat ${Date.now()}`, area: '1200', city: 'Jaipur', latitude: 26.9124, longitude: 75.7873, documents: docs })
+      .send({
+        propertyStatus: 'CLEAR', title: `Role Model Test Flat ${Date.now()}`, area: '1200', city: 'Jaipur', latitude: 26.9124, longitude: 75.7873, documents: docs })
     if (!createRes.body.success) throw new Error(`Property create failed: ${JSON.stringify(createRes.body)}`)
     propertyId = createRes.body.property.id as string
   })
@@ -141,7 +142,7 @@ describe('Expert-only payout role model — claim recipient vs. payout beneficia
     await request(app)
       .post(`${quoteBase}/${id}/report`)
       .set('Authorization', `Bearer ${performerToken}`)
-      .send({ findings: 'No litigation found.', riskAssessment: 'GREEN', documents: [], images: [], videos: [] })
+      .send({ findings: 'No litigation found.', disputeFound: false, documents: [], images: [], videos: [] })
 
     const finalOrder = await request(app)
       .post(`/api/verification-requests/${id}/final-order`)

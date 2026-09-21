@@ -4,7 +4,7 @@ import { getComments, postComment, toggleLike, toggleSave } from '../api/feed.ap
 import { useAuth } from '../context/AuthContext'
 import { Badge, Tag } from './Badge'
 import { AuthRequiredModal } from './AuthRequiredModal'
-import { formatDate, humanize, riskTone } from '../lib/format'
+import { formatDate, humanize, alertTone } from '../lib/format'
 import type { FeedComment, FeedItem, FeedTargetType } from '../types/api'
 
 // FeedItem.source (display-oriented, from GET /properties/feed) → the
@@ -47,7 +47,14 @@ export function FeedCard({ item, onChange }: { item: FeedItem; onChange?: (next:
   const [postingComment, setPostingComment] = useState(false)
 
   const href = detailHref(item)
-  const location = item.tehsil ? `${item.tehsil}, ${item.city}` : item.city
+  // A Reporter post's address is the property location the Reporter entered;
+  // Expert/Owner feed items keep their existing city/tehsil line.
+  const location =
+    item.uploadedBy === 'REPORTER' && item.address
+      ? item.address
+      : item.tehsil
+        ? `${item.tehsil}, ${item.city}`
+        : item.city
   const cover = item.images[0] ?? item.videos[0]
 
   const requireAuth = (action: string, fn: () => void) => {
@@ -162,7 +169,7 @@ export function FeedCard({ item, onChange }: { item: FeedItem; onChange?: (next:
           {media}
           <div className="property-card__top">
             <Tag>{`Posted by ${humanize(item.uploadedBy)}`}</Tag>
-            {item.riskBadge ? <Badge tone={riskTone(item.riskBadge)} /> : null}
+            {item.propertyStatus ? <Badge tone={alertTone(item.propertyStatus, item.disputeType)} /> : null}
           </div>
           <div className="property-card__scrim">
             <div className="property-card__name">{item.title}</div>

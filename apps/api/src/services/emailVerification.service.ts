@@ -162,8 +162,8 @@ export async function verifyEmailOtp(actor: VerifyActor, email: string, otp: str
 // style as passwordReset.service.ts's otpEmailContent (large OTP display),
 // just with the "Welcome to CivilCheck!" framing on the first send.
 // ─────────────────────────────────────────────────────────────────────────────
-function accountKindLabel(actor: VerifyActor): 'Buyer' | 'Partner' {
-  return actor === 'SELLER' ? 'Partner' : 'Buyer'
+function accountKindLabel(actor: VerifyActor): 'User' | 'Partner' {
+  return actor === 'SELLER' ? 'Partner' : 'User'
 }
 
 function welcomeEmailContent(actor: VerifyActor, name: string, otp: string) {

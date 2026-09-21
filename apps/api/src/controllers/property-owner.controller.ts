@@ -2,6 +2,7 @@ import { Request, Response } from 'express'
 import { Prisma, PropertyStatus } from '@prisma/client'
 import { REQUIRED_PROPERTY_DOCUMENT_TYPES, type PropertyDocumentInput } from '@civilcheck/shared'
 import prisma from '../lib/prisma.js'
+import { applyClassificationUpdate, ClassificationError } from '../lib/propertyClassification.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  OWNER PROPERTY CONTROLLER
@@ -24,32 +25,17 @@ function calcHealth(docCount: number): number {
   return Math.min(95, 30 + docCount * 8)
 }
 
-// Verifies every one of the 8 mandatory document TYPES (see
-// REQUIRED_PROPERTY_DOCUMENT_TYPES, shared with propertyCreateSchema's shape
-// check) is present exactly once — not just that "8 URLs" arrived, which a
-// direct API call could satisfy with 8 copies of the same document (audit
-// 2026-09-01, finding #1: the old REQUIRED_DOCUMENT_COUNT floor only checked
-// docs.length). Entries whose `type` isn't one of the 8 required keys (NOC,
-// Builder Documents, an unrecognized/typo'd key, …) are simply ignored here
-// — they're optional/extra evidence, never able to fill a required slot,
-// and never trigger a duplicate error on their own.
+// Ownership Document rule (Owner Add Property): the submitted documents must contain exactly
+// one OWNERSHIP_DOCUMENT with a real https URL. Other document types (legacy Sale Deed /
+// Electricity Bill / Aadhaar / Registry … sent by older clients) are accepted as extra
+// evidence and never required. Enforced here, not just in the UI.
+const OWNERSHIP_DOCUMENT_REQUIRED = 'Ownership document is required.'
 function findDocumentTypeErrors(docs: PropertyDocumentInput[]): string | null {
-  const countByType = new Map<string, number>()
-  for (const doc of docs) {
-    if ((REQUIRED_PROPERTY_DOCUMENT_TYPES as readonly string[]).includes(doc.type)) {
-      countByType.set(doc.type, (countByType.get(doc.type) ?? 0) + 1)
-    }
-  }
-
-  const missing = REQUIRED_PROPERTY_DOCUMENT_TYPES.filter((t) => !countByType.has(t))
-  const duplicated = [...countByType.entries()].filter(([, count]) => count > 1).map(([type]) => type)
-
-  if (missing.length === 0 && duplicated.length === 0) return null
-
-  const parts: string[] = []
-  if (missing.length) parts.push(`missing: ${missing.join(', ')}`)
-  if (duplicated.length) parts.push(`duplicated: ${duplicated.join(', ')}`)
-  return `All 8 mandatory document types must each be present exactly once (${parts.join('; ')})`
+  const ownership = docs.filter((d) => d.type === 'OWNERSHIP_DOCUMENT')
+  if (ownership.length === 0) return OWNERSHIP_DOCUMENT_REQUIRED
+  if (ownership.length > 1) return 'Only one ownership document can be attached.'
+  if (!/^https:\/\//i.test(ownership[0].url)) return 'The ownership document upload is invalid — please upload it again.'
+  return null
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -60,12 +46,30 @@ export const createProperty = async (req: Request, res: Response) => {
   const sellerId = req.seller!.id
   const {
     title, area, age, city, tehsil, address, latitude, longitude,
-    propertyType, documents, images, videos,
+    propertyType, documents, images, videos, propertyStatus, disputeType,
   } = req.body
 
   if (!title || !area) {
     res.status(400).json({ success: false, message: 'title and area are both required' })
     return
+  }
+
+  // Clear / Disputed classification is mandatory (also enforced by
+  // propertyCreateSchema and a DB CHECK constraint). The buyer's Red/Green
+  // indicator is derived from it — never supplied by the client.
+  if (!propertyStatus) {
+    res.status(400).json({ success: false, message: 'propertyStatus (CLEAR or DISPUTED) is required' })
+    return
+  }
+  let classification
+  try {
+    classification = applyClassificationUpdate({ propertyStatus: null, disputeType: null }, { propertyStatus, disputeType })
+  } catch (e) {
+    if (e instanceof ClassificationError) {
+      res.status(400).json({ success: false, message: e.message })
+      return
+    }
+    throw e
   }
 
   // Property Discovery flow (Step 2) — propertyCreateSchema (validateBody,
@@ -97,6 +101,8 @@ export const createProperty = async (req: Request, res: Response) => {
       // Snapshot of the creating seller's role — see schema.prisma comment
       // on Property.uploaderRole. Always OWNER today (route-gated).
       uploaderRole: req.seller!.partnerRole!,
+      propertyStatus: classification.propertyStatus,
+      disputeType: classification.disputeType,
       title,
       area: String(area),
       age: age || null,
@@ -125,7 +131,7 @@ export const createProperty = async (req: Request, res: Response) => {
 
   res.status(201).json({
     success: true,
-    message: 'Property submit ho gayi — Buyers ko turant dikh rahi hai.',
+    message: 'Property submit ho gayi — Users ko turant dikh rahi hai.',
     property,
   })
 }
@@ -181,8 +187,21 @@ export const updateProperty = async (req: Request, res: Response) => {
 
   const {
     title, area, age, city, tehsil, address, latitude, longitude,
-    propertyType, documents, images, videos,
+    propertyType, documents, images, videos, propertyStatus, disputeType, ownershipDocumentUrl,
   } = req.body
+  let classification
+  try {
+    classification = applyClassificationUpdate(
+      { propertyStatus: existing.propertyStatus, disputeType: existing.disputeType },
+      { propertyStatus, disputeType }
+    )
+  } catch (e) {
+    if (e instanceof ClassificationError) {
+      res.status(400).json({ success: false, message: e.message })
+      return
+    }
+    throw e
+  }
   const imgs: string[] = Array.isArray(images) ? images : existing.images
   const vids: string[] = Array.isArray(videos) ? videos : existing.videos
 
@@ -206,9 +225,24 @@ export const updateProperty = async (req: Request, res: Response) => {
     docCount = incoming.length
   }
 
+  // Replace / add the Ownership Document only — every other stored document is kept as-is
+  // (whatever shape, including pre-migration plain-URL rows).
+  if (ownershipDocumentUrl) {
+    if (!/^https:\/\//i.test(ownershipDocumentUrl)) {
+      res.status(400).json({ success: false, message: 'The ownership document upload is invalid — please upload it again.' })
+      return
+    }
+    const current = Array.isArray(docs) ? (docs as Prisma.JsonArray) : []
+    const kept = current.filter((d) => !(d && typeof d === 'object' && !Array.isArray(d) && (d as { type?: unknown }).type === 'OWNERSHIP_DOCUMENT'))
+    docs = [...kept, { type: 'OWNERSHIP_DOCUMENT', url: ownershipDocumentUrl }] as Prisma.JsonArray
+    docCount = docs.length
+  }
+
   const updated = await prisma.property.update({
     where: { id },
     data: {
+      propertyStatus: classification.propertyStatus,
+      disputeType: classification.disputeType,
       title: title || existing.title,
       area: area ? String(area) : existing.area,
       age: age ?? existing.age,

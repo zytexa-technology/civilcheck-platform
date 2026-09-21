@@ -48,7 +48,11 @@ const EMPTY_FORM = {
   propertyArea: '',
   isBuilt: '',
   // Step 2
-  caseExists: '',
+  // Property Status: CLEAR | DISPUTED (required). disputeType: CIVIL | CRIMINAL | OTHER
+  // (required only when DISPUTED). The buyer's Green/Red indicator is derived from
+  // this on the server — it is never chosen here.
+  propertyStatus: '',
+  disputeType: '',
   caseNumber: '',
   caseType: '',
   caseStatus: '',
@@ -134,7 +138,7 @@ export default function NewListing() {
     if (!isAgricultural && form.isBuilt)      extra.push(form.isBuilt === 'built' ? 'Bana hua' : 'Khali land')
     const sellerNotes = [form.sellerNotes.trim(), extra.join(' \u2022 ')].filter(Boolean).join(' | ')
 
-    const caseExists = form.caseExists === 'true'
+    const disputed = form.propertyStatus === 'DISPUTED'
 
     return {
       address,
@@ -143,12 +147,14 @@ export default function NewListing() {
       propertyType: pt,
       city: form.city.trim(),
       tehsil: form.tehsil.trim(),
-      caseExists,
-      caseNumber:      caseExists ? (form.caseNumber || undefined) : undefined,
-      caseType:        caseExists ? (form.caseType || undefined) : undefined,
-      caseStatus:      caseExists ? (form.caseStatus || undefined) : undefined,
-      courtName:       caseExists ? (form.courtName || undefined) : undefined,
-      partiesInvolved: caseExists ? (form.partiesInvolved || undefined) : undefined,
+      propertyStatus: form.propertyStatus,
+      disputeType:    disputed ? form.disputeType : undefined,
+      // Optional extra case detail, only relevant for a disputed property.
+      caseNumber:      disputed ? (form.caseNumber || undefined) : undefined,
+      caseType:        disputed ? (form.caseType || undefined) : undefined,
+      caseStatus:      disputed ? (form.caseStatus || undefined) : undefined,
+      courtName:       disputed ? (form.courtName || undefined) : undefined,
+      partiesInvolved: disputed ? (form.partiesInvolved || undefined) : undefined,
       loanDefault: !!form.loanDefault,
       lenderName:  form.loanDefault ? (form.lenderName || undefined) : undefined,
       price: Number(form.price),
@@ -204,9 +210,9 @@ export default function NewListing() {
       return true
     }
     if (step === 2) {
-      if (form.caseExists === '') return false
-      // Backend requires caseNumber whenever caseExists is true.
-      if (form.caseExists === 'true' && !form.caseNumber.trim()) return false
+      if (!form.propertyStatus) return false
+      // Dispute type is mandatory for a disputed property.
+      if (form.propertyStatus === 'DISPUTED' && !form.disputeType) return false
       // Property Discovery flow (Step 2) — every buyer-visible Listing must
       // have a real map pin; the backend now rejects creation without it.
       if (form.latitude == null || form.longitude == null) return false
@@ -508,19 +514,19 @@ export default function NewListing() {
               </div>
             </div>
 
-            {/* Case exists? */}
+            {/* Property status — Clear or Dispute (Green / Red is derived by the server) */}
             <div style={s.field}>
-              <label style={s.label}>Kya koi court case hai? *</label>
+              <label style={s.label}>Property Status *</label>
               <div style={s.yesNoGrid}>
                 {[
-                  { val: 'true',  label: 'Haan, case hai',  icon: '⚖️', color: 'var(--danger)', soft: 'var(--danger-soft)' },
-                  { val: 'false', label: 'Nahi, koi case nahi', icon: '✅', color: 'var(--verified)', soft: 'var(--verified-soft)' },
+                  { val: 'CLEAR',    label: 'Clear',   icon: '✅', color: 'var(--verified)', soft: 'var(--verified-soft)' },
+                  { val: 'DISPUTED', label: 'Dispute', icon: '⚖️', color: 'var(--danger)',   soft: 'var(--danger-soft)' },
                 ].map(opt => {
-                  const active = form.caseExists === opt.val
+                  const active = form.propertyStatus === opt.val
                   return (
                     <div
                       key={opt.val}
-                      onClick={() => update('caseExists', opt.val)}
+                      onClick={() => setForm(f => ({ ...f, propertyStatus: opt.val, disputeType: opt.val === 'CLEAR' ? '' : f.disputeType }))}
                       style={{
                         ...s.yesNoCard,
                         borderColor: active ? opt.color : 'var(--line-2)',
@@ -537,12 +543,25 @@ export default function NewListing() {
               </div>
             </div>
 
-            {/* Case details — sirf tab dikho jab caseExists = true */}
-            {form.caseExists === 'true' && (
+            {/* Dispute type — required when the property is disputed */}
+            {form.propertyStatus === 'DISPUTED' && (
+              <div style={s.field}>
+                <label style={s.label}>Dispute Type *</label>
+                <select className="control" value={form.disputeType} onChange={e => update('disputeType', e.target.value)}>
+                  <option value="">Select...</option>
+                  <option value="CIVIL">Civil</option>
+                  <option value="CRIMINAL">Criminal</option>
+                  <option value="OTHER">Other</option>
+                </select>
+              </div>
+            )}
+
+            {/* Optional case details — only for a disputed property */}
+            {form.propertyStatus === 'DISPUTED' && (
               <div style={s.caseSection}>
-                <div style={s.caseSectionHd}>⚖️ Case Details</div>
+                <div style={s.caseSectionHd}>⚖️ Case Details (optional)</div>
                 <div style={s.formGrid}>
-                  <FormField label="Case Number *" placeholder="e.g. CS/1234/2024"
+                  <FormField label="Case Number" placeholder="e.g. CS/1234/2024"
                     value={form.caseNumber} onChange={v => update('caseNumber', v)} />
                   <div style={s.field}>
                     <label style={s.label}>Case Type</label>
@@ -605,8 +624,8 @@ export default function NewListing() {
                 value={form.lenderName} onChange={v => update('lenderName', v)} />
             )}
 
-            <FormTextarea label="Seller Notes (Optional)"
-              placeholder="Koi aur zaroori information jo buyers ko pata honi chahiye"
+            <FormTextarea label="Partner Notes (Optional)"
+              placeholder="Koi aur zaroori information jo users ko pata honi chahiye"
               value={form.sellerNotes} onChange={v => update('sellerNotes', v)} rows={3} />
 
             {/* Documents — real Cloudinary upload, same pattern as seller/KYC.jsx */}
@@ -731,8 +750,8 @@ export default function NewListing() {
               {!isAgricultural && form.isBuilt && (
                 <SummaryRow label="Construction Status" value={form.isBuilt === 'built' ? '🏗️ Bana Hua Hai' : '🟫 Khali Land Hai'} />
               )}
-              <SummaryRow label="Case Exists" value={form.caseExists === 'true' ? '⚖️ Yes' : '✅ No'} />
-              {form.caseExists === 'true' && <SummaryRow label="Case Number" value={form.caseNumber || '—'} />}
+              <SummaryRow label="Property Status" value={form.propertyStatus === 'DISPUTED' ? '🔴 Disputed' : form.propertyStatus === 'CLEAR' ? '🟢 Clear' : '—'} />
+              {form.propertyStatus === 'DISPUTED' && <SummaryRow label="Dispute Type" value={({ CIVIL: 'Civil', CRIMINAL: 'Criminal', OTHER: 'Other' })[form.disputeType] || '—'} />}
               <SummaryRow label="Price" value={form.price ? `₹${form.price}` : '—'} highlight />
             </div>
           </>

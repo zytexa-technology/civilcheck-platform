@@ -24,6 +24,7 @@ import {
 // seller UI sends their own human label, e.g. "NOC") so they just display
 // their `type` as-is — no entry needed here for those.
 const REQUIRED_DOC_LABELS = {
+  OWNERSHIP_DOCUMENT: 'Ownership Document',
   SALE_DEED: 'Sale Deed',
   REGISTRY: 'Registry',
   KHATA: 'Khata',
@@ -70,6 +71,7 @@ const PropertyModal = ({ property, onClose, onAction, canManage, canDelete }) =>
         ['Age', property.age || '—'],
         ['City', property.city || '—'],
         ['Type', property.propertyType],
+        ['Property status', property.propertyStatus === 'DISPUTED' ? `Disputed (${({ CIVIL: 'Civil', CRIMINAL: 'Criminal', OTHER: 'Other' })[property.disputeType] || '—'})` : property.propertyStatus === 'CLEAR' ? 'Clear' : 'Unclassified (legacy)'],
         ['Health score', `${property.health}/100`],
         ['Uploaded by', property.uploaderRole || '—'],
         ['Owner', property.seller?.name || '—'],
@@ -140,7 +142,7 @@ const PropertyModal = ({ property, onClose, onAction, canManage, canDelete }) =>
         open={confirmDelete}
         tone="danger"
         title="Delete this property?"
-        description={`"${property.title}" will be soft-deleted — it stays attributable for records, but buyers can no longer find it. This cannot be undone from the UI.`}
+        description={`"${property.title}" will be soft-deleted — it stays attributable for records, but users can no longer find it. This cannot be undone from the UI.`}
         confirmLabel="Delete property"
         loading={loading}
         onConfirm={() => handleAction('delete')}

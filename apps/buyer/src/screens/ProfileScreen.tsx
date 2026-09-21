@@ -97,7 +97,7 @@ export function ProfileScreen() {
     { icon: '📖', title: 'My reports', href: '/reports' },
     { icon: '🔎', title: 'Verification requests', href: '/verifications' },
     { icon: '🔖', title: 'Saved properties', href: '/saved-properties' },
-    { icon: '📝', title: 'Custom research', href: '/requests' },
+    { icon: '📝', title: 'Request for Legal Reports', href: '/requests' },
     { icon: '🔔', title: 'Watching & alerts', href: '/alerts' },
     ...PUBLIC_MENU,
     { icon: '📥', title: 'Notification inbox', href: '/inbox' },

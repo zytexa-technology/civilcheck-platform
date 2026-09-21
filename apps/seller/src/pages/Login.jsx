@@ -9,8 +9,10 @@
 //  │  Log In (existing partner)  |  Become a Partner (new signup)          │
 //  └───────────────────────────────────────────────────────────────────────┘
 //        │                              │
-//        ▼ email + password             ▼ Basic Profile → Role select
-//     Dashboard                      Dashboard
+//        ▼ email + password             ▼ Basic Profile → Role select →
+//     Dashboard                        Identity Verification (Aadhaar OTP +
+//                                      Aadhaar photo — mandatory for every
+//                                      partner role) → email verification
 //
 //  Role backend (Seller.partnerRole) me save hota hai — isliye kisi bhi
 //  device se login karo, sahi portal khulta hai.
@@ -19,13 +21,38 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { sellerLogin, sellerLoginFirebase, sellerRegister, verifyEmail, resendVerificationEmail } from '../api/auth.api'
+import {
+  sellerLogin, sellerLoginFirebase, sellerRegister, verifyEmail, resendVerificationEmail,
+  kycSendOtp, kycVerifyOtp, kycGetUploadSignature, kycAttachDocument,
+} from '../api/auth.api'
+import { uploadWithSignature } from '../api/cloudinaryUpload'
 import { getSellerProfile } from '../api/seller.api'
 import { sendOtp, confirmOtp, isFirebaseConfigured } from '../lib/firebaseAuth'
 import { Seal, Icon } from '../components/Icon'
 import { toast } from '../components/ui'
 
 const PHONE_OTP_RECAPTCHA_ID = 'phone-otp-recaptcha'
+
+// ── Aadhaar helpers (client-side convenience only — the server re-validates
+// everything and is the only place a KYC state can change) ─────────────────
+const VERHOEFF_D = [
+  [0,1,2,3,4,5,6,7,8,9],[1,2,3,4,0,6,7,8,9,5],[2,3,4,0,1,7,8,9,5,6],[3,4,0,1,2,8,9,5,6,7],[4,0,1,2,3,9,5,6,7,8],
+  [5,9,8,7,6,0,4,3,2,1],[6,5,9,8,7,1,0,4,3,2],[7,6,5,9,8,2,1,0,4,3],[8,7,6,5,9,3,2,1,0,4],[9,8,7,6,5,4,3,2,1,0],
+]
+const VERHOEFF_P = [
+  [0,1,2,3,4,5,6,7,8,9],[1,5,7,6,2,8,3,0,9,4],[5,8,0,3,7,9,6,1,4,2],[8,9,1,6,0,4,3,5,2,7],
+  [9,4,5,3,1,2,6,8,7,0],[4,2,8,6,5,7,3,9,0,1],[2,7,9,3,8,0,6,4,1,5],[7,0,4,6,9,1,3,2,5,8],
+]
+const aadhaarValid = (v) => {
+  if (!/^[2-9]\d{11}$/.test(v)) return false
+  let c = 0
+  const d = v.split('').reverse().map(Number)
+  for (let i = 0; i < d.length; i++) c = VERHOEFF_D[c][VERHOEFF_P[i % 8][d[i]]]
+  return c === 0
+}
+const groupAadhaar = (digits) => digits.replace(/(\d{4})(?=\d)/g, '$1 ')
+const KYC_DOC_MAX_BYTES = 10 * 1024 * 1024
+const KYC_DOC_EXTS = ['pdf', 'jpg', 'jpeg', 'png']
 
 // The field only ever wants a bare 10-digit number — the "+91" is shown as
 // its own fixed prefix box, never typed. But a user who pastes the number
@@ -106,6 +133,36 @@ export default function Login() {
   const [emailOtp, setEmailOtp] = useState('')
   const [emailOtpCooldown, setEmailOtpCooldown] = useState(0)
   const [resendMessage, setResendMessage] = useState('')
+
+  // Mandatory Aadhaar KYC (signup). `status` mirrors the server's lifecycle:
+  // NONE → OTP_PENDING → OTP_VERIFIED → VERIFIED (photo uploaded). The number
+  // lives only in this input (cleared once verified) — never in storage/URLs.
+  const [kyc, setKyc] = useState({ aadhaar: '', otp: '', token: '', status: 'NONE', masked: '' })
+  const [kycBusy, setKycBusy] = useState('') // '' | 'send' | 'verify' | 'upload'
+  const [kycCooldown, setKycCooldown] = useState(0)
+  const [kycFile, setKycFile] = useState(null)
+  const [kycPreview, setKycPreview] = useState('')
+  const setKycField = (k, v) => setKyc((s) => ({ ...s, [k]: v }))
+
+  const startKycCooldown = () => {
+    setKycCooldown(30)
+    const iv = setInterval(() => {
+      setKycCooldown((c) => {
+        if (c <= 1) { clearInterval(iv); return 0 }
+        return c - 1
+      })
+    }, 1000)
+  }
+  const resetKyc = () => {
+    setKyc({ aadhaar: '', otp: '', token: '', status: 'NONE', masked: '' })
+    setKycFile(null); setKycPreview('')
+  }
+  // Server said the session is gone/used → start the identity step over.
+  const kycErr = (e, fallback) => {
+    const code = e.response?.data?.code
+    if (code === 'KYC_SESSION_EXPIRED' || code === 'KYC_SESSION_USED') resetKyc()
+    return e.response?.data?.message || e.response?.data?.errors?.[0]?.message || fallback
+  }
 
   const startEmailOtpCooldown = () => {
     setEmailOtpCooldown(60)
@@ -204,9 +261,74 @@ export default function Login() {
       }
     }
     if (!tcAccepted) { setErr('Terms & Conditions accept karna zaroori hai'); return }
+    // Every partner role (Reporter / Owner / Expert) must now complete
+    // Aadhaar identity verification before the account is created.
+    setErr(''); setStep('kyc')
+  }
+
+  // ── KYC: send Aadhaar OTP ────────────────────────────────────────────
+  const handleKycSendOtp = async () => {
+    const digits = kyc.aadhaar.replace(/\D/g, '')
+    if (!aadhaarValid(digits)) { setErr('Please enter a valid 12-digit Aadhaar number.'); return }
+    setErr(''); setKycBusy('send')
+    try {
+      const data = await kycSendOtp(digits, kyc.token || undefined)
+      setKyc((s) => ({ ...s, token: data.sessionToken, status: 'OTP_PENDING', masked: data.maskedAadhaar, otp: '' }))
+      startKycCooldown()
+    } catch (e) {
+      setErr(kycErr(e, 'Could not send the OTP. Please try again.'))
+    } finally { setKycBusy('') }
+  }
+
+  // ── KYC: verify OTP with the provider (server-side) ───────────────────
+  const handleKycVerifyOtp = async () => {
+    if (!/^\d{4,8}$/.test(kyc.otp)) { setErr('Enter the OTP sent to your Aadhaar-linked mobile number.'); return }
+    setErr(''); setKycBusy('verify')
+    try {
+      const data = await kycVerifyOtp(kyc.token, kyc.otp)
+      // Number and OTP are no longer needed on screen once the server has verified.
+      setKyc((s) => ({ ...s, status: data.status, masked: data.maskedAadhaar, aadhaar: '', otp: '' }))
+    } catch (e) {
+      setErr(kycErr(e, 'OTP verification failed. Please try again.'))
+    } finally { setKycBusy('') }
+  }
+
+  // ── KYC: choose / replace the Aadhaar photo (validated before upload) ──
+  const handleKycFile = (e) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    const ext = file.name.split('.').pop()?.toLowerCase() || ''
+    if (!KYC_DOC_EXTS.includes(ext)) { setErr('Only JPG, PNG or PDF files are allowed.'); return }
+    if (file.size > KYC_DOC_MAX_BYTES) { setErr('File must be smaller than 10 MB.'); return }
+    setErr('')
+    if (kycPreview) URL.revokeObjectURL(kycPreview)
+    setKycFile(file)
+    setKycPreview(ext === 'pdf' ? '' : URL.createObjectURL(file))
+    // A replaced photo has to be uploaded again.
+    setKyc((s) => (s.status === 'VERIFIED' ? { ...s, status: 'OTP_VERIFIED' } : s))
+  }
+
+  const handleKycUpload = async () => {
+    if (!kycFile) { setErr('Please choose your Aadhaar card photo first.'); return }
+    setErr(''); setKycBusy('upload')
+    try {
+      const { upload } = await kycGetUploadSignature(kyc.token)
+      const uploaded = await uploadWithSignature(kycFile, upload)
+      const data = await kycAttachDocument(kyc.token, uploaded.url)
+      setKyc((s) => ({ ...s, status: data.status }))
+    } catch (e) {
+      setErr(e.response ? kycErr(e, 'Upload failed. Please try again.') : (e.message || 'Upload failed. Please try again.'))
+    } finally { setKycBusy('') }
+  }
+
+  // ── COMPLETE SIGNUP → REGISTER (only reachable once KYC is VERIFIED) ────
+  const completeSignup = async () => {
+    if (kyc.status !== 'VERIFIED') { setErr('Please complete Aadhaar verification and upload your Aadhaar photo first.'); return }
     setErr(''); setBusy(true)
     try {
       const data = await sellerRegister({
+        kycSessionToken: kyc.token,
         phone: form.phone,
         name: form.name.trim(),
         email: form.email.trim(),
@@ -238,7 +360,13 @@ export default function Login() {
       }
     } catch (e) {
       const status = e.response?.status
-      if (status === 409) {
+      const kycCode = e.response?.data?.code
+      if (kycCode === 'KYC_DUPLICATE_AADHAAR') {
+        setErr(e.response.data.message)
+      } else if (kycCode === 'KYC_SESSION_EXPIRED' || kycCode === 'KYC_SESSION_USED' || kycCode === 'KYC_REQUIRED') {
+        resetKyc()
+        setErr(e.response.data.message)
+      } else if (status === 409) {
         toast('Yeh phone ya email pehle se registered hai — login karein')
         setStep('login')
         setLoginForm({ email: form.email, password: '' })
@@ -309,7 +437,7 @@ export default function Login() {
           <div className="eyebrow">Welcome</div>
           <h1 style={{ fontSize: 26, margin: '8px 0 6px' }} className="dev">Partner Portal me aaiye</h1>
           <p className="muted small dev" style={{ marginBottom: 24 }}>
-            Property Owner, Reporter aur Expert partners ke liye. Buyer platform alag hai.
+            Property Owner, Reporter aur Expert partners ke liye. User platform alag hai.
           </p>
 
           <button
@@ -565,7 +693,7 @@ export default function Login() {
             />
             <span className="muted">
               I agree to CivilCheck&apos;s{' '}
-              <Link to="/terms" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--seal, #B67A12)' }}>Seller Terms &amp; Conditions</Link>
+              <Link to="/terms" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--seal, #B67A12)' }}>Partner Terms &amp; Conditions</Link>
               {' '}and{' '}
               <Link to="/privacy" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--seal, #B67A12)' }}>Privacy Policy</Link>
               {TC_SUFFIX_TEXT}
@@ -577,9 +705,114 @@ export default function Login() {
             onClick={confirmRole}
             disabled={busy || !tcAccepted}
           >
-            {busy ? 'Setup ho raha hai…' : 'Enter Partner Portal'}
+            Continue to Identity Verification
           </button>
           <button className="btn btn-block" style={{ color: 'var(--muted)', marginTop: 6 }} onClick={() => setStep('profile')}>← Back</button>
+        </div>
+      )}
+
+      {/* ===== IDENTITY VERIFICATION (register step 3 — mandatory Aadhaar KYC) ===== */}
+      {step === 'kyc' && (
+        <div className="auth-card auth-wide">
+          <div className="eyebrow">Step 3 of 3</div>
+          <h1 style={{ fontSize: 24, margin: '6px 0 4px' }} className="dev">Identity Verification</h1>
+          <p className="muted small dev" style={{ marginBottom: 22 }}>
+            Aadhaar verification is mandatory for all CivilCheck Partners. Your Aadhaar number is
+            verified through an authorized provider and is never stored or shown in full.
+          </p>
+          {err && <ErrorBox msg={err} />}
+
+          {/* 1 — Aadhaar number + OTP */}
+          <div className="card" style={{ padding: 16, marginBottom: 14 }}>
+            <div className="small dev" style={{ fontWeight: 700, marginBottom: 10 }}>1. Verify Aadhaar with OTP</div>
+            {(kyc.status === 'OTP_VERIFIED' || kyc.status === 'DOCUMENT_PENDING' || kyc.status === 'VERIFIED') ? (
+              <div className="dev" style={{ color: 'var(--success, #1a7f4b)', fontWeight: 700, fontSize: 14 }}>
+                ✓ Aadhaar Verified <span className="muted small" style={{ fontWeight: 500 }}>{kyc.masked}</span>
+              </div>
+            ) : (
+              <>
+                <div className="field">
+                  <label>Aadhaar number <span className="req">*</span></label>
+                  <input
+                    className="control" inputMode="numeric" autoComplete="off" placeholder="XXXX XXXX XXXX"
+                    value={groupAadhaar(kyc.aadhaar.replace(/\D/g, '').slice(0, 12))}
+                    disabled={!!kycBusy}
+                    onChange={(e) => setKycField('aadhaar', e.target.value.replace(/\D/g, '').slice(0, 12))}
+                  />
+                </div>
+                {kyc.status === 'NONE' || kyc.status === 'FAILED' ? (
+                  <button className="btn btn-primary btn-block" onClick={handleKycSendOtp} disabled={!!kycBusy}>
+                    {kycBusy === 'send' ? 'Sending OTP…' : 'Send OTP'}
+                  </button>
+                ) : (
+                  <>
+                    <p className="xs muted dev" style={{ marginBottom: 10 }}>
+                      OTP sent to the mobile number linked with Aadhaar {kyc.masked}.
+                    </p>
+                    <div className="field">
+                      <label>OTP <span className="req">*</span></label>
+                      <input
+                        className="control" inputMode="numeric" autoComplete="one-time-code" maxLength={8}
+                        placeholder="Enter OTP" value={kyc.otp} disabled={!!kycBusy}
+                        style={{ letterSpacing: 4, textAlign: 'center', fontSize: 18, fontWeight: 700 }}
+                        onChange={(e) => setKycField('otp', e.target.value.replace(/\D/g, '').slice(0, 8))}
+                      />
+                    </div>
+                    <button className="btn btn-primary btn-block" onClick={handleKycVerifyOtp} disabled={!!kycBusy}>
+                      {kycBusy === 'verify' ? 'Verifying…' : 'Verify OTP'}
+                    </button>
+                    <button
+                      className="btn btn-block" style={{ color: 'var(--muted)', marginTop: 6 }}
+                      onClick={handleKycSendOtp} disabled={!!kycBusy || kycCooldown > 0}
+                    >
+                      {kycCooldown > 0 ? `Resend OTP in ${kycCooldown}s` : 'Resend OTP'}
+                    </button>
+                  </>
+                )}
+              </>
+            )}
+          </div>
+
+          {/* 2 — Aadhaar photo (unlocked only after OTP verification) */}
+          <div className="card" style={{ padding: 16, marginBottom: 14, opacity: kyc.status === 'OTP_VERIFIED' || kyc.status === 'DOCUMENT_PENDING' || kyc.status === 'VERIFIED' ? 1 : 0.55 }}>
+            <div className="small dev" style={{ fontWeight: 700, marginBottom: 10 }}>2. Upload Aadhaar card photo</div>
+            {kyc.status === 'VERIFIED' && kycFile ? (
+              <div className="dev" style={{ color: 'var(--success, #1a7f4b)', fontWeight: 700, fontSize: 14, marginBottom: 10 }}>
+                ✓ Aadhaar Document Uploaded
+              </div>
+            ) : null}
+            {kycFile && (
+              <div style={{ marginBottom: 10 }}>
+                {kycPreview
+                  ? <img src={kycPreview} alt="Aadhaar card preview" style={{ maxWidth: '100%', maxHeight: 180, borderRadius: 8, border: '1px solid var(--border)' }} />
+                  : <div className="small muted">📄 {kycFile.name}</div>}
+              </div>
+            )}
+            <label className="btn btn-block" style={{ cursor: 'pointer', marginBottom: 8 }}>
+              {kycFile ? 'Replace photo' : 'Choose photo (JPG, PNG or PDF, max 10 MB)'}
+              <input
+                type="file" accept=".jpg,.jpeg,.png,.pdf" style={{ display: 'none' }}
+                onChange={handleKycFile}
+                disabled={!!kycBusy || !(kyc.status === 'OTP_VERIFIED' || kyc.status === 'DOCUMENT_PENDING' || kyc.status === 'VERIFIED')}
+              />
+            </label>
+            {kycFile && kyc.status !== 'VERIFIED' && (
+              <button className="btn btn-primary btn-block" onClick={handleKycUpload} disabled={!!kycBusy}>
+                {kycBusy === 'upload' ? 'Uploading…' : 'Upload Aadhaar photo'}
+              </button>
+            )}
+            <p className="xs muted dev" style={{ marginTop: 8 }}>
+              Your Aadhaar photo is stored privately and is visible only to CivilCheck verification staff.
+            </p>
+          </div>
+
+          <button
+            className="btn btn-primary btn-block" style={{ marginTop: 4 }}
+            onClick={completeSignup} disabled={busy || !!kycBusy || kyc.status !== 'VERIFIED'}
+          >
+            {busy ? 'Setup ho raha hai…' : 'Complete Signup'}
+          </button>
+          <button className="btn btn-block" style={{ color: 'var(--muted)', marginTop: 6 }} onClick={() => { setErr(''); setStep('role') }}>← Back</button>
         </div>
       )}
 

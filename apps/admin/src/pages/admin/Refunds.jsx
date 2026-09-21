@@ -33,7 +33,7 @@ const RefundModal = ({ refund, onClose, onAction, canManage }) => {
     }>
       <div className="card-flat" style={{ padding: 16, marginBottom: 20 }}>
         {[
-          ['Buyer', refund.buyer?.name || refund.buyer?.phone || '—'],
+          ['User', refund.buyer?.name || refund.buyer?.phone || '—'],
           ['Property', refund.listing?.address || '—'],
           ['Amount', `₹${refund.amount.toLocaleString('en-IN')}`],
           ['Reason', refund.reason],
@@ -109,7 +109,7 @@ const NewRefundModal = ({ onClose, onCreated }) => {
     <Modal open title="New refund" onClose={onClose}>
       {!picked ? (
         <>
-          <Field label="Find purchase" hint="Buyer phone (digits) or listing address.">
+          <Field label="Find purchase" hint="User phone (digits) or listing address.">
             <div style={{ display: 'flex', gap: 8 }}>
               <input
                 className="control"
@@ -224,7 +224,7 @@ export default function Refunds() {
 
   const columns = [
     { key: 'refundRef', header: 'Request ID', render: (r) => <span style={{ fontFamily: 'monospace', fontSize: 12, fontWeight: 700 }} className="muted">{r.refundRef}</span> },
-    { key: 'buyer', header: 'Buyer', render: (r) => (<><div style={{ fontWeight: 600 }}>{r.buyer?.name || 'Anonymous'}</div><div className="small muted">+91 {r.buyer?.phone}</div></>) },
+    { key: 'buyer', header: 'User', render: (r) => (<><div style={{ fontWeight: 600 }}>{r.buyer?.name || 'Anonymous'}</div><div className="small muted">+91 {r.buyer?.phone}</div></>) },
     { key: 'listing', header: 'Listing', render: (r) => <div title={r.listing?.address || ''} style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.listing?.address || '—'}</div> },
     { key: 'amount', header: 'Amount', render: (r) => <span style={{ color: 'var(--amber)', fontWeight: 700 }}>₹{r.amount.toLocaleString('en-IN')}</span> },
     { key: 'reason', header: 'Reason', render: (r) => <div title={r.reason || ''} className="muted" style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.reason}</div> },

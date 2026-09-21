@@ -30,7 +30,7 @@ export default function Coverage() {
       </h1>
       <p className="muted" style={{ marginBottom: 28, maxWidth: 560 }}>
         These are the states, cities, and tehsils our verified professionals currently cover. Don't
-        see your area? You can still submit a custom research request.
+        see your area? You can still submit a Request for Legal Reports.
       </p>
 
       {error ? (

@@ -86,14 +86,14 @@ const ClaimModal = ({ claim, onClose, onResolved, canResolve }) => {
     >
       <div className="card-flat" style={{ padding: 16, marginBottom: 20 }}>
         {[
-          ['Buyer', claim.user?.name || claim.user?.phone || '—'],
+          ['User', claim.user?.name || claim.user?.phone || '—'],
           ['Phone', claim.user?.phone ? `+91 ${claim.user.phone}` : '—'],
           ['Verification request', claim.verificationRequest?.id || claim.verificationRequestId],
           ['Request status', claim.verificationRequest?.status || '—'],
           ['Agreed fee', claim.verificationRequest?.agreedFee ? `₹${Number(claim.verificationRequest.agreedFee).toLocaleString('en-IN')}` : '—'],
           ['Report completed', claim.verificationRequest?.reportCompletedAt ? formatDate(claim.verificationRequest.reportCompletedAt) : '—'],
           ['Claim deadline', claim.verificationRequest?.claimDeadline ? formatDate(claim.verificationRequest.claimDeadline) : '—'],
-          ['Buyer acceptance', claim.verificationRequest?.buyerAcceptanceStatus || '—'],
+          ['User acceptance', claim.verificationRequest?.buyerAcceptanceStatus || '—'],
           // Actual verification performer — the claim recipient. A separate
           // question from Expert payout eligibility: only when this reads
           // "Expert" is there a 30/70 payout involved at all.
@@ -241,7 +241,7 @@ export default function Claims() {
   }
 
   const columns = [
-    { key: 'buyer', header: 'Buyer', render: (c) => (<><div style={{ fontWeight: 600 }}>{c.user?.name || 'Anonymous'}</div><div className="small muted">+91 {c.user?.phone}</div></>) },
+    { key: 'buyer', header: 'User', render: (c) => (<><div style={{ fontWeight: 600 }}>{c.user?.name || 'Anonymous'}</div><div className="small muted">+91 {c.user?.phone}</div></>) },
     { key: 'reason', header: 'Reason', render: (c) => <div title={c.reason || ''} className="muted" style={{ maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.reason}</div> },
     {
       key: 'request',
@@ -266,7 +266,7 @@ export default function Claims() {
     <div>
       <PageHead
         title="Claims"
-        subtitle="Review and resolve disputes buyers raise after a verification report unlocks"
+        subtitle="Review and resolve disputes users raise after a verification report unlocks"
       />
 
       <div className="grid g3" style={{ marginBottom: 20 }}>

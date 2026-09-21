@@ -6,10 +6,10 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { colors } from '../theme/tokens'
 import type {
-  RiskBadge,
+  PropertyStatus,
+  DisputeType,
   SellerBadge,
   SpecialRequestStatus,
-  SubscriptionStatus,
   SupportTicketStatus,
   VerificationRequestStatus,
 } from '../types/api'
@@ -23,54 +23,64 @@ export interface Tone {
 
 // ─── RISK ────────────────────────────────────────────────────────────────────
 
-export function riskTone(badge: RiskBadge | undefined): Tone {
-  switch (badge) {
-    case 'RED':
-      return { label: '🔴 Risk', color: colors.red, bg: colors.redDim, border: colors.redBorder }
-    case 'AMBER':
-      return { label: '🟡 Caution', color: colors.amber, bg: colors.amberDim, border: colors.amberBorder }
-    case 'GREEN':
-    default:
-      return { label: '🟢 Clear', color: colors.green, bg: colors.greenDim, border: colors.greenBorder }
-  }
+// Property listing alert. Derived ONLY from the declared propertyStatus (CLEAR => green,
+// DISPUTED => red, with the dispute type). There is no risk badge and no yellow state; a legacy
+// listing that was never classified has no status and shows as "Not classified".
+const DISPUTE_LABEL: Record<string, string> = { CIVIL: 'Civil', CRIMINAL: 'Criminal', OTHER: 'Other' }
+const NOT_CLASSIFIED = {
+  color: colors.dim,
+  bg: 'rgba(128,128,128,0.12)',
+  border: 'rgba(128,128,128,0.3)',
 }
 
-export interface RiskBannerContent extends Tone {
+export function alertTone(propertyStatus: PropertyStatus | null | undefined, disputeType?: DisputeType | null): Tone {
+  if (propertyStatus === 'DISPUTED') {
+    return {
+      label: `🔴 Disputed${disputeType && DISPUTE_LABEL[disputeType] ? ` · ${DISPUTE_LABEL[disputeType]}` : ''}`,
+      color: colors.red,
+      bg: colors.redDim,
+      border: colors.redBorder,
+    }
+  }
+  if (propertyStatus === 'CLEAR') {
+    return { label: '🟢 Clear', color: colors.green, bg: colors.greenDim, border: colors.greenBorder }
+  }
+  return { label: 'Not classified', ...NOT_CLASSIFIED }
+}
+
+export interface AlertBannerContent extends Tone {
   icon: string
   description: string
 }
 
-export function riskBanner(badge: RiskBadge | undefined): RiskBannerContent {
-  switch (badge) {
-    case 'RED':
-      return {
-        icon: '🔴',
-        label: 'HIGH RISK',
-        color: colors.red,
-        bg: colors.redDim,
-        border: colors.redBorder,
-        description:
-          'An active civil court case was found on this property. Do not buy without legal clearance.',
-      }
-    case 'AMBER':
-      return {
-        icon: '🟡',
-        label: 'CAUTION',
-        color: colors.amber,
-        bg: colors.amberDim,
-        border: colors.amberBorder,
-        description: 'Some concerns were found on this property. Review the full report before buying.',
-      }
-    case 'GREEN':
-    default:
-      return {
-        icon: '🟢',
-        label: 'LOW RISK',
-        color: colors.green,
-        bg: colors.greenDim,
-        border: colors.greenBorder,
-        description: 'No active court case found in our records. Still verify independently before buying.',
-      }
+export function alertBanner(propertyStatus: PropertyStatus | null | undefined, disputeType?: DisputeType | null): AlertBannerContent {
+  if (propertyStatus === 'DISPUTED') {
+    return {
+      icon: '🔴',
+      label: 'DISPUTED PROPERTY',
+      color: colors.red,
+      bg: colors.redDim,
+      border: colors.redBorder,
+      description: disputeType && DISPUTE_LABEL[disputeType]
+        ? `Dispute Type: ${DISPUTE_LABEL[disputeType]}. Request the Legal Report to learn exactly what the dispute is.`
+        : 'This property has been declared disputed. Request the Legal Report to learn exactly what the dispute is.',
+    }
+  }
+  if (propertyStatus === 'CLEAR') {
+    return {
+      icon: '🟢',
+      label: 'CLEAR PROPERTY',
+      color: colors.green,
+      bg: colors.greenDim,
+      border: colors.greenBorder,
+      description: 'Declared clear by the uploader. Still verify independently before buying.',
+    }
+  }
+  return {
+    icon: '⚪',
+    label: 'NOT CLASSIFIED',
+    ...NOT_CLASSIFIED,
+    description: 'This property was listed before Clear / Disputed classification. Verify independently before buying.',
   }
 }
 
@@ -88,14 +98,14 @@ export function sellerBadgeLabel(badge: SellerBadge | undefined): string {
 }
 
 const SELLER_BADGE_LONG: Record<SellerBadge, string> = {
-  PLATINUM: '🏆 Verified Platinum seller',
-  GOLD: '🥇 Verified Gold seller',
-  SILVER: '🥈 Verified Silver seller',
-  BRONZE: '🥉 Verified Bronze seller',
+  PLATINUM: '🏆 Verified Platinum partner',
+  GOLD: '🥇 Verified Gold partner',
+  SILVER: '🥈 Verified Silver partner',
+  BRONZE: '🥉 Verified Bronze partner',
 }
 
 export function sellerBadgeLong(badge: SellerBadge | undefined): string {
-  return badge ? SELLER_BADGE_LONG[badge] : '✔️ Verified seller'
+  return badge ? SELLER_BADGE_LONG[badge] : '✔️ Verified partner'
 }
 
 // ─── STATUS ──────────────────────────────────────────────────────────────────
@@ -116,21 +126,6 @@ export function specialRequestTone(status: SpecialRequestStatus): Tone {
       return { label: 'Rejected', color: colors.red, bg: colors.redDim, border: colors.redBorder }
     case 'REFUNDED':
       return { label: 'Refunded', color: colors.green, bg: colors.greenDim, border: colors.greenBorder }
-  }
-}
-
-export function subscriptionTone(status: SubscriptionStatus): Tone {
-  switch (status) {
-    case 'ACTIVE':
-      return { label: 'Active', color: colors.green, bg: colors.greenDim, border: colors.greenBorder }
-    case 'CREATED':
-      return { label: 'Awaiting authorization', color: colors.amber, bg: colors.amberDim, border: colors.amberBorder }
-    case 'CANCELLED':
-      return { label: 'Cancelled', color: colors.muted, bg: colors.surface2, border: colors.border2 }
-    case 'HALTED':
-      return { label: 'Halted — payment failed', color: colors.red, bg: colors.redDim, border: colors.redBorder }
-    case 'COMPLETED':
-      return { label: 'Completed', color: colors.muted, bg: colors.surface2, border: colors.border2 }
   }
 }
 
@@ -301,12 +296,6 @@ export function formatDateTime(value: string | null | undefined): string {
 export function formatRupees(amount: number | null | undefined): string {
   if (amount == null || Number.isNaN(amount)) return '—'
   return `₹${amount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`
-}
-
-/** Subscription.amount and Razorpay orders are in paise. */
-export function formatPaise(paise: number | null | undefined): string {
-  if (paise == null || Number.isNaN(paise)) return '—'
-  return formatRupees(paise / 100)
 }
 
 export function formatPhone(phone: string | null | undefined): string {

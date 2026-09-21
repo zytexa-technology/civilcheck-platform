@@ -124,6 +124,18 @@ export async function getApplication(sellerId: string) {
       aadhaarVerified: seller.aadhaarVerified, // legacy — no longer set by anything, see schema.prisma
       tcAccepted: seller.tcAccepted,
     },
+    // DigiLocker verification — evidence only; provider 'MOCK' = dev test mode, not real.
+    digilocker: {
+      status: seller.digilockerStatus,
+      provider: seller.digilockerProvider,
+      verifiedAt: seller.digilockerVerifiedAt,
+    },
+    // Signup Aadhaar KYC — minimal summary only (never the number or its hash).
+    aadhaarKyc: {
+      status: seller.aadhaarKycStatus,
+      maskedAadhaar: seller.aadhaarLast4 ? `XXXX XXXX ${seller.aadhaarLast4}` : null,
+      verifiedAt: seller.aadhaarVerifiedAt,
+    },
     // Identity document verification (manual review — replaces DigiLocker).
     identityVerification: {
       documentUrl: seller.identityDocumentUrl,
@@ -176,10 +188,10 @@ export async function approveSeller(sellerId: string, onCommit?: CommitHook): Pr
       code: outcome.code,
       message:
         outcome.code === 'NOT_FOUND'
-          ? 'Seller not found'
+          ? 'Partner not found'
           : outcome.current === 'SUSPENDED'
-            ? 'Seller is SUSPENDED — call /unsuspend first'
-            : 'Seller already approved hai',
+            ? 'Partner is SUSPENDED — call /unsuspend first'
+            : 'Partner already approved hai',
     }
   }
 
@@ -191,7 +203,14 @@ export async function approveSeller(sellerId: string, onCommit?: CommitHook): Pr
   // today. Still branches on partnerRole rather than assuming it, so the
   // generic copy is a safe fallback if that ever changes.
   const isExpert = seller.partnerRole === 'EXPERT'
-  const loginUrl = `${SELLER_PORTAL_URL}/`
+  // Direct to /login itself — not just the site root. Root ("/") does
+  // eventually resolve there via two client-side <Navigate> redirects
+  // (unauthenticated "/" -> "/dashboard" -> "/login" in apps/seller/App.jsx),
+  // but an emailed link should land on the real target route directly rather
+  // than depend on that redirect chain executing in every mail-client
+  // in-app browser — same direct-route convention already used by kycUrl
+  // below and by the Admin welcome email (admin.controller.ts).
+  const loginUrl = `${SELLER_PORTAL_URL}/login`
 
   const delivery = await notifySeller(recipient(seller), {
     type: 'approval',
@@ -270,9 +289,9 @@ export async function rejectSeller(
       code: outcome.code,
       message:
         outcome.code === 'NOT_FOUND'
-          ? 'Seller not found'
+          ? 'Partner not found'
           : outcome.current === 'APPROVED'
-            ? 'Seller is already APPROVED — use /suspend to remove them (this also unpublishes their listings)'
+            ? 'Partner is already APPROVED — use /suspend to remove them (this also unpublishes their listings)'
             : `Only PENDING applications can be rejected (currently: ${outcome.current})`,
     }
   }
@@ -371,7 +390,7 @@ export async function suspendSeller(
     return {
       ok: false,
       code: outcome.code,
-      message: outcome.code === 'NOT_FOUND' ? 'Seller not found' : 'Seller is already suspended',
+      message: outcome.code === 'NOT_FOUND' ? 'Partner not found' : 'Partner is already suspended',
     }
   }
 
@@ -384,13 +403,13 @@ export async function suspendSeller(
       subject: 'Your CivilCheck account has been suspended',
       text:
         `Hi ${seller.name},\n\n` +
-        `Your CivilCheck seller account has been suspended and your live listings have been ` +
+        `Your CivilCheck partner account has been suspended and your live listings have been ` +
         `unpublished.\n\nReason: ${reason}\n\n` +
         `If you believe this is a mistake, reply to this email and our team will review it.\n\n` +
         `— Team CivilCheck`,
       html:
         `<p>Hi ${seller.name},</p>` +
-        `<p>Your CivilCheck seller account has been <strong>suspended</strong> and your live ` +
+        `<p>Your CivilCheck partner account has been <strong>suspended</strong> and your live ` +
         `listings have been unpublished.</p>` +
         `<p><strong>Reason:</strong> ${reason}</p>` +
         `<p>If you believe this is a mistake, reply to this email and our team will review it.</p>` +
@@ -433,8 +452,8 @@ export async function unsuspendSeller(sellerId: string, onCommit?: CommitHook): 
       code: outcome.code,
       message:
         outcome.code === 'NOT_FOUND'
-          ? 'Seller not found'
-          : `Seller is not suspended (currently: ${outcome.current})`,
+          ? 'Partner not found'
+          : `Partner is not suspended (currently: ${outcome.current})`,
     }
   }
 
@@ -447,11 +466,11 @@ export async function unsuspendSeller(sellerId: string, onCommit?: CommitHook): 
       subject: 'Your CivilCheck account has been restored',
       text:
         `Hi ${seller.name},\n\n` +
-        `Your CivilCheck seller account has been restored. Listings unpublished during the ` +
+        `Your CivilCheck partner account has been restored. Listings unpublished during the ` +
         `suspension need to be resubmitted for review.\n\n— Team CivilCheck`,
       html:
         `<p>Hi ${seller.name},</p>` +
-        `<p>Your CivilCheck seller account has been <strong>restored</strong>. Listings ` +
+        `<p>Your CivilCheck partner account has been <strong>restored</strong>. Listings ` +
         `unpublished during the suspension need to be resubmitted for review.</p>` +
         `<p>— Team CivilCheck</p>`,
     },
@@ -488,8 +507,8 @@ export async function updateBadge(
       code: outcome.code,
       message:
         outcome.code === 'NOT_FOUND'
-          ? 'Seller not found'
-          : `Seller ka badge already ${outcome.current} hai`,
+          ? 'Partner not found'
+          : `Partner ka badge already ${outcome.current} hai`,
     }
   }
 
@@ -501,11 +520,11 @@ export async function updateBadge(
     email: {
       subject: `Your CivilCheck badge is now ${badge}`,
       text:
-        `Hi ${seller.name},\n\nYour CivilCheck seller badge is now ${badge}. ` +
+        `Hi ${seller.name},\n\nYour CivilCheck partner badge is now ${badge}. ` +
         `Your commission split follows your badge tier.\n\n— Team CivilCheck`,
       html:
         `<p>Hi ${seller.name},</p>` +
-        `<p>Your CivilCheck seller badge is now <strong>${badge}</strong>. Your commission ` +
+        `<p>Your CivilCheck partner badge is now <strong>${badge}</strong>. Your commission ` +
         `split follows your badge tier.</p><p>— Team CivilCheck</p>`,
     },
     sms: { variables: { name: seller.name, status: `badge ${badge}` } },
@@ -559,7 +578,7 @@ export async function approveIdentityDocument(
       code: outcome.code,
       message:
         outcome.code === 'NOT_FOUND'
-          ? 'Seller not found'
+          ? 'Partner not found'
           : outcome.current === 'APPROVED'
             ? 'Identity document is already approved'
             : 'No identity document has been submitted for review',
@@ -624,7 +643,7 @@ export async function rejectIdentityDocument(
       code: outcome.code,
       message:
         outcome.code === 'NOT_FOUND'
-          ? 'Seller not found'
+          ? 'Partner not found'
           : outcome.current === 'APPROVED'
             ? 'Identity document is already approved — it cannot be rejected after approval'
             : outcome.current == null

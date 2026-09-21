@@ -2,32 +2,20 @@ import { useCallback, useState } from 'react'
 import { Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { useFocusEffect, useRouter } from 'expo-router'
 import { cancelAlert, getAlertHistory, getMyAlerts } from '../api/alert.api'
-import {
-  cancelSubscription,
-  getMySubscriptions,
-  subscribeToAlerts,
-} from '../api/subscription.api'
 import { useAuth } from '../context/AuthContext'
-import { errorMessage, errorStatus } from '../lib/errors'
-import { formatDate, formatPaise, riskBanner, subscriptionTone } from '../lib/format'
+import { errorMessage } from '../lib/errors'
+import { formatDate, alertBanner } from '../lib/format'
 import { colors, radius, SCREEN_PADDING, spacing } from '../theme'
 import { Button } from '../components/Button'
-import { Card } from '../components/Card'
-import { Pill } from '../components/Pill'
 import { Screen } from '../components/Screen'
-import { EmptyState, ErrorState, InlineNotice, LoadingState } from '../components/States'
-import type {
-  AlertHistoryResponse,
-  MyAlertsResponse,
-  Subscription,
-} from '../types/api'
+import { EmptyState, ErrorState, LoadingState } from '../components/States'
+import type { AlertHistoryResponse, MyAlertsResponse } from '../types/api'
 
-type Tab = 'watching' | 'history' | 'subscription'
+type Tab = 'watching' | 'history'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'watching', label: 'Watching' },
   { id: 'history', label: 'History' },
-  { id: 'subscription', label: 'Subscription' },
 ]
 
 export function AlertsScreen() {
@@ -37,37 +25,29 @@ export function AlertsScreen() {
   const [tab, setTab] = useState<Tab>('watching')
   const [watching, setWatching] = useState<MyAlertsResponse['alerts']>([])
   const [history, setHistory] = useState<AlertHistoryResponse['alerts']>([])
-  const [subscriptions, setSubscriptions] = useState<Subscription[]>([])
 
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
-  const [busy, setBusy] = useState(false)
 
   const load = useCallback(async () => {
     // Guest browsing (Final Parity Batch, Task 1) — Alerts is 100% personal
-    // content (watched properties, subscription) with no public equivalent
-    // on Buyer Web either (account/alerts sits fully behind ProtectedRoute),
-    // so this renders a plain sign-in prompt below instead of fetching.
+    // content (watched properties) with no public equivalent on Buyer Web
+    // either (account/alerts sits fully behind ProtectedRoute), so this
+    // renders a plain sign-in prompt below instead of fetching.
     if (status !== 'authenticated') return
 
     setError('')
     try {
-      const [alertsResult, historyResult, subscriptionsResult] = await Promise.allSettled([
+      const [alertsResult, historyResult] = await Promise.allSettled([
         getMyAlerts(),
         getAlertHistory(),
-        getMySubscriptions(),
       ])
 
       if (alertsResult.status === 'rejected') throw alertsResult.reason
       setWatching(alertsResult.value.alerts)
 
       setHistory(historyResult.status === 'fulfilled' ? historyResult.value.alerts : [])
-      setSubscriptions(
-        subscriptionsResult.status === 'fulfilled'
-          ? subscriptionsResult.value.subscriptions
-          : [],
-      )
     } catch (err) {
       setError(errorMessage(err, "Couldn't load your alerts."))
     }
@@ -113,52 +93,6 @@ export function AlertsScreen() {
     ])
   }
 
-  const handleSubscribe = async () => {
-    setBusy(true)
-    try {
-      await subscribeToAlerts()
-      await load()
-      Alert.alert(
-        'Almost there',
-        'Your subscription has been created. It becomes active once the first payment is authorized.',
-      )
-    } catch (err) {
-      Alert.alert(
-        errorStatus(err) === 409 ? 'Already subscribed' : "Couldn't subscribe",
-        errorMessage(err),
-      )
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const handleCancelSubscription = (subscriptionId: string) => {
-    Alert.alert('Cancel subscription?', 'You will stop receiving paid case-update alerts.', [
-      { text: 'Keep', style: 'cancel' },
-      {
-        text: 'Cancel it',
-        style: 'destructive',
-        onPress: () => {
-          void (async () => {
-            setBusy(true)
-            try {
-              await cancelSubscription(subscriptionId)
-              await load()
-            } catch (err) {
-              Alert.alert('Error', errorMessage(err))
-            } finally {
-              setBusy(false)
-            }
-          })()
-        },
-      },
-    ])
-  }
-
-  const activeSubscription = subscriptions.find(
-    (s) => s.status === 'CREATED' || s.status === 'ACTIVE',
-  )
-
   if (status !== 'authenticated') {
     return (
       <Screen scroll>
@@ -168,7 +102,7 @@ export function AlertsScreen() {
         <EmptyState
           icon="🔒"
           title="Sign in to see your alerts"
-          description="Watch a property's case status and manage your case-update subscription once you're signed in."
+          description="Watch a property's case status and get notified of updates once you're signed in."
           actionLabel="Log In"
           onAction={() => router.push('/login')}
         />
@@ -230,7 +164,7 @@ export function AlertsScreen() {
         ) : (
           <View style={styles.list}>
             {watching.map((entry) => {
-              const tone = riskBanner(entry.property.riskBadge)
+              const tone = alertBanner(entry.property.propertyStatus, entry.property.disputeType)
               return (
                 <View key={entry.alertId} style={styles.row}>
                   <TouchableOpacity
@@ -271,13 +205,13 @@ export function AlertsScreen() {
             })}
           </View>
         )
-      ) : tab === 'history' ? (
+      ) : (
         history.length === 0 ? (
           <EmptyState icon="🕓" title="No watch history" description="Properties you have watched will be listed here." />
         ) : (
           <View style={styles.list}>
             {history.map((entry) => {
-              const tone = riskBanner(entry.property.riskBadge)
+              const tone = alertBanner(entry.property.propertyStatus, entry.property.disputeType)
               return (
                 <TouchableOpacity
                   key={entry.alertId}
@@ -317,82 +251,6 @@ export function AlertsScreen() {
             })}
           </View>
         )
-      ) : (
-        <View style={styles.list}>
-          <Card inset={false} style={styles.pitch}>
-            <Text style={styles.pitchTitle}>Case-update alerts · ₹49/month</Text>
-            <Text style={styles.pitchBody}>
-              Get notified the moment a case status or encumbrance changes on any property
-              you watch. Watching properties is free — this subscription adds priority
-              delivery of paid case-update alerts.
-            </Text>
-          </Card>
-
-          {activeSubscription ? (
-            <>
-              {activeSubscription.status === 'CREATED' ? (
-                <InlineNotice
-                  tone="warn"
-                  message="This subscription is not active yet. It starts once the first payment is authorized with your bank."
-                />
-              ) : null}
-
-              <Card inset={false}>
-                <View style={styles.subscriptionHead}>
-                  <Text style={styles.subscriptionAmount}>
-                    {formatPaise(activeSubscription.amount)}/month
-                  </Text>
-                  <Pill tone={subscriptionTone(activeSubscription.status)} />
-                </View>
-                <Text style={styles.subscriptionMeta}>
-                  Started {formatDate(activeSubscription.createdAt)}
-                  {activeSubscription.currentEnd
-                    ? ` · Paid through ${formatDate(activeSubscription.currentEnd)}`
-                    : ''}
-                </Text>
-                <Button
-                  label="Cancel subscription"
-                  variant="danger"
-                  onPress={() => handleCancelSubscription(activeSubscription.id)}
-                  disabled={busy}
-                  style={styles.subscriptionAction}
-                />
-              </Card>
-            </>
-          ) : (
-            <Button
-              label="Subscribe for ₹49/month"
-              onPress={() => void handleSubscribe()}
-              loading={busy}
-              size="lg"
-              block
-            />
-          )}
-
-          {subscriptions.filter((s) => s !== activeSubscription).length > 0 ? (
-            <>
-              <Text style={styles.pastTitle}>Past subscriptions</Text>
-              {subscriptions
-                .filter((s) => s !== activeSubscription)
-                .map((subscription) => (
-                  <Card key={subscription.id} inset={false}>
-                    <View style={styles.subscriptionHead}>
-                      <Text style={styles.subscriptionAmount}>
-                        {formatPaise(subscription.amount)}/month
-                      </Text>
-                      <Pill tone={subscriptionTone(subscription.status)} />
-                    </View>
-                    <Text style={styles.subscriptionMeta}>
-                      {formatDate(subscription.createdAt)}
-                      {subscription.cancelledAt
-                        ? ` — cancelled ${formatDate(subscription.cancelledAt)}`
-                        : ''}
-                    </Text>
-                  </Card>
-                ))}
-            </>
-          ) : null}
-        </View>
       )}
     </Screen>
   )
@@ -472,28 +330,4 @@ const styles = StyleSheet.create({
   statusActive: { backgroundColor: colors.greenDim },
   statusInactive: { backgroundColor: colors.surface2 },
   statusText: { fontSize: 10, fontWeight: '700' },
-  pitch: { borderColor: colors.violetBorder },
-  pitchTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: colors.text,
-    marginBottom: spacing.xs,
-  },
-  pitchBody: { fontSize: 11.5, color: colors.muted, lineHeight: 17 },
-  subscriptionHead: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 6,
-  },
-  subscriptionAmount: { fontSize: 15, fontWeight: '700', color: colors.text },
-  subscriptionMeta: { fontSize: 11, color: colors.muted },
-  subscriptionAction: { marginTop: spacing.md },
-  pastTitle: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: colors.muted,
-    marginTop: spacing.lg,
-    marginBottom: spacing.sm,
-  },
 })

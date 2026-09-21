@@ -25,7 +25,7 @@ const RequestModal = ({ request, onClose, onAction, canManage }) => {
 
   const handleAction = async (action) => {
     if (action === 'assign' && !autoAssign && !selectedSeller) {
-      alert('Select a seller, or choose auto-assign')
+      alert('Select a partner, or choose auto-assign')
       return
     }
     if (action === 'reject' && !rejectReason.trim()) {
@@ -46,15 +46,15 @@ const RequestModal = ({ request, onClose, onAction, canManage }) => {
   return (
     <Modal open title="Special request" subtitle={<Badge tone={statusTone[request.status] || 'grey'}>{request.status}</Badge>} onClose={onClose}>
       <div style={{ marginBottom: 20 }}>
-        <Tabs value={activeTab} onChange={setActiveTab} options={[{ value: 'details', label: '📋 Details' }, { value: 'assign', label: '👤 Assign seller' }]} />
+        <Tabs value={activeTab} onChange={setActiveTab} options={[{ value: 'details', label: '📋 Details' }, { value: 'assign', label: '👤 Assign partner' }]} />
       </div>
 
       {activeTab === 'details' && (
         <>
           <div className="grid g2" style={{ marginBottom: 18 }}>
             {[
-              ['Buyer name', request.user?.name || '—'],
-              ['Buyer phone', request.user?.phone || '—'],
+              ['User name', request.user?.name || '—'],
+              ['User phone', request.user?.phone || '—'],
               ['Property address', request.address],
               ['City', `${request.city}, ${request.tehsil}`],
               ['Property type', request.propertyType],
@@ -70,13 +70,13 @@ const RequestModal = ({ request, onClose, onAction, canManage }) => {
           </div>
 
           <div style={{ marginBottom: 18 }}>
-            <div className="small muted" style={{ textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 6 }}>Buyer questions</div>
+            <div className="small muted" style={{ textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 6 }}>User questions</div>
             <div className="card-flat" style={{ padding: 12, fontSize: 13, lineHeight: 1.6 }}>{request.questions}</div>
           </div>
 
           {request.documents?.length > 0 && (
             <div style={{ marginBottom: 18 }}>
-              <div className="small muted" style={{ textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 6 }}>Buyer documents ({request.documents.length})</div>
+              <div className="small muted" style={{ textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 6 }}>User documents ({request.documents.length})</div>
               {request.documents.map((doc, i) => (
                 <div key={i} className="card-flat" style={{ padding: '10px 14px', marginBottom: 6, fontSize: 13, display: 'flex', justifyContent: 'space-between' }}>
                   <span>Document {i + 1}</span>
@@ -105,7 +105,7 @@ const RequestModal = ({ request, onClose, onAction, canManage }) => {
             {canManage && (request.status === 'PENDING' || request.status === 'ASSIGNED') && (
               <div style={{ flex: 1 }}>
                 <input className="control" value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} placeholder="Cancellation reason…" style={{ marginBottom: 8 }} />
-                <Button variant="danger" block onClick={() => handleAction('reject')} disabled={loading}>Cancel + refund buyer</Button>
+                <Button variant="danger" block onClick={() => handleAction('reject')} disabled={loading}>Cancel + refund user</Button>
               </div>
             )}
             <Button variant="ghost" onClick={onClose}>Close</Button>
@@ -131,13 +131,13 @@ const RequestModal = ({ request, onClose, onAction, canManage }) => {
 
             {autoAssign ? (
               <div className="card-flat muted" style={{ padding: 14, marginBottom: 16, fontSize: 12.5, lineHeight: 1.6 }}>
-                Ranks approved sellers by prior listings in {request.tehsil} (then {request.city}), then by lowest current workload and rating. You'll see who got picked after assigning.
+                Ranks approved partners by prior listings in {request.tehsil} (then {request.city}), then by lowest current workload and rating. You'll see who got picked after assigning.
               </div>
             ) : (
               <>
-                <Field label="Select seller">
+                <Field label="Select partner">
                   <select className="control" value={selectedSeller} onChange={(e) => setSelectedSeller(e.target.value)}>
-                    <option value="">-- Select a seller --</option>
+                    <option value="">-- Select a partner --</option>
                     {sellers.map((s) => (
                       <option key={s.id} value={s.id}>{s.name} — {s.profession} — {s.badge} — {s.accuracyScore}% accuracy</option>
                     ))}
@@ -164,7 +164,7 @@ const RequestModal = ({ request, onClose, onAction, canManage }) => {
             )}
 
             <Button variant="primary" block onClick={() => handleAction('assign')} disabled={loading || (!autoAssign && !selectedSeller)}>
-              {loading ? 'Assigning…' : autoAssign ? '✨ Auto-assign' : '👤 Assign to seller'}
+              {loading ? 'Assigning…' : autoAssign ? '✨ Auto-assign' : '👤 Assign to partner'}
             </Button>
           </>
         )
@@ -243,7 +243,7 @@ export default function SpecialRequests() {
   }
 
   const columns = [
-    { key: 'buyer', header: 'Buyer', render: (r) => (<><div style={{ fontWeight: 600 }}>{r.user?.name || '—'}</div><div className="small muted">{r.user?.phone}</div></>) },
+    { key: 'buyer', header: 'User', render: (r) => (<><div style={{ fontWeight: 600 }}>{r.user?.name || '—'}</div><div className="small muted">{r.user?.phone}</div></>) },
     { key: 'property', header: 'Property', render: (r) => (<><div style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.address}>{r.address}</div><div className="small muted">{r.propertyType}</div></>) },
     { key: 'city', header: 'City' },
     { key: 'advanceAmount', header: 'Advance', render: (r) => <span style={{ color: 'var(--amber)', fontWeight: 600 }}>₹{r.advanceAmount.toLocaleString('en-IN')}</span> },
@@ -266,7 +266,7 @@ export default function SpecialRequests() {
 
   return (
     <div>
-      <PageHead title="Special requests" subtitle="Custom property research — assign sellers, approve & manage refunds" />
+      <PageHead title="Special requests" subtitle="Custom property research — assign partners, approve & manage refunds" />
 
       <div className="grid g4" style={{ marginBottom: 20 }}>
         <StatCard tone="amber" icon="🕓" value={counts.PENDING ?? '—'} label="Pending" />

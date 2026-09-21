@@ -6,7 +6,7 @@ import type {
   PropertyDetailResponse,
   PropertySearchResponse,
   PropertyType,
-  RiskBadge,
+  PropertyStatus,
   SearchHistoryResponse,
   TrendingResponse,
 } from '../types/api'
@@ -16,7 +16,7 @@ export interface PropertySearchParams {
   city?: string
   tehsil?: string
   propertyType?: PropertyType
-  riskBadge?: RiskBadge
+  propertyStatus?: PropertyStatus
   minPrice?: number
   maxPrice?: number
   page?: number

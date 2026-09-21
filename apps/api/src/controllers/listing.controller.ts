@@ -3,32 +3,12 @@ import { Prisma, ListingStatus } from '@prisma/client'
 import prisma from '../lib/prisma.js'
 import { triggerAlerts } from './alert.controller.js'
 import { createNotification } from './notification.controller.js'
+import { applyClassificationUpdate, ClassificationError } from '../lib/propertyClassification.js'
 
-// ─────────────────────────────────────────────────────────────────────────────
-// HELPER — Risk Badge Auto Calculator
-// ─────────────────────────────────────────────────────────────────────────────
-// Yeh function case aur loan ki details dekhke automatically
-// GREEN / AMBER / RED badge assign karta hai
-// Seller khud badge nahi choose karta — system decide karta hai
-// ─────────────────────────────────────────────────────────────────────────────
-function calculateRiskBadge(
-  caseExists: boolean,
-  caseStatus: string | null,
-  loanDefault: boolean
-): 'GREEN' | 'AMBER' | 'RED' {
-  // Loan default hai → hamesha RED
-  if (loanDefault) return 'RED'
-
-  // Koi case nahi, koi loan nahi → GREEN (clean property)
-  if (!caseExists) return 'GREEN'
-
-  // Case hai — status ke hisaab se decide karo
-  if (caseStatus === 'ACTIVE') return 'RED'   // Active case → danger
-  if (caseStatus === 'STAYED') return 'RED'   // Stayed bhi risky hai
-  if (caseStatus === 'DISPOSED') return 'AMBER' // Purana case — caution
-
-  return 'AMBER' // Default — kuch uncertainty hai
-}
+// Risk badge is DERIVED from the seller-declared propertyStatus (see
+// lib/propertyClassification.ts): CLEAR => GREEN, DISPUTED => RED. The old
+// case/loan-based Green/Amber/Red calculator (which produced the yellow
+// "caution" state) is gone; the client never sends a colour.
 
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /api/seller/listings
@@ -58,7 +38,9 @@ export const createListing = async (req: Request, res: Response) => {
     propertyType,
     city,
     tehsil,
-    caseExists,
+    propertyStatus, // CLEAR | DISPUTED — required; drives the Red/Green indicator
+    disputeType,    // CIVIL | CRIMINAL | OTHER — required iff DISPUTED
+    caseExists: caseExistsInput,
     caseNumber,
     caseType,
     caseStatus,
@@ -77,13 +59,26 @@ export const createListing = async (req: Request, res: Response) => {
   } = req.body
 
   // Zaroori fields check karo
-  if (!address || !propertyType || !city || !tehsil || caseExists === undefined || !price || !researchDate) {
+  if (!address || !propertyType || !city || !tehsil || !propertyStatus || !price || !researchDate) {
     res.status(400).json({
       success: false,
-      message: 'address, propertyType, city, tehsil, caseExists, price and researchDate are all required'
+      message: 'address, propertyType, city, tehsil, propertyStatus, price and researchDate are all required'
     })
     return
   }
+  // Same rule as listingCreateSchema, re-checked so it holds for any caller.
+  let classification
+  try {
+    classification = applyClassificationUpdate({ propertyStatus: null, disputeType: null }, { propertyStatus, disputeType })
+  } catch (e) {
+    if (e instanceof ClassificationError) {
+      res.status(400).json({ success: false, message: e.message })
+      return
+    }
+    throw e
+  }
+  // Legacy case flag: kept for stored data / reports, defaulting from the classification.
+  const caseExists: boolean = caseExistsInput ?? classification.propertyStatus === 'DISPUTED'
 
   // Property Discovery flow (Step 2) — listingCreateSchema (validateBody,
   // see routes) already enforces this, but checked directly too, matching
@@ -98,7 +93,8 @@ export const createListing = async (req: Request, res: Response) => {
   }
 
   // Agar case exists hai toh case details bhi chahiye
-  if (caseExists && (!caseNumber || !caseType || !caseStatus || !courtName)) {
+  // Only when the caller explicitly declares a case (a plain Disputed listing does not need case details).
+  if (caseExistsInput && (!caseNumber || !caseType || !caseStatus || !courtName)) {
     res.status(400).json({
       success: false,
       message: 'When a case exists, caseNumber, caseType, caseStatus and courtName are also required'
@@ -110,7 +106,7 @@ export const createListing = async (req: Request, res: Response) => {
   if (price < 99 || price > 4999) {
     res.status(400).json({
       success: false,
-      message: 'Price must be between Rs. 99 and Rs. 4999'
+      message: 'Price must be between ₹99 and ₹4,999'
     })
     return
   }
@@ -118,12 +114,6 @@ export const createListing = async (req: Request, res: Response) => {
   // Documents optional hain abhi — baad mein Cloudinary se add karenge
   // if (!documents || documents.length === 0) { ... }
 
-  // Risk badge auto calculate karo
-  const riskBadge = calculateRiskBadge(
-    caseExists,
-    caseStatus || null,
-    loanDefault || false
-  )
 
   // 10% Spot-Check Auto-Flagging (PDF 5.3) — rolled once per listing at
   // creation, routes into the admin QC queue. Not returned to the seller.
@@ -154,7 +144,8 @@ export const createListing = async (req: Request, res: Response) => {
       lenderName: lenderName || null,
       latitude: latitude ?? null,
       longitude: longitude ?? null,
-      riskBadge,           // System ne calculate kiya
+      propertyStatus: classification.propertyStatus,
+      disputeType: classification.disputeType,
       price,
       sellerNotes: sellerNotes || null,
       documents: documents || [],
@@ -174,12 +165,13 @@ export const createListing = async (req: Request, res: Response) => {
 
   res.status(201).json({
     success: true,
-    message: `Listing created. Risk badge: ${riskBadge}. An admin will review it within 24-48 hours.`,
+    message: `Listing created (${classification.propertyStatus === 'CLEAR' ? 'Clear property' : 'Disputed property'}). An admin will review it within 24-48 hours.`,
     listing: {
       id: listing.id,
       address: listing.address,
       city: listing.city,
-      riskBadge: listing.riskBadge,
+      propertyStatus: listing.propertyStatus,
+      disputeType: listing.disputeType,
       uploaderRole: listing.uploaderRole,
       images: listing.images,
       videos: listing.videos,
@@ -222,7 +214,8 @@ export const getMyListings = async (req: Request, res: Response) => {
     city: l.city,
     tehsil: l.tehsil,
     propertyType: l.propertyType,
-    riskBadge: l.riskBadge,
+    propertyStatus: l.propertyStatus,
+    disputeType: l.disputeType,
     uploaderRole: l.uploaderRole,
     images: l.images,
     videos: l.videos,
@@ -300,6 +293,8 @@ export const updateListing = async (req: Request, res: Response) => {
   }
 
   const {
+    propertyStatus,
+    disputeType,
     caseStatus,
     caseNumber,
     courtName,
@@ -313,12 +308,22 @@ export const updateListing = async (req: Request, res: Response) => {
     price,
   } = req.body
 
-  // Naya risk badge recalculate karo updated values se
-  const newRiskBadge = calculateRiskBadge(
-    existing.caseExists,
-    caseStatus || existing.caseStatus,
-    loanDefault !== undefined ? loanDefault : existing.loanDefault
-  )
+  // Clear <-> Disputed changes. CLEAR clears any old dispute type; DISPUTED
+  // requires one. Legacy (unclassified) listings keep their stored badge
+  // until a classification is supplied.
+  let classification
+  try {
+    classification = applyClassificationUpdate(
+      { propertyStatus: existing.propertyStatus, disputeType: existing.disputeType },
+      { propertyStatus, disputeType }
+    )
+  } catch (e) {
+    if (e instanceof ClassificationError) {
+      res.status(400).json({ success: false, message: e.message })
+      return
+    }
+    throw e
+  }
 
   const updated = await prisma.listing.update({
     where: { id },
@@ -334,7 +339,8 @@ export const updateListing = async (req: Request, res: Response) => {
       images: images || existing.images,
       videos: videos || existing.videos,
       price: price || existing.price,
-      riskBadge: newRiskBadge,
+      propertyStatus: classification.propertyStatus,
+      disputeType: classification.disputeType,
       status: 'PENDING_REVIEW',
     }
   })
@@ -344,13 +350,14 @@ export const updateListing = async (req: Request, res: Response) => {
     id,
     existing.caseStatus,     // purani status
     caseStatus || existing.caseStatus, // nayi status
-    newRiskBadge
+    classification.propertyStatus
   )
 
   res.json({
     success: true,
     message: 'Listing updated! Admin dobara review karega.',
-    newRiskBadge,
+    propertyStatus: classification.propertyStatus,
+    disputeType: classification.disputeType,
     listing: updated
   })
 }

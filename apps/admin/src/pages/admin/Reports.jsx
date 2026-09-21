@@ -83,9 +83,9 @@ export default function Reports() {
       const data = await getRevenueReport({ month: revMonth, year: revYear })
       setRevData(data)
       const csvData = data.transactions.map((t) => ({
-        Date: new Date(t.date).toLocaleDateString('en-IN'), Buyer: t.buyerName, Phone: t.buyerPhone,
+        Date: new Date(t.date).toLocaleDateString('en-IN'), User: t.buyerName, Phone: t.buyerPhone,
         Property: t.property, City: t.city, Type: t.type, 'Amount Paid': t.amountPaid,
-        'Platform Cut': t.platformCut, 'Seller Cut': t.sellerCut, 'GST (18%)': t.gst.toFixed(2),
+        'Platform Cut': t.platformCut, 'Partner Cut': t.sellerCut, 'GST (18%)': t.gst.toFixed(2),
         'Razorpay ID': t.razorpayId, Settled: t.settled ? 'Yes' : 'No',
       }))
       downloadCSV(csvData, `CivilCheck_Revenue_${MONTHS[revMonth - 1]}_${revYear}.csv`)
@@ -103,12 +103,12 @@ export default function Reports() {
       const data = await getSettlementReport({ month: setMonth, year: setYear })
       setSetData(data)
       const csvData = data.sellers.map((s) => ({
-        'Seller Name': s.sellerName, Phone: s.phone, Badge: s.badge, Profession: s.profession,
+        'Partner Name': s.sellerName, Phone: s.phone, Badge: s.badge, Profession: s.profession,
         'Total Earned': s.totalEarned, Settled: s.settled, Pending: s.pending,
         'TDS (10%)': s.tds.toFixed(2), 'Net Payable': s.netPayable.toFixed(2), Transactions: s.transactions,
       }))
       downloadCSV(csvData, `CivilCheck_Settlements_${MONTHS[setMonth - 1]}_${setYear}.csv`)
-      showToast(`✅ Settlement report downloaded — ${data.sellers.length} sellers`)
+      showToast(`✅ Settlement report downloaded — ${data.sellers.length} partners`)
     } catch {
       showToast('❌ Failed to generate the settlement report')
     } finally {
@@ -123,7 +123,7 @@ export default function Reports() {
       setQcData(data)
       const csvData = data.spotChecks.map((sc) => ({
         'Check Date': new Date(sc.checkedAt).toLocaleDateString('en-IN'), Result: sc.result,
-        Property: sc.listing, Seller: sc.seller, Badge: sc.badge, 'Admin Note': sc.adminNote || '—',
+        Property: sc.listing, Partner: sc.seller, Badge: sc.badge, 'Admin Note': sc.adminNote || '—',
       }))
       downloadCSV(csvData, `CivilCheck_QC_${MONTHS[qcMonth - 1]}_${qcYear}.csv`)
       showToast(`✅ QC report downloaded — ${data.summary.totalChecks} spot checks`)
@@ -142,10 +142,10 @@ export default function Reports() {
         <ReportCard icon="📊" title="Revenue report" desc="Complete transaction log with GST breakup — suitable for CA/tax filing"
           month={revMonth} year={revYear} onMonthChange={setRevMonth} onYearChange={setRevYear}
           onExport={handleRevenueExport} loading={revLoading} exportLabel="Export CSV" />
-        <ReportCard icon="🏦" title="Seller settlement report" desc="Weekly payout history, TDS deductions, seller-wise earnings summary"
+        <ReportCard icon="🏦" title="Partner settlement report" desc="Weekly payout history, TDS deductions, partner-wise earnings summary"
           month={setMonth} year={setYear} onMonthChange={setSetMonth} onYearChange={setSetYear}
           onExport={handleSettlementExport} loading={setLoading} exportLabel="Export CSV" />
-        <ReportCard icon="🔍" title="Accuracy & QC report" desc="Spot-check results, seller accuracy scores, flagged and removed listings"
+        <ReportCard icon="🔍" title="Accuracy & QC report" desc="Spot-check results, partner accuracy scores, flagged and removed listings"
           month={qcMonth} year={qcYear} onMonthChange={setQcMonth} onYearChange={setQcYear}
           onExport={handleQCExport} loading={qcLoading} exportLabel="Export CSV" />
       </div>
@@ -166,7 +166,7 @@ export default function Reports() {
         <Card style={{ padding: 20, marginBottom: 16 }}>
           <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 16 }}>Settlement summary — {MONTHS[setMonth - 1]} {setYear}</div>
           <SummaryGrid stats={[
-            { label: 'Active sellers', value: setData.summary.totalSellers, color: 'var(--blue)' },
+            { label: 'Active partners', value: setData.summary.totalSellers, color: 'var(--blue)' },
             { label: 'Total pending', value: `₹${setData.summary.totalPending.toLocaleString('en-IN')}`, color: 'var(--amber)' },
             { label: 'Total settled', value: `₹${setData.summary.totalSettled.toLocaleString('en-IN')}`, color: 'var(--green)' },
             { label: 'TDS deducted', value: `₹${setData.summary.totalTDS.toFixed(0)}`, color: 'var(--violet)' },
@@ -185,7 +185,7 @@ export default function Reports() {
           ]} />
           {qcData.flaggedSellers.length > 0 && (
             <div>
-              <div style={{ fontSize: 12, color: 'var(--red)', fontWeight: 600, marginBottom: 8 }}>⚠️ Low accuracy sellers ({qcData.flaggedSellers.length})</div>
+              <div style={{ fontSize: 12, color: 'var(--red)', fontWeight: 600, marginBottom: 8 }}>⚠️ Low accuracy partners ({qcData.flaggedSellers.length})</div>
               {qcData.flaggedSellers.map((seller) => (
                 <div key={seller.phone} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--border)', fontSize: 13 }}>
                   <span>{seller.name} — {seller.badge}</span>

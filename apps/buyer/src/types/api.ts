@@ -18,7 +18,11 @@
 // ─── ENUMS ───────────────────────────────────────────────────────────────────
 
 export type PropertyType = 'RESIDENTIAL' | 'COMMERCIAL' | 'AGRICULTURAL' | 'PLOT'
-export type RiskBadge = 'GREEN' | 'AMBER' | 'RED'
+
+// Seller-declared classification of a property listing. This is the ONLY source of the listing's
+// alert: CLEAR => green, DISPUTED => red (+ dispute type). There is no yellow state.
+export type PropertyStatus = 'CLEAR' | 'DISPUTED'
+export type DisputeType = 'CIVIL' | 'CRIMINAL' | 'OTHER'
 export type CaseType = 'PARTITION' | 'TITLE_DISPUTE' | 'LOAN_DEFAULT' | 'OTHER'
 export type CaseStatus = 'ACTIVE' | 'DISPOSED' | 'STAYED'
 export type SellerBadge = 'BRONZE' | 'SILVER' | 'GOLD' | 'PLATINUM'
@@ -39,12 +43,6 @@ export type SpecialRequestStatus =
   | 'REJECTED'
   | 'REFUNDED'
 
-export type SubscriptionStatus =
-  | 'CREATED'
-  | 'ACTIVE'
-  | 'CANCELLED'
-  | 'HALTED'
-  | 'COMPLETED'
 
 export type BannerSeverity = 'INFO' | 'WARNING' | 'CRITICAL'
 export type BannerAudience = 'ALL' | 'BUYERS' | 'SELLERS' | 'ADMINS'
@@ -125,7 +123,8 @@ export interface FreePreviewProperty {
   tehsil: string
   propertyType: PropertyType
   caseExists: boolean
-  riskBadge: RiskBadge
+  propertyStatus?: PropertyStatus | null // CLEAR | DISPUTED (null/absent = legacy, not classified)
+  disputeType?: DisputeType | null // CIVIL | CRIMINAL | OTHER when DISPUTED
   loanDefault: boolean
   price: number
   views: number
@@ -161,7 +160,8 @@ export interface PaidReportProperty {
   tehsil: string
   propertyType: PropertyType
   caseExists: boolean
-  riskBadge: RiskBadge
+  propertyStatus?: PropertyStatus | null // CLEAR | DISPUTED (null/absent = legacy, not classified)
+  disputeType?: DisputeType | null // CIVIL | CRIMINAL | OTHER when DISPUTED
   loanDefault: boolean
   price: number
   researchDate: string
@@ -236,7 +236,8 @@ export interface FreeCheckFound extends ApiEnvelope {
   found: true
   listingId: string
   caseExists: boolean
-  riskBadge: RiskBadge
+  propertyStatus?: PropertyStatus | null // CLEAR | DISPUTED (null/absent = legacy, not classified)
+  disputeType?: DisputeType | null // CIVIL | CRIMINAL | OTHER when DISPUTED
   loanDefault: boolean
   address: string
   city: string
@@ -266,6 +267,9 @@ export interface OwnerProperty {
   health: number
   views: number
   listedSince: string
+  // Owner-declared Clear / Disputed; the alert (green/red) is derived from these two fields by the client.
+  propertyStatus?: PropertyStatus | null
+  disputeType?: DisputeType | null
   ownerName?: string
   ownerBadge?: SellerBadge
 
@@ -307,6 +311,8 @@ export interface ReporterPost {
   sourceDate: string | null
   city: string | null
   tehsil: string | null
+  /** The property's real location as entered by the Reporter (null on older posts). */
+  address: string | null
   postedAt: string
   reportedBy: string
 }
@@ -364,7 +370,8 @@ export interface PurchaseListing {
   city: string
   tehsil: string
   propertyType: PropertyType
-  riskBadge: RiskBadge
+  propertyStatus?: PropertyStatus | null // CLEAR | DISPUTED (null/absent = legacy, not classified)
+  disputeType?: DisputeType | null // CIVIL | CRIMINAL | OTHER when DISPUTED
   caseExists: boolean
   loanDefault: boolean
   price: number
@@ -427,7 +434,8 @@ export interface AlertProperty {
   address: string
   city: string
   tehsil: string
-  riskBadge: RiskBadge
+  propertyStatus?: PropertyStatus | null // CLEAR | DISPUTED (null/absent = legacy, not classified)
+  disputeType?: DisputeType | null // CIVIL | CRIMINAL | OTHER when DISPUTED
   caseExists: boolean
   caseStatus: CaseStatus | null
   loanDefault: boolean
@@ -440,7 +448,8 @@ export interface AlertHistoryProperty {
   id: string
   address: string
   city: string
-  riskBadge: RiskBadge
+  propertyStatus?: PropertyStatus | null // CLEAR | DISPUTED (null/absent = legacy, not classified)
+  disputeType?: DisputeType | null // CIVIL | CRIMINAL | OTHER when DISPUTED
   caseExists: boolean
   caseStatus: CaseStatus | null
   status: string
@@ -468,7 +477,7 @@ export interface AlertHistoryResponse extends ApiEnvelope {
 export interface SubscribeAlertResponse extends ApiEnvelope {
   alertId: string
   /** Only present when a new alert is created, not on reactivation. */
-  property?: { address: string; city: string; riskBadge: RiskBadge }
+  property?: { address: string; city: string; propertyStatus?: PropertyStatus | null; disputeType?: DisputeType | null }
 }
 
 export interface PushPreferenceResponse extends ApiEnvelope {
@@ -572,44 +581,6 @@ export interface SpecialRequestCreateInput {
 
 // ─── SUBSCRIPTIONS (buyer ₹49/mo case-update alerts) ─────────────────────────
 
-/**
- * A Subscription row as GET /api/subscriptions returns it (raw Prisma model).
- *
- * Note `status`: a freshly created subscription is CREATED, not ACTIVE. It only
- * becomes ACTIVE when Razorpay sends the authorization/charge webhook, so the
- * UI must not present a just-created subscription as live.
- */
-export interface Subscription {
-  id: string
-  kind: string
-  userId: string | null
-  sellerId: string | null
-  listingId: string | null
-  planId: string
-  /** Paise per billing cycle. */
-  amount: number
-  status: SubscriptionStatus
-  currentEnd: string | null
-  cancelledAt: string | null
-  createdAt: string
-  updatedAt: string
-}
-
-export interface MySubscriptionsResponse extends ApiEnvelope {
-  total: number
-  subscriptions: Subscription[]
-}
-
-/** POST /api/subscriptions/alerts — what the client needs to authorize it. */
-export interface CreateSubscriptionResponse extends ApiEnvelope {
-  subscription: {
-    subscriptionId: string
-    planId: string
-    amount: number
-    keyId: string | null
-  }
-}
-
 // ─── CONTENT CONTROL (public reads) ──────────────────────────────────────────
 
 export interface ContentCategory {
@@ -685,7 +656,8 @@ export interface FeedItem {
   address: string | null
   propertyType: PropertyType | null
   uploadedBy: PartnerRole
-  riskBadge: RiskBadge | null
+  propertyStatus?: PropertyStatus | null // CLEAR | DISPUTED (null/absent = legacy, not classified)
+  disputeType?: DisputeType | null // CIVIL | CRIMINAL | OTHER when DISPUTED
   price: number | null
   isFree: boolean
   images: string[]
@@ -860,7 +832,22 @@ export interface AcceptQuoteResponse extends ApiEnvelope {
 export interface VerificationReport {
   id: string
   findings: string
-  riskAssessment: RiskBadge | null
+  // Structured findings of the paid Legal Verification Report. There is NO
+  // Green/Amber/Red assessment here — the property's Clear/Disputed alert is on the listing.
+  // All optional: reports submitted before this change only have `findings`.
+  disputeFound?: boolean | null
+  disputeType?: DisputeType | null
+  disputeNature?: string | null
+  caseCategory?: string | null
+  caseNumber?: string | null
+  courtName?: string | null
+  disputeStartYear?: number | null
+  disputeStatus?: 'ACTIVE' | 'RESOLVED' | 'UNKNOWN' | null
+  currentStatusNotes?: string | null
+  partiesInvolved?: string | null
+  titleFindings?: string | null
+  resolutionOutlook?: string | null
+  expertRemarks?: string | null
   documents: string[]
   images: string[]
   videos: string[]
@@ -869,6 +856,8 @@ export interface VerificationReport {
 
 export interface VerificationMarketplaceConfigResponse extends ApiEnvelope {
   minVerificationFee: number
+  /** Request for Legal Reports floor (flat, no maximum). */
+  legalReportMinAmount: number
 }
 
 export interface CreateVerificationRequestResponse extends ApiEnvelope {

@@ -13,6 +13,7 @@
 // implementation, not one copied across multiple call sites).
 // ─────────────────────────────────────────────────────────────────────────────
 import type {
+  DisputeType,
   Listing,
   Prisma,
   Property,
@@ -20,12 +21,14 @@ import type {
   VerificationMessage,
   VerificationQuote,
   VerificationRequest,
+  VerificationDisputeStatus,
   VerificationRequestStatus,
 } from '@prisma/client'
 import prisma from '../lib/prisma.js'
 import logger from '../lib/logger.js'
 import { round2 } from './payment.service.js'
 import { getPlatformSettings } from './platformSettings.service.js'
+import { LEGAL_REPORT_MIN_AMOUNT, LEGAL_REPORT_MIN_AMOUNT_MESSAGE } from '@civilcheck/shared'
 import { recordCancellationLedgerEntries } from './ledger.service.js'
 
 export class VerificationError extends Error {
@@ -64,6 +67,7 @@ export interface CreateVerificationRequestInput {
   desiredTehsil?: string
   desiredPropertyType?: PropertyType
   desiredKhasraOrSurvey?: string
+  questions?: string
 }
 
 export async function createVerificationRequest(
@@ -209,12 +213,10 @@ async function createDiscoveryVerificationRequest(
     )
   }
 
-  const settings = await getPlatformSettings()
-  if (input.initialOfferAmount < settings.minVerificationFee) {
-    throw new VerificationError(
-      `Your offer must be at least ₹${settings.minVerificationFee.toLocaleString('en-IN')}`,
-      400
-    )
+  // Request for Legal Reports (buyer-defined price): the floor is a flat ₹2,499 and there is
+  // no ceiling. (LISTING/PROPERTY requests keep the platform-configured minimum, untouched.)
+  if (!(input.initialOfferAmount >= LEGAL_REPORT_MIN_AMOUNT)) {
+    throw new VerificationError(LEGAL_REPORT_MIN_AMOUNT_MESSAGE, 400)
   }
 
   const desired: DesiredLocation = {
@@ -241,9 +243,10 @@ async function createDiscoveryVerificationRequest(
       data: {
         userId,
         source: 'DISCOVERY',
-        minFee: settings.minVerificationFee,
+        minFee: LEGAL_REPORT_MIN_AMOUNT,
         buyerInitialOfferAmount: input.initialOfferAmount,
         status: 'OPEN',
+        questions: input.questions?.trim() || null,
         desiredAddress: desired.address.trim(),
         desiredCity: desired.city.trim(),
         desiredTehsil: desired.tehsil.trim(),
@@ -282,6 +285,12 @@ export async function submitVerificationQuote(
 ): Promise<VerificationQuote> {
   const request = await prisma.verificationRequest.findUnique({ where: { id: requestId } })
   if (!request) throw new VerificationError('Verification request not found', 404)
+
+  // A counter-offer on a legal-report (DISCOVERY) request must also clear the ₹2,499 floor
+  // (no ceiling). LISTING/PROPERTY quotes stay unfloored, exactly as before.
+  if (request.source === 'DISCOVERY' && !(input.proposedFee >= LEGAL_REPORT_MIN_AMOUNT)) {
+    throw new VerificationError(LEGAL_REPORT_MIN_AMOUNT_MESSAGE, 400)
+  }
 
   if (request.status !== 'OPEN') {
     // Not a race — the request was already accepted/cancelled well before
@@ -384,7 +393,7 @@ export async function getMarketplaceRequestDetail(requestId: string, actor: Prof
   const request = await prisma.verificationRequest.findUnique({
     where: { id: requestId },
     include: {
-      listing: { select: { address: true, city: true, tehsil: true, propertyType: true, riskBadge: true } },
+      listing: { select: { address: true, city: true, tehsil: true, propertyType: true, propertyStatus: true, disputeType: true } },
       property: { select: { title: true, city: true, tehsil: true, address: true, propertyType: true } },
       report: true,
     },
@@ -421,7 +430,7 @@ export async function getMarketplaceRequestDetail(requestId: string, actor: Prof
     ? await prisma.user.findUnique({ where: { id: request.userId }, select: { name: true, phone: true } })
     : null
 
-  return { request, myQuote, buyer }
+  return { request: { ...request, report: request.report ? publicReport(request.report) : null }, myQuote, buyer }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -641,9 +650,30 @@ export async function linkDiscoveredProperty(
   return { request: await prisma.verificationRequest.findUniqueOrThrow({ where: { id: requestId } }) }
 }
 
+// Detailed findings (no risk colour). Shape/rules are enforced by
+// verificationReportCreateSchema; disputeFound=false clears every dispute-specific field below.
+// The report as returned by any API: the deprecated riskAssessment column is never
+// exposed (the paid report carries findings, not a colour rating).
+export function publicReport<T extends { riskAssessment?: unknown }>(report: T): Omit<T, 'riskAssessment'> {
+  const { riskAssessment: _deprecated, ...rest } = report
+  return rest
+}
+
 export interface SubmitReportInput {
+  disputeFound: boolean
+  disputeType?: DisputeType | null
+  disputeNature?: string
+  caseCategory?: string
+  caseNumber?: string
+  courtName?: string
+  disputeStartYear?: number
+  disputeStatus?: VerificationDisputeStatus
+  currentStatusNotes?: string
+  partiesInvolved?: string
+  titleFindings?: string
+  resolutionOutlook?: string
   findings: string
-  riskAssessment?: 'GREEN' | 'AMBER' | 'RED'
+  expertRemarks?: string
   documents: string[]
   images: string[]
   videos: string[]
@@ -711,7 +741,20 @@ export async function submitVerificationReport(
         latitude,
         longitude,
         findings: input.findings,
-        riskAssessment: input.riskAssessment ?? null,
+        disputeFound: input.disputeFound,
+        // Dispute-specific fields only make sense when a dispute was found.
+        disputeType: input.disputeFound ? input.disputeType ?? null : null,
+        disputeNature: input.disputeFound ? input.disputeNature ?? null : null,
+        caseCategory: input.disputeFound ? input.caseCategory ?? null : null,
+        caseNumber: input.disputeFound ? input.caseNumber ?? null : null,
+        courtName: input.disputeFound ? input.courtName ?? null : null,
+        disputeStartYear: input.disputeFound ? input.disputeStartYear ?? null : null,
+        disputeStatus: input.disputeFound ? input.disputeStatus ?? null : null,
+        currentStatusNotes: input.currentStatusNotes ?? null,
+        partiesInvolved: input.disputeFound ? input.partiesInvolved ?? null : null,
+        titleFindings: input.titleFindings ?? null,
+        resolutionOutlook: input.disputeFound ? input.resolutionOutlook ?? null : null,
+        expertRemarks: input.expertRemarks ?? null,
         documents: input.documents,
         images: input.images,
         videos: input.videos,

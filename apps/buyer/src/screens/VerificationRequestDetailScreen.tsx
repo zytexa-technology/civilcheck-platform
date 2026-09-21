@@ -202,7 +202,7 @@ export function VerificationRequestDetailScreen() {
     if (!id) return
     setCancelling(true)
     try {
-      const response = await cancelVerificationRequest(id, cancelReason.trim() || 'Cancelled by buyer')
+      const response = await cancelVerificationRequest(id, cancelReason.trim() || 'Cancelled by user')
       setShowCancel(false)
       setCancelReason('')
       setRequest(response.request)
@@ -485,6 +485,11 @@ export function VerificationRequestDetailScreen() {
                   <Text style={styles.quoteName}>{q.quotedBySeller ? q.quotedBySeller.name : 'CivilCheck Admin'}</Text>
                   <Text style={styles.quoteFee}>{formatRupees(q.proposedFee)}</Text>
                 </View>
+                <Text style={styles.quoteMeta}>
+                  {q.proposedFee === request.buyerInitialOfferAmount
+                    ? `Accepted your offer of ${formatRupees(request.buyerInitialOfferAmount)}.`
+                    : `Original offer: ${formatRupees(request.buyerInitialOfferAmount)} · Counter offer: ${formatRupees(q.proposedFee)}.`}
+                </Text>
                 {q.quotedBySeller ? (
                   <Text style={styles.quoteMeta}>
                     {sellerBadgeLabel(q.quotedBySeller.badge)} · {humanize(q.quotedBySeller.profession)}
@@ -554,23 +559,33 @@ export function VerificationRequestDetailScreen() {
       ) : null}
 
       {request.status === 'REPORT_UNLOCKED' && request.reportAvailable ? (
-        <SectionCard icon="📄" iconBackground={colors.greenDim} title="Verification report">
-          <DetailRow
-            label="Risk assessment"
-            value={request.report?.riskAssessment ? humanize(request.report.riskAssessment) : '—'}
-            valueColor={
-              request.report?.riskAssessment === 'GREEN'
-                ? colors.green
-                : request.report?.riskAssessment === 'AMBER'
-                  ? colors.amber
-                  : request.report?.riskAssessment === 'RED'
-                    ? colors.red
-                    : undefined
-            }
-          />
+        <SectionCard icon="📄" iconBackground={colors.greenDim} title="Legal verification report">
+          {request.report?.disputeFound === true ? (
+            <>
+              <DetailRow label="Dispute found" value="Yes" />
+              {request.report.disputeType ? (
+                <DetailRow label="Dispute type" value={humanize(request.report.disputeType)} />
+              ) : null}
+              {request.report.disputeNature ? <DetailRow label="Nature of dispute" value={request.report.disputeNature} /> : null}
+              {request.report.caseCategory ? <DetailRow label="Case type / category" value={request.report.caseCategory} /> : null}
+              {request.report.caseNumber ? <DetailRow label="Case number / reference" value={request.report.caseNumber} /> : null}
+              {request.report.courtName ? <DetailRow label="Court / authority" value={request.report.courtName} /> : null}
+              {request.report.disputeStartYear ? <DetailRow label="Dispute started" value={String(request.report.disputeStartYear)} /> : null}
+              {request.report.disputeStatus ? <DetailRow label="Current status" value={humanize(request.report.disputeStatus)} /> : null}
+              {request.report.currentStatusNotes ? <DetailRow label="Status information" value={request.report.currentStatusNotes} /> : null}
+              {request.report.partiesInvolved ? <DetailRow label="Parties involved" value={request.report.partiesInvolved} /> : null}
+              {request.report.resolutionOutlook ? <DetailRow label="Resolution / outlook" value={request.report.resolutionOutlook} /> : null}
+            </>
+          ) : request.report?.disputeFound === false ? (
+            <DetailRow label="Dispute found" value="No dispute or issue found" />
+          ) : null}
+          {request.report?.titleFindings ? <DetailRow label="Ownership / title findings" value={request.report.titleFindings} /> : null}
           <DetailRow label="Submitted" value={formatDate(request.report?.submittedAt)} last />
           {request.report?.findings ? (
             <Text style={styles.findings}>{request.report.findings}</Text>
+          ) : null}
+          {request.report?.expertRemarks ? (
+            <Text style={styles.findings}>Expert remarks: {request.report.expertRemarks}</Text>
           ) : null}
 
           {reportAttachments.length > 0 ? (

@@ -60,7 +60,7 @@ interface Beneficiary {
 // ProfessionalEarning.sellerId.
 async function loadBeneficiary(sellerId: string): Promise<Beneficiary> {
   const seller = await prisma.seller.findUnique({ where: { id: sellerId } })
-  if (!seller || seller.deletedAt) throw new PayoutError('Seller not found', 404)
+  if (!seller || seller.deletedAt) throw new PayoutError('Partner not found', 404)
   if (seller.partnerRole !== 'EXPERT') {
     // Must never happen via normal flow (OWNER/REPORTER sellers can never
     // hold an assignedSellerId — see verification.routes.ts's

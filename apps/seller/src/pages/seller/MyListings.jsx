@@ -11,13 +11,10 @@
 import { useState, useEffect } from 'react'
 import {
   getMyListings, deleteListing, getSingleListing, updateListing,
-  createFeaturedSubscription, getMySubscriptions, cancelSubscription,
 } from '../../api/seller.api'
 import { Card, Chip, PageHead, Modal, Field, Pagination, toast } from '../../components/ui'
 import { Icon } from '../../components/Icon'
 import { useAuth } from '../../context/AuthContext'
-
-const FEATURED_PRICE = '₹499/month'
 
 // Seller's share of a report-unlock sale, by badge — mirrors
 // REPORT_UNLOCK_PLATFORM_SHARE in apps/api/src/services/payment.service.ts
@@ -35,12 +32,13 @@ const STATUS = {
 }
 const statusOf = (s) => STATUS[s] || STATUS.PENDING_REVIEW
 
-const RISK = {
-  GREEN: { tone: 'green', text: 'Clear' },
-  AMBER: { tone: 'amber', text: 'Caution' },
-  RED:   { tone: 'red',   text: 'Risk' },
+// The listing alert is the declared Property Status: Clear (green) or Disputed (red). Legacy
+// listings that were never classified show "Not classified" — never yellow, no risk badge.
+const PROPERTY_STATUS = {
+  CLEAR:    { tone: 'green', text: 'Clear' },
+  DISPUTED: { tone: 'red',   text: 'Disputed' },
 }
-const riskOf = (r) => RISK[r] || RISK.GREEN
+const riskOf = (status) => PROPERTY_STATUS[status] || { tone: 'ink', text: 'Not classified' }
 
 const fmtDate = (d) =>
   new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
@@ -54,9 +52,6 @@ export default function MyListings({ go }) {
   const [error, setError]       = useState('')
   const [search, setSearch]     = useState('')
   const [filter, setFilter]     = useState('all')
-  // Featured-listing subscriptions, keyed by listingId for a quick row lookup.
-  const [subs, setSubs]         = useState([])
-  const [featureTarget, setFeatureTarget] = useState(null)
   const [viewTarget, setViewTarget] = useState(null)
   const [page, setPage] = useState(1)
   // Generic destructive-action confirmation — replaces native confirm().
@@ -69,34 +64,13 @@ export default function MyListings({ go }) {
     setLoading(true)
     setError('')
     try {
-      const [data, subData] = await Promise.allSettled([getMyListings(), getMySubscriptions()])
-      if (data.status === 'fulfilled') setListings(data.value.listings || [])
-      else setError('Listings load nahi huin')
-      // A failed subscription fetch must not blank the listings table.
-      if (subData.status === 'fulfilled') setSubs(subData.value.subscriptions || [])
+      const data = await getMyListings()
+      setListings(data.listings || [])
+    } catch {
+      setError('Listings load nahi huin')
     } finally {
       setLoading(false)
     }
-  }
-
-  const subFor = (listingId) =>
-    subs.find((s) => s.listingId === listingId && ['CREATED', 'ACTIVE'].includes(s.status))
-
-  const handleCancelSub = (sub) => {
-    setConfirmState({
-      title: 'Cancel Featured Subscription',
-      message: 'Featured subscription cancel karein? Listing normal ordering pe wapas aa jayegi.',
-      confirmLabel: 'Cancel Subscription',
-      onConfirm: async () => {
-        try {
-          await cancelSubscription(sub.id)
-          toast('Subscription cancel ho gayi')
-          load()
-        } catch (err) {
-          toast(err?.response?.data?.message || 'Cancel nahi hua')
-        }
-      },
-    })
   }
 
   const handleDelete = (id) => {
@@ -236,11 +210,10 @@ export default function MyListings({ go }) {
               </thead>
               <tbody>
                 {paged.map((l) => {
-                  const r  = riskOf(l.riskBadge)
+                  const r  = riskOf(l.propertyStatus)
                   const st = statusOf(l.status)
                   const earned = (l.totalSales || 0) * (l.price || 0) * sellerCut
                   const canDelete = l.status === 'PENDING_REVIEW' || l.status === 'REJECTED'
-                  const sub = subFor(l.id)
                   return (
                     <tr key={l.id}>
                       <td>
@@ -270,27 +243,6 @@ export default function MyListings({ go }) {
                           <button className="btn btn-light btn-sm" title="View listing" onClick={() => setViewTarget(l)}>
                             <Icon name="eye" size={15} /> View
                           </button>
-                          {/* Only an APPROVED listing is publicly visible, so
-                              paying to promote anything else buys nothing. */}
-                          {l.status === 'APPROVED' && (
-                            sub ? (
-                              <button
-                                className="btn btn-light btn-sm"
-                                title={sub.status === 'ACTIVE' ? 'Cancel featured subscription' : 'Cancel pending subscription'}
-                                onClick={() => handleCancelSub(sub)}
-                              >
-                                {sub.status === 'ACTIVE' ? '★ Featured — Cancel' : 'Awaiting payment — Cancel'}
-                              </button>
-                            ) : (
-                              <button
-                                className="btn btn-seal btn-sm"
-                                title={`Feature this listing — ${FEATURED_PRICE}`}
-                                onClick={() => setFeatureTarget(l)}
-                              >
-                                ★ Feature
-                              </button>
-                            )
-                          )}
                           {canDelete && (
                             <button className="btn btn-danger btn-sm" title="Delete listing" onClick={() => handleDelete(l.id)}>
                               Delete
@@ -308,12 +260,6 @@ export default function MyListings({ go }) {
       )}
 
       <Pagination page={safePage} totalPages={totalPages} total={filtered.length} onChange={setPage} noun="listings" />
-
-      <FeatureListingModal
-        listing={featureTarget}
-        onClose={() => setFeatureTarget(null)}
-        onCreated={load}
-      />
 
       <ListingDetailModal
         listingId={viewTarget?.id}
@@ -397,6 +343,8 @@ function ListingDetailModal({ listingId, onClose, onSaved }) {
         setListing(l)
         setForm({
           price: String(l.price ?? ''),
+          propertyStatus: l.propertyStatus || '',
+          disputeType: l.disputeType || '',
           caseStatus: l.caseStatus || '',
           caseNumber: l.caseNumber || '',
           courtName: l.courtName || '',
@@ -420,6 +368,17 @@ function ListingDetailModal({ listingId, onClose, onSaved }) {
       // the backend schema treats them as optional-if-absent, not optional-if-empty,
       // so an unset field must be omitted rather than sent back as ''.
       const payload = { loanDefault: form.loanDefault, price: Number(form.price) || listing.price }
+      if (form.propertyStatus === 'DISPUTED' && !form.disputeType) {
+        setErr('Dispute type select karein (Civil / Criminal / Other)')
+        setSaving(false)
+        return
+      }
+      // Only sent once a status is chosen (a legacy, unclassified listing may still be
+      // edited without one). CLEAR carries no dispute type; the server derives the badge.
+      if (form.propertyStatus) {
+        payload.propertyStatus = form.propertyStatus
+        if (form.propertyStatus === 'DISPUTED') payload.disputeType = form.disputeType
+      }
       for (const key of ['caseStatus', 'caseNumber', 'courtName', 'partiesInvolved', 'lenderName', 'sellerNotes']) {
         if (form[key]) payload[key] = form[key]
       }
@@ -460,7 +419,7 @@ function ListingDetailModal({ listingId, onClose, onSaved }) {
             </div>
             <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
               <Chip tone={statusOf(listing.status).tone}>{statusOf(listing.status).text}</Chip>
-              <Chip tone={riskOf(listing.riskBadge).tone}>{riskOf(listing.riskBadge).text}</Chip>
+              <Chip tone={riskOf(listing.propertyStatus).tone}>{riskOf(listing.propertyStatus).text}</Chip>
               <Chip tone="blue">×{listing.totalSales ?? 0} sales</Chip>
             </div>
           </div>
@@ -474,6 +433,28 @@ function ListingDetailModal({ listingId, onClose, onSaved }) {
             <input className="control" type="number" value={form.price}
               onChange={(e) => update('price', e.target.value.replace(/\D/g, ''))} />
           </Field>
+
+          <Field label="Property Status" required>
+            <select
+              className="control" value={form.propertyStatus}
+              onChange={(e) => setForm((prev) => ({ ...prev, propertyStatus: e.target.value, disputeType: e.target.value === 'CLEAR' ? '' : prev.disputeType }))}
+            >
+              {!listing.propertyStatus && <option value="">Not classified — select…</option>}
+              <option value="CLEAR">Clear</option>
+              <option value="DISPUTED">Dispute</option>
+            </select>
+          </Field>
+
+          {form.propertyStatus === 'DISPUTED' && (
+            <Field label="Dispute Type" required>
+              <select className="control" value={form.disputeType} onChange={(e) => update('disputeType', e.target.value)}>
+                <option value="">Select…</option>
+                <option value="CIVIL">Civil</option>
+                <option value="CRIMINAL">Criminal</option>
+                <option value="OTHER">Other</option>
+              </select>
+            </Field>
+          )}
 
           <Field label="Case Status" optional>
             <select className="control" value={form.caseStatus} onChange={(e) => update('caseStatus', e.target.value)}>
@@ -512,90 +493,9 @@ function ListingDetailModal({ listingId, onClose, onSaved }) {
             </Field>
           )}
 
-          <Field label="Seller Notes" optional>
+          <Field label="Partner Notes" optional>
             <textarea className="control" rows={3} value={form.sellerNotes} onChange={(e) => update('sellerNotes', e.target.value)} />
           </Field>
-        </>
-      )}
-    </Modal>
-  )
-}
-
-// ─────────────────────────────────────────────────────────────────────────
-//  Featured-listing subscription (₹499/mo).
-//
-//  Deliberately does NOT claim the listing is now featured. This is a Razorpay
-//  *subscription*, not a one-off order: POST creates the mandate, and the row
-//  only flips to ACTIVE when Razorpay's subscription.activated/charged webhook
-//  arrives. There is no client-side verify endpoint to call, so pretending the
-//  payment succeeded here would be a lie the backend would later contradict.
-// ─────────────────────────────────────────────────────────────────────────
-function FeatureListingModal({ listing, onClose, onCreated }) {
-  const [creating, setCreating] = useState(false)
-  const [created, setCreated] = useState(null)
-  const [err, setErr] = useState('')
-
-  useEffect(() => { setCreated(null); setErr('') }, [listing])
-
-  const create = async () => {
-    setCreating(true)
-    setErr('')
-    try {
-      const res = await createFeaturedSubscription(listing.id)
-      setCreated(res.subscription)
-      onCreated?.()
-    } catch (e) {
-      setErr(e?.response?.data?.message || 'Subscription create nahi hui')
-    } finally {
-      setCreating(false)
-    }
-  }
-
-  return (
-    <Modal
-      open={!!listing}
-      title="Feature this listing"
-      onClose={onClose}
-      footer={created ? (
-        <button className="btn btn-primary" onClick={onClose}>Done</button>
-      ) : (
-        <>
-          <button className="btn btn-light" onClick={onClose}>Cancel</button>
-          <button
-            className="btn btn-primary"
-            onClick={create}
-            disabled={creating}
-            style={{ opacity: creating ? 0.6 : 1 }}
-          >
-            {creating ? 'Creating...' : `Continue — ${FEATURED_PRICE}`}
-          </button>
-        </>
-      )}
-    >
-      {err && <div className="small" style={{ color: 'var(--danger)', marginBottom: 12 }}>❌ {err}</div>}
-
-      {!created ? (
-        <>
-          <p className="small" style={{ lineHeight: 1.65, marginBottom: 12 }}>
-            <b>{listing?.address}</b> ko search results mein upar dikhaya jayega,
-            {' '}{FEATURED_PRICE} ke monthly plan par.
-          </p>
-          <p className="small muted" style={{ lineHeight: 1.65 }}>
-            Continue dabane par ek Razorpay subscription mandate banega. Listing
-            tab featured hoti hai jab Razorpay pehla charge confirm karta hai —
-            turant nahi.
-          </p>
-        </>
-      ) : (
-        <>
-          <div className="small" style={{ lineHeight: 1.65, marginBottom: 12 }}>
-            ✅ Subscription ban gayi — <code>{created.subscriptionId}</code>
-          </div>
-          <p className="small muted" style={{ lineHeight: 1.65 }}>
-            Status abhi <b>awaiting payment authorization</b> hai. Razorpay se
-            payment confirm hote hi listing automatically featured ho jayegi
-            aur yahan ★ Featured dikhega. Tab tak koi charge nahi hua hai.
-          </p>
         </>
       )}
     </Modal>

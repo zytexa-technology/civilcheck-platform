@@ -54,14 +54,14 @@ export function CoverageScreen() {
         <EmptyState
           icon="📍"
           title="Service areas not published"
-          description="We haven't published our coverage list yet. You can still submit a custom research request for any property."
-          actionLabel="Request custom research"
+          description="We haven't published our coverage list yet. You can still submit a Request for Legal Reports for any property."
+          actionLabel="Request for Legal Reports"
           onAction={() => router.push('/requests/new')}
         />
       ) : (
         <>
           <Text style={styles.intro}>
-            We have verified experts in these tehsils. Outside them, a custom research request
+            We have verified experts in these tehsils. Outside them, a Request for Legal Reports
             may take longer to assign.
           </Text>
 

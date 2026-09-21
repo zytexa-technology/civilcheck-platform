@@ -30,18 +30,23 @@ export default function MyRequests() {
   return (
     <div>
       <div className="spread" style={{ marginBottom: 20 }}>
-        <h1 className="h2">Custom research requests</h1>
+        <h1 className="h2">Request for Legal Reports</h1>
         <Link to="/account/requests/new">
           <Button>New request</Button>
         </Link>
       </div>
+      <p className="muted" style={{ fontSize: 12.5, marginBottom: 16 }}>
+        New requests are priced by your own offer and appear under{' '}
+        <Link to="/account/verifications" style={{ color: 'var(--cc-gold)' }}>Verification requests</Link>.
+        Requests you made earlier (fixed plans) are listed below.
+      </p>
 
       {requests.length === 0 ? (
         <EmptyState
           icon="🧾"
-          title="No custom requests yet"
-          description="Can't find a property in our database? Ask an expert to research it for you."
-          actionLabel="Request research"
+          title="No earlier requests"
+          description="Can't find a property in our database? Send a Request for Legal Reports with your own offer."
+          actionLabel="Request for Legal Reports"
           onAction={() => (window.location.href = '/account/requests/new')}
         />
       ) : (

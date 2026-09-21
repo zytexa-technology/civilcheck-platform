@@ -292,7 +292,7 @@ export const sellerMiddleware = async (req: Request, res: Response, next: NextFu
   if (!seller) {
     res.status(401).json({
       success: false,
-      message: 'Seller not found — register via /api/seller/register',
+      message: 'Partner not found — register via /api/seller/register',
     })
     return
   }
@@ -353,7 +353,7 @@ export const requireSellerRole =
   (...allowed: PartnerRole[]) =>
   (req: Request, res: Response, next: NextFunction): void => {
     if (!req.seller) {
-      res.status(401).json({ success: false, message: 'Seller authentication required' })
+      res.status(401).json({ success: false, message: 'Partner authentication required' })
       return
     }
 

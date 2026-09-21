@@ -3,7 +3,7 @@ import { StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { useFocusEffect, useRouter } from 'expo-router'
 import { getMyPurchases } from '../api/purchase.api'
 import { errorMessage } from '../lib/errors'
-import { formatDate, formatRupees, humanize, riskTone } from '../lib/format'
+import { formatDate, formatRupees, humanize, alertTone } from '../lib/format'
 import { colors, radius, SCREEN_PADDING, spacing } from '../theme'
 import { Pill } from '../components/Pill'
 import { Screen } from '../components/Screen'
@@ -46,7 +46,7 @@ export function MyReportsScreen() {
   }
 
   const totalSpent = purchases.reduce((sum, purchase) => sum + purchase.amountPaid, 0)
-  const highRisk = purchases.filter((p) => p.listing.riskBadge === 'RED').length
+  const highRisk = purchases.filter((p) => p.listing.propertyStatus === 'DISPUTED').length
 
   return (
     <Screen scroll refreshing={refreshing} onRefresh={() => void handleRefresh()}>
@@ -76,7 +76,7 @@ export function MyReportsScreen() {
         <View style={styles.list}>
           {purchases.map((purchase) => {
             const listing = purchase.listing
-            const tone = riskTone(listing.riskBadge)
+            const tone = alertTone(listing.propertyStatus, listing.disputeType)
 
             return (
               <TouchableOpacity

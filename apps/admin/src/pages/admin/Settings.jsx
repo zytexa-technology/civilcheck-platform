@@ -47,23 +47,16 @@ export default function Settings() {
 
       <Section title="Commission split — report unlocks" icon="💰" note="services/payment.service.ts">
         <div className="small muted" style={{ padding: '4px 20px 12px', lineHeight: 1.6 }}>
-          Seller&apos;s share of each report unlock. Better badges keep more — the platform&apos;s cut is the remainder.
+          Partner&apos;s share of each report unlock. Better badges keep more — the platform&apos;s cut is the remainder.
         </div>
-        <Row label="Bronze seller" desc="Default rate for new sellers" value="60%" accent="#cd7f32" />
-        <Row label="Silver seller" desc="Same rate as Bronze" value="60%" accent="#c0c0c0" />
-        <Row label="Gold seller" desc="High performer" value="65%" accent="var(--gold)" />
-        <Row label="Platinum seller" desc="Top performer" value="70%" accent="var(--blue)" />
+        <Row label="Bronze partner" desc="Default rate for new partners" value="60%" accent="#cd7f32" />
+        <Row label="Silver partner" desc="Same rate as Bronze" value="60%" accent="#c0c0c0" />
+        <Row label="Gold partner" desc="High performer" value="65%" accent="var(--gold)" />
+        <Row label="Platinum partner" desc="Top performer" value="70%" accent="var(--blue)" />
       </Section>
 
       <Section title="Commission split — other payments" icon="🧾" note="services/payment.service.ts">
-        <Row label="Special request advance" desc="Seller keeps 70%, platform takes a flat 30% regardless of badge" value="70% / 30%" accent="var(--violet)" />
-        <Row label="Alert subscription" desc="Platform-only revenue — no seller side to split" value="100% platform" accent="var(--muted)" />
-        <Row label="Featured listing" desc="Platform-only revenue — no seller side to split" value="100% platform" accent="var(--muted)" />
-      </Section>
-
-      <Section title="Subscription pricing" icon="🔔" note="services/subscription.service.ts">
-        <Row label="Case update alerts" desc="Buyer-side monthly plan" value="₹49 / month" accent="var(--blue)" />
-        <Row label="Featured listing" desc="Seller-side monthly plan" value="₹499 / month" accent="var(--blue)" />
+        <Row label="Special request advance" desc="Partner keeps 70%, platform takes a flat 30% regardless of badge" value="70% / 30%" accent="var(--violet)" />
       </Section>
 
       <Section title="Payouts" icon="🏦" note="services/settlement.service.ts">
@@ -78,7 +71,7 @@ export default function Settings() {
       </Section>
 
       <Section title="Quality control" icon="🛡️" note="Day 7 — QC penalties">
-        <Row label="Accuracy strikes before ban" desc="Three confirmed accuracy violations permanently ban the seller" value="3 strikes" accent="var(--red)" />
+        <Row label="Accuracy strikes before ban" desc="Three confirmed accuracy violations permanently ban the partner" value="3 strikes" accent="var(--red)" />
       </Section>
 
       <Section title="Configurable at deploy time" icon="⚙️" note="apps/api/.env">

@@ -4,6 +4,8 @@ import { getFeed } from '../api/property.api'
 import { freeCaseCheck } from '../api/property.api'
 import { getBanners } from '../api/content.api'
 import { FeedCard } from '../components/FeedCard'
+import { AdCard } from '../components/AdCard'
+import { getFeedAds, type FeedAd } from '../api/ads.api'
 import { CardSkeleton, ErrorState, InlineNotice } from '../components/States'
 import { Button } from '../components/Button'
 import { Input } from '../components/Field'
@@ -32,6 +34,28 @@ export default function Home() {
   const [loadingMore, setLoadingMore] = useState(false)
   const [loadError, setLoadError] = useState('')
 
+  // In-feed advertisements: fetched ONCE for the whole feed (not per card). How often one appears
+  // is decided by the server (`interval`), never hard-coded here. Dismissal is per browser session.
+  const [ads, setAds] = useState<FeedAd[]>([])
+  const [adInterval, setAdInterval] = useState(0)
+  const [dismissedAds, setDismissedAds] = useState<Set<string>>(() => {
+    try {
+      return new Set<string>(JSON.parse(sessionStorage.getItem('cc_dismissed_ads') ?? '[]'))
+    } catch {
+      return new Set<string>()
+    }
+  })
+  const dismissAd = (id: string) =>
+    setDismissedAds((prev) => {
+      const next = new Set(prev).add(id)
+      try {
+        sessionStorage.setItem('cc_dismissed_ads', JSON.stringify([...next]))
+      } catch {
+        /* storage unavailable — dismissal still holds for this page view */
+      }
+      return next
+    })
+
   const [checkValue, setCheckValue] = useState('')
   const [checking, setChecking] = useState(false)
   const [checkNotice, setCheckNotice] = useState('')
@@ -57,6 +81,15 @@ export default function Home() {
     loadFeed(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filter])
+
+  useEffect(() => {
+    void getFeedAds(6)
+      .then((res) => {
+        setAds(res.ads)
+        setAdInterval(res.interval)
+      })
+      .catch(() => {}) // ads are optional — a failure must never affect the property feed
+  }, [])
 
   useEffect(() => {
     void getBanners('BUYERS').then((res) => setBanners(res.banners)).catch(() => {})
@@ -152,9 +185,16 @@ export default function Home() {
         </div>
       ) : (
         <div className="stack">
-          {items.map((item) => (
-            <FeedCard key={`${item.source}:${item.id}`} item={item} onChange={updateItem} />
-          ))}
+          {items.flatMap((item, i) => {
+            const card = <FeedCard key={`${item.source}:${item.id}`} item={item} onChange={updateItem} />
+            // One ad after every `adInterval` property items (feed-level composition; ads are never
+            // stored as properties).
+            const slot = adInterval > 0 && (i + 1) % adInterval === 0 ? (i + 1) / adInterval - 1 : -1
+            const ad = slot >= 0 ? ads[slot] : undefined
+            return ad && !dismissedAds.has(ad.id)
+              ? [card, <AdCard key={`ad:${ad.id}`} ad={ad} onDismiss={dismissAd} />]
+              : [card]
+          })}
           {hasMore ? (
             <Button variant="secondary" block loading={loadingMore} onClick={() => loadFeed(true)}>
               Load more

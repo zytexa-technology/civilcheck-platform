@@ -126,7 +126,7 @@ export const getMyPurchases = async (req: Request, res: Response) => {
       listing: {
         select: {
           id: true, address: true, city: true, tehsil: true,
-          propertyType: true, riskBadge: true, caseExists: true,
+          propertyType: true, propertyStatus: true, disputeType: true, caseExists: true,
           loanDefault: true, price: true,
         },
       },
@@ -157,7 +157,7 @@ export const getReportCertificate = async (req: Request, res: Response) => {
   const bytes = await generateReportCertificate({
     purchase: { id: purchase.id, createdAt: purchase.createdAt },
     listing: purchase.listing,
-    buyerName: purchase.user.name || 'CivilCheck Buyer',
+    buyerName: purchase.user.name || 'CivilCheck User',
   })
 
   res.setHeader('Content-Type', 'application/pdf')
@@ -185,7 +185,7 @@ export const getPurchaseInvoice = async (req: Request, res: Response) => {
   const bytes = await generateInvoice({
     purchase: { id: purchase.id, platformCut: purchase.platformCut, createdAt: purchase.createdAt },
     listing: purchase.listing,
-    buyerName: purchase.user.name || 'CivilCheck Buyer',
+    buyerName: purchase.user.name || 'CivilCheck User',
     buyerPhone: purchase.user.phone,
   })
 

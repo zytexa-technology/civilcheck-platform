@@ -134,7 +134,7 @@ export const getMyPayoutProfile = async (req: Request, res: Response) => {
     },
   })
   if (!seller) {
-    res.status(404).json({ success: false, message: 'Seller not found' })
+    res.status(404).json({ success: false, message: 'Partner not found' })
     return
   }
   res.json({

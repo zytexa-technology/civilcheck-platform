@@ -8,6 +8,7 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { getMyProperties, deleteProperty, updateProperty } from '../../api/seller.api'
+import { uploadToCloudinary, UploadError } from '../../api/cloudinaryUpload'
 import { Icon, Seal } from '../../components/Icon'
 import { Card, StatCard, Chip, PageHead, SectionTitle, Field, Modal, toast } from '../../components/ui'
 
@@ -36,6 +37,8 @@ export function propertyFromApi(p) {
     area: p.area,
     age: p.age || '—',
     city: p.city || '',
+    propertyStatus: p.propertyStatus || '',
+    disputeType: p.disputeType || '',
     status: (p.status || 'PENDING').toLowerCase(),
     views: p.views || 0,
     health: p.health ?? 30,
@@ -96,7 +99,7 @@ export default function OwnerDashboard({ go }) {
           <div className="eyebrow" style={{ color: '#d8b25f' }}>Owner Listings</div>
           <h3 className="dev" style={{ fontSize: 20, margin: '4px 0', color: '#fff' }}>{ap} Published</h3>
           <p className="small dev" style={{ color: 'rgba(255,255,255,.65)' }}>
-            Buyers ko property ki details free mein dikhti hain — documents sirf aapke paas surakshit rehte hain.
+            Users ko property ki details free mein dikhti hain — documents sirf aapke paas surakshit rehte hain.
           </p>
         </div>
         <button className="btn btn-seal" onClick={() => go?.('add')}>+ Add Property</button>
@@ -118,7 +121,7 @@ export default function OwnerDashboard({ go }) {
       <Card style={{ marginBottom: 22 }}>
         <div className="flow">
           <span className="step done">Upload Property</span><span className="arw">→</span>
-          <span className="step">Published to Buyers</span>
+          <span className="step">Published to Users</span>
         </div>
       </Card>
 
@@ -164,6 +167,13 @@ export function PropTile({ p, onDelete, onUpdated }) {
         </div>
         <div className="body">
           <b style={{ fontSize: 15 }} className="dev">{p.title}</b>
+          <div style={{ marginTop: 6 }}>
+            {p.propertyStatus === 'CLEAR' && <Chip tone="green">🟢 Clear Property</Chip>}
+            {p.propertyStatus === 'DISPUTED' && (
+              <Chip tone="red">🔴 Disputed{p.disputeType ? ` · ${({ CIVIL: 'Civil', CRIMINAL: 'Criminal', OTHER: 'Other' })[p.disputeType]}` : ''}</Chip>
+            )}
+            {!p.propertyStatus && <Chip tone="ink">Not classified</Chip>}
+          </div>
           <div className="small muted" style={{ marginTop: 4 }}>{p.area} sq.ft • {p.age} • {p.views} views</div>
           <div className="health">
             <div className="ring" style={{ '--p': p.health }} data-v={p.health} />
@@ -239,8 +249,12 @@ export function PropTile({ p, onDelete, onUpdated }) {
 }
 
 function EditPropertyModal({ open, property, onClose, onSaved }) {
-  const [form, setForm] = useState({ title: '', area: '', age: '', city: '' })
+  const [form, setForm] = useState({ title: '', area: '', age: '', city: '', propertyStatus: '', disputeType: '' })
   const [busy, setBusy] = useState(false)
+  // Ownership Document: existing one (if any) + an optional replacement uploaded in this edit.
+  const [newOwnershipDoc, setNewOwnershipDoc] = useState(null) // { url, name }
+  const [uploadingDoc, setUploadingDoc] = useState(false)
+  const currentOwnershipDoc = (property.documents || []).find((d) => d && typeof d === 'object' && d.type === 'OWNERSHIP_DOCUMENT') || null
 
   // Reload form fields whenever a different property is opened for editing.
   useEffect(() => {
@@ -250,15 +264,36 @@ function EditPropertyModal({ open, property, onClose, onSaved }) {
         area: property.area || '',
         age: property.age === '—' ? '' : (property.age || ''),
         city: property.city || '',
+        propertyStatus: property.propertyStatus || '',
+        disputeType: property.disputeType || '',
       })
+      setNewOwnershipDoc(null)
     }
   }, [open, property])
 
   const setField = (k, v) => setForm((f) => ({ ...f, [k]: v }))
 
+  const handleReplaceDoc = async (e) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    setUploadingDoc(true)
+    try {
+      const { url } = await uploadToCloudinary(file, 'property-document')
+      setNewOwnershipDoc({ url, name: file.name })
+    } catch (err) {
+      toast(err instanceof UploadError ? err.message : 'Upload fail ho gaya — dobara try karein')
+    } finally {
+      setUploadingDoc(false)
+    }
+  }
+
   const save = async () => {
     if (!form.title.trim()) { toast('Title daaliye'); return }
     if (!form.area.trim())  { toast('Area daaliye'); return }
+    // A legacy, unclassified property can still be edited without a status; once a status
+    // is chosen Dispute needs a type, Clear carries none (the server clears it).
+    if (form.propertyStatus === 'DISPUTED' && !form.disputeType) { toast('Dispute Type chuniye — Civil, Criminal ya Other'); return }
     setBusy(true)
     try {
       const { property: updated } = await updateProperty(property.id, {
@@ -266,6 +301,11 @@ function EditPropertyModal({ open, property, onClose, onSaved }) {
         area: form.area,
         age: form.age || null,
         city: form.city,
+        ...(newOwnershipDoc ? { ownershipDocumentUrl: newOwnershipDoc.url } : {}),
+        ...(form.propertyStatus ? {
+          propertyStatus: form.propertyStatus,
+          ...(form.propertyStatus === 'DISPUTED' ? { disputeType: form.disputeType } : {}),
+        } : {}),
       })
       toast('Property updated')
       onSaved?.(updated)
@@ -292,6 +332,42 @@ function EditPropertyModal({ open, property, onClose, onSaved }) {
       </div>
       <Field label="City / Locality">
         <input className="control" value={form.city} onChange={(e) => setField('city', e.target.value)} />
+      </Field>
+      <Field label="Property Status" required>
+        <select
+          className="control" value={form.propertyStatus}
+          onChange={(e) => setForm((f) => ({ ...f, propertyStatus: e.target.value, disputeType: e.target.value === 'CLEAR' ? '' : f.disputeType }))}
+        >
+          {!property.propertyStatus && <option value="">Not classified — select…</option>}
+          <option value="CLEAR">Clear</option>
+          <option value="DISPUTED">Dispute</option>
+        </select>
+      </Field>
+      {form.propertyStatus === 'DISPUTED' && (
+        <Field label="Dispute Type" required>
+          <select className="control" value={form.disputeType} onChange={(e) => setField('disputeType', e.target.value)}>
+            <option value="">Select dispute type...</option>
+            <option value="CIVIL">Civil</option>
+            <option value="CRIMINAL">Criminal</option>
+            <option value="OTHER">Other</option>
+          </select>
+        </Field>
+      )}
+      <Field label="Ownership Document">
+        <div className="docrow">
+          <div className="ic"><Icon name="file" size={16} /></div>
+          <div className="nm dev">
+            {newOwnershipDoc
+              ? `${newOwnershipDoc.name} (will replace on save)`
+              : currentOwnershipDoc
+                ? <>Ownership document on file · <a href={currentOwnershipDoc.url} target="_blank" rel="noreferrer" style={{ color: 'var(--verified, #137a56)' }}>view</a></>
+                : 'Not on file — you can add one'}
+          </div>
+          <label className="chip ink up" style={{ cursor: 'pointer' }}>
+            {uploadingDoc ? 'Uploading…' : currentOwnershipDoc || newOwnershipDoc ? 'Replace' : 'Upload'}
+            <input type="file" accept=".pdf,.jpg,.jpeg,.png" style={{ display: 'none' }} onChange={handleReplaceDoc} disabled={uploadingDoc} />
+          </label>
+        </div>
       </Field>
       <button className="btn btn-primary btn-block" onClick={save} disabled={busy}>
         {busy ? 'Saving…' : 'Save Changes'}

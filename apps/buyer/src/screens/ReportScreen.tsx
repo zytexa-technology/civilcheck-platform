@@ -7,7 +7,7 @@ import { getMyPurchases, unlockReport, verifyPurchase } from '../api/purchase.ap
 import { useAuth } from '../context/AuthContext'
 import { errorMessage, errorStatus } from '../lib/errors'
 import { openCertificate, openInvoice, PdfError } from '../lib/pdf'
-import { formatDate, formatRupees, humanize, riskBanner, sellerBadgeLong } from '../lib/format'
+import { formatDate, formatRupees, humanize, alertBanner, sellerBadgeLong } from '../lib/format'
 import { colors, radius, SCREEN_PADDING, spacing } from '../theme'
 import { AuthRequiredSheet } from '../components/AuthRequiredSheet'
 import { Button } from '../components/Button'
@@ -239,7 +239,7 @@ export function ReportScreen() {
     )
   }
 
-  const banner = riskBanner(property.riskBadge)
+  const banner = alertBanner(property.propertyStatus, property.disputeType)
   const watching = Boolean(alertId)
 
   return (

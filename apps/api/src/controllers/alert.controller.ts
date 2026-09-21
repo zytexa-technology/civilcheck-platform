@@ -67,7 +67,8 @@ export const subscribeAlert = async (req: Request, res: Response) => {
     property: {
       address: listing.address,
       city: listing.city,
-      riskBadge: listing.riskBadge,
+      propertyStatus: listing.propertyStatus,
+      disputeType: listing.disputeType,
     }
   })
 }
@@ -90,7 +91,8 @@ export const getMyAlerts = async (req: Request, res: Response) => {
           address: true,
           city: true,
           tehsil: true,
-          riskBadge: true,
+          propertyStatus: true,
+          disputeType: true,
           caseExists: true,
           caseStatus: true,
           loanDefault: true,
@@ -160,7 +162,8 @@ export const getAlertHistory = async (req: Request, res: Response) => {
           id: true,
           address: true,
           city: true,
-          riskBadge: true,
+          propertyStatus: true,
+          disputeType: true,
           caseExists: true,
           caseStatus: true,
           status: true,
@@ -193,7 +196,7 @@ export const triggerAlerts = async (
   listingId: string,
   oldCaseStatus: string | null,
   newCaseStatus: string | null,
-  newRiskBadge: string
+  newPropertyStatus: string | null
 ) => {
   // Kya koi update hua jo notify karne layak hai?
   if (oldCaseStatus === newCaseStatus) return
@@ -215,7 +218,7 @@ export const triggerAlerts = async (
   const title = 'CivilCheck Alert — property update'
   const body =
     `${address}, ${city} — case status ${oldCaseStatus ?? 'N/A'} → ${newCaseStatus ?? 'N/A'}. ` +
-    `Risk badge: ${newRiskBadge}.`
+    `Property status: ${newPropertyStatus === 'CLEAR' ? 'Clear' : newPropertyStatus === 'DISPUTED' ? 'Disputed' : 'Not classified'}.`
 
   logger.info(`🔔 Alert trigger — ${subscribers.length} subscriber(s) for listing ${listingId}`)
 
@@ -235,13 +238,13 @@ export const triggerAlerts = async (
         {
           title,
           body,
-          data: { listingId, type: 'case_update', riskBadge: newRiskBadge },
+          data: { listingId, type: 'case_update', propertyStatus: newPropertyStatus ?? 'UNCLASSIFIED' },
           email: {
             subject: 'Update on a property report you follow',
             text: body,
             html: `<p>${body}</p><p>— Team CivilCheck</p>`,
           },
-          sms: { variables: { name: 'Buyer', status: 'property updated' } },
+          sms: { variables: { name: 'User', status: 'property updated' } },
         }
       ).catch((err) =>
         logger.error(

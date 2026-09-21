@@ -24,6 +24,7 @@ export function postFromApi(p) {
     id: p.id,
     title: p.title || 'Untitled post',
     description: p.description || '',
+    address: p.address || '',
     city: p.city || '',
     status: (p.status || 'PUBLISHED').toLowerCase(),
     images: Array.isArray(p.images) ? p.images : [],
@@ -75,7 +76,7 @@ export default function ReporterDashboard({ go }) {
     <>
       <PageHead
         title={`Namaste, ${firstName}`}
-        subtitle="Property information post karo — submit karte hi buyer feed me live ho jaati hai, koi admin approval nahi chahiye."
+        subtitle="Property information post karo — submit karte hi user feed me live ho jaati hai, koi admin approval nahi chahiye."
       />
 
       <Card style={{ padding: 20, marginBottom: 20, background: 'linear-gradient(120deg,#14273f,#1f3a58)', color: '#fff', display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', border: 'none' }}>
@@ -100,7 +101,7 @@ export default function ReporterDashboard({ go }) {
         <div className="flow">
           <span className="step done">Photograph or source information</span><span className="arw">→</span>
           <span className="step done">Post it</span><span className="arw">→</span>
-          <span className="step">Live in the Buyer info feed instantly</span>
+          <span className="step">Live in the User info feed instantly</span>
         </div>
       </Card>
 
@@ -142,7 +143,7 @@ export function PostTile({ p, onDelete, onUpdated }) {
         </div>
         <div className="body">
           <b style={{ fontSize: 15 }} className="dev">{p.title}</b>
-          <div className="small muted" style={{ marginTop: 4 }}>{p.city || '—'}{p.sourceName ? ` • ${p.sourceName}` : ''}</div>
+          <div className="small muted" style={{ marginTop: 4 }}>{p.address || p.city || '—'}{p.sourceName ? ` • ${p.sourceName}` : ''}</div>
           <div className="xs muted" style={{ marginTop: 6 }}>Reported by CivilCheck Reporter</div>
           <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
             <button className="btn btn-light btn-sm" onClick={() => setPreview(true)}>View Details</button>
@@ -165,6 +166,7 @@ export function PostTile({ p, onDelete, onUpdated }) {
         </div>
         <div className="card" style={{ padding: '4px 16px', marginBottom: 16 }}>
           {[
+            p.address && `Property address: ${p.address}`,
             p.city && `City: ${p.city}`,
             p.sourceName && `Source: ${p.sourceName}`,
             'Reported by: CivilCheck Reporter',
@@ -205,21 +207,26 @@ export function PostTile({ p, onDelete, onUpdated }) {
 }
 
 function EditPostModal({ open, post, onClose, onSaved }) {
-  const [form, setForm] = useState({ title: '', description: '', city: '' })
+  const [form, setForm] = useState({ title: '', description: '', address: '', city: '' })
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
     if (open) {
-      setForm({ title: post.title || '', description: post.description || '', city: post.city || '' })
+      setForm({ title: post.title || '', description: post.description || '', address: post.address || '', city: post.city || '' })
     }
   }, [open, post])
 
   const setField = (k, v) => setForm((f) => ({ ...f, [k]: v }))
 
   const save = async () => {
+    if (form.address.trim().length < 5 || !/[\p{L}\p{N}]{3,}/u.test(form.address)) {
+      toast('Property location / address is required (at least 5 characters).')
+      return
+    }
     setBusy(true)
     try {
       const { post: updated } = await updateReporterPost(post.id, {
+        address: form.address.trim(),
         title: form.title.trim() || undefined,
         description: form.description.trim() || undefined,
         city: form.city.trim() || undefined,
@@ -240,6 +247,12 @@ function EditPostModal({ open, post, onClose, onSaved }) {
       </Field>
       <Field label="Description">
         <textarea className="control" rows={3} value={form.description} onChange={(e) => setField('description', e.target.value)} />
+      </Field>
+      <Field
+        label="Property Location / Address *"
+        hint="Enter the location/address of the property shown in the uploaded media."
+      >
+        <textarea className="control" rows={2} value={form.address} onChange={(e) => setField('address', e.target.value)} />
       </Field>
       <Field label="City / Locality">
         <input className="control" value={form.city} onChange={(e) => setField('city', e.target.value)} />

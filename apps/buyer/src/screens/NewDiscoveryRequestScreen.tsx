@@ -71,8 +71,8 @@ export function NewDiscoveryRequestScreen() {
     void getVerificationConfig()
       .then((res) => {
         if (!live) return
-        setMinFee(res.minVerificationFee)
-        setAmount((prev) => prev || String(res.minVerificationFee))
+        setMinFee(res.legalReportMinAmount)
+        setAmount((prev) => prev || String(res.legalReportMinAmount))
       })
       .catch(() => {})
     return () => {
@@ -200,7 +200,7 @@ export function NewDiscoveryRequestScreen() {
         <InlineNotice message="This is your initial offer, not a payment. Experts will quote against it — you'll only pay once you accept a quote, and only 50% up front." />
 
         <Button
-          label="Submit request"
+          label="I Want Legal Report"
           onPress={() => void handleSubmit()}
           loading={busy}
           size="lg"

@@ -131,7 +131,7 @@ export function Header() {
                   {menuOpen ? (
                     <div className="dropdown" role="menu">
                       <div style={{ padding: '8px 12px 10px' }}>
-                        <div style={{ fontWeight: 700, fontSize: 13.5 }}>{user.name || 'Buyer'}</div>
+                        <div style={{ fontWeight: 700, fontSize: 13.5 }}>{user.name || 'User'}</div>
                         <div className="muted" style={{ fontSize: 11.5 }}>
                           {user.email || user.phone}
                         </div>

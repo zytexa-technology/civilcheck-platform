@@ -34,9 +34,9 @@ export default function PayoutLedger() {
 
   const columns = [
     { key: 'createdAt', header: 'Created', render: (p) => new Date(p.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) },
-    { key: 'seller', header: 'Seller', render: (p) => (<><div style={{ fontWeight: 600 }}>{p.seller?.name || '—'}</div><div className="small muted">{p.seller?.phone} · {p.seller?.badge}</div></>) },
+    { key: 'seller', header: 'Partner', render: (p) => (<><div style={{ fontWeight: 600 }}>{p.seller?.name || '—'}</div><div className="small muted">{p.seller?.phone} · {p.seller?.badge}</div></>) },
     { key: 'request', header: 'Request', render: (p) => (<><div title={p.specialRequest?.address || ''} style={{ maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.specialRequest?.address || '—'}</div><div className="small muted">{p.specialRequest?.city}, {p.specialRequest?.tehsil}</div></>) },
-    { key: 'amount', header: 'Seller cut', render: (p) => <span style={{ color: 'var(--green)', fontWeight: 700 }}>₹{p.amount.toLocaleString('en-IN')}</span> },
+    { key: 'amount', header: 'Partner cut', render: (p) => <span style={{ color: 'var(--green)', fontWeight: 700 }}>₹{p.amount.toLocaleString('en-IN')}</span> },
     { key: 'platformCut', header: 'Platform cut', render: (p) => <span className="muted">₹{p.platformCut.toLocaleString('en-IN')}</span> },
     {
       key: 'status',
@@ -51,7 +51,7 @@ export default function PayoutLedger() {
 
   return (
     <div>
-      <PageHead title="Seller payout ledger" subtitle="70/30 commission on approved special requests — settles via the weekly settlement cron" />
+      <PageHead title="Partner payout ledger" subtitle="70/30 commission on approved special requests — settles via the weekly settlement cron" />
 
       <div className="grid g2" style={{ marginBottom: 20, maxWidth: 480 }}>
         <StatCard tone="grey" icon="🧾" value={total} label="Total payout rows" />

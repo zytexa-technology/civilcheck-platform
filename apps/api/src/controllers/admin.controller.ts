@@ -30,11 +30,19 @@ import {
 } from '../services/notification.service.js'
 import { releaseEarningsOnClaimRejected } from '../services/verificationSettlement.service.js'
 import { getSubscriptionMetrics } from '../services/analytics.service.js'
-import { AuditAction, clientIp, recordAudit } from '../services/audit.service.js'
+import {
+  AuditAction,
+  ACCOUNT_REMOVAL_ACTIONS,
+  POST_REMOVAL_ACTIONS,
+  clientIp,
+  recordAudit,
+  type AccountRemovalMetadata,
+  type PostRemovalMetadata,
+} from '../services/audit.service.js'
 import { executeRefund } from '../services/refund.service.js'
 import { applyStrikeEscalation } from '../services/penalty.service.js'
 import { getPlatformSettings, updatePlatformSettings } from '../services/platformSettings.service.js'
-import { VerificationError, adminForceCancelVerificationRequest } from '../services/verification.service.js'
+import { VerificationError, adminForceCancelVerificationRequest, publicReport } from '../services/verification.service.js'
 import * as rewardService from '../services/reward.service.js'
 import * as payoutService from '../services/payout.service.js'
 import { runReconciliationSweep } from '../services/reconciliation.service.js'
@@ -104,7 +112,13 @@ export const getAllSellers = async (req: Request, res: Response) => {
       partnerRole: s.partnerRole,
       badge: s.badge,
       kycStatus: s.kycStatus,
-      aadhaarVerified: s.aadhaarVerified, // legacy — no longer set by anything, see schema.prisma
+      aadhaarVerified: s.aadhaarVerified, // legacy flag; now also true for signup Aadhaar-KYC-verified partners
+      // Minimal signup-KYC summary only — never the Aadhaar number or its hash.
+      aadhaarKyc: {
+        status: s.aadhaarKycStatus,
+        maskedAadhaar: s.aadhaarLast4 ? `XXXX XXXX ${s.aadhaarLast4}` : null,
+        verifiedAt: s.aadhaarVerifiedAt,
+      },
       identityVerificationStatus: s.identityVerificationStatus,
       certificateUploaded: !!s.barCouncilDoc,
       accuracyScore: s.accuracyScore,
@@ -127,7 +141,7 @@ export const deleteSeller = async (req: Request, res: Response) => {
 
   const seller = await prisma.seller.findUnique({ where: { id } })
   if (!seller) {
-    res.status(404).json({ success: false, message: 'Seller not found' })
+    res.status(404).json({ success: false, message: 'Partner not found' })
     return
   }
   if (seller.deletedAt) {
@@ -135,12 +149,27 @@ export const deleteSeller = async (req: Request, res: Response) => {
     return
   }
 
-  await prisma.seller.update({ where: { id }, data: { deletedAt: new Date() } })
-
-  await recordAudit(req, {
-    action: AuditAction.PARTNER_DELETE,
-    target: `Seller:${id}`,
-    details: `Deleted partner "${seller.name}" (${seller.email ?? seller.phone}, role: ${seller.partnerRole ?? 'none'})`,
+  // Delete + audit row commit together: the history row exists iff the
+  // deletion actually happened.
+  await prisma.$transaction(async (tx) => {
+    await tx.seller.update({ where: { id }, data: { deletedAt: new Date() } })
+    await recordAudit(
+      req,
+      {
+        action: AuditAction.PARTNER_DELETE,
+        target: `Seller:${id}`,
+        details: `Deleted partner "${seller.name}" (${seller.email ?? seller.phone}, role: ${seller.partnerRole ?? 'none'})`,
+        metadata: {
+          kind: 'ACCOUNT',
+          accountId: id,
+          name: seller.name,
+          email: seller.email,
+          phone: seller.phone,
+          role: seller.partnerRole ?? 'PARTNER',
+        } satisfies AccountRemovalMetadata,
+      },
+      tx
+    )
   })
 
   res.json({ success: true, message: 'Partner account deleted' })
@@ -175,6 +204,9 @@ export const getSellerById = async (req: Request, res: Response) => {
       badge: true,
       kycStatus: true,
       aadhaarVerified: true, // legacy — no longer set by anything, see schema.prisma
+      aadhaarKycStatus: true,
+      aadhaarLast4: true,
+      aadhaarVerifiedAt: true,
       identityDocumentUrl: true,
       identityVerificationStatus: true,
       identityDocumentRejectionReason: true,
@@ -200,7 +232,8 @@ export const getSellerById = async (req: Request, res: Response) => {
           address: true,
           city: true,
           status: true,
-          riskBadge: true,
+          propertyStatus: true,
+          disputeType: true,
           price: true,
           createdAt: true,
         },
@@ -212,15 +245,20 @@ export const getSellerById = async (req: Request, res: Response) => {
   })
 
   if (!seller) {
-    res.status(404).json({ success: false, message: 'Seller not found' })
+    res.status(404).json({ success: false, message: 'Partner not found' })
     return
   }
 
-  const { bankAccount, ifsc, pan, ...rest } = seller
+  const { bankAccount, ifsc, pan, aadhaarKycStatus, aadhaarLast4, aadhaarVerifiedAt, ...rest } = seller
   res.json({
     success: true,
     seller: {
       ...rest,
+      aadhaarKyc: {
+        status: aadhaarKycStatus,
+        maskedAadhaar: aadhaarLast4 ? `XXXX XXXX ${aadhaarLast4}` : null,
+        verifiedAt: aadhaarVerifiedAt,
+      },
       banking: {
         bankAccountLast4: bankAccount ? bankAccount.slice(-4) : null,
         ifsc: ifsc ?? null,
@@ -269,7 +307,7 @@ export const getKycApplication = async (req: Request, res: Response) => {
   const application = await kycService.getApplication(id)
 
   if (!application) {
-    res.status(404).json({ success: false, message: 'Seller not found' })
+    res.status(404).json({ success: false, message: 'Partner not found' })
     return
   }
 
@@ -316,7 +354,7 @@ export const getSellerKycDocumentSignedUrl = async (req: Request, res: Response)
     select: { barCouncilDoc: true, selfieUrl: true, identityDocumentUrl: true },
   })
   if (!seller) {
-    res.status(404).json({ success: false, message: 'Seller not found' })
+    res.status(404).json({ success: false, message: 'Partner not found' })
     return
   }
   const storedUrl = seller[column]
@@ -371,7 +409,7 @@ export const approveSeller = async (req: Request, res: Response) => {
 
   res.json({
     success: true,
-    message: `${result.seller.name}'s KYC has been approved. The seller can now create listings.`,
+    message: `${result.seller.name}'s KYC has been approved. The partner can now create listings.`,
     notifications: deliverySummary(result.delivery),
   })
 }
@@ -476,6 +514,14 @@ export const suspendSeller = async (req: Request, res: Response) => {
   const id = req.params.id as string
   const { reason } = req.body as { reason: string }
 
+  // Snapshot for the SuperAdmin "Deleted / Removed" history. The audit row
+  // still only commits inside kycService's own transaction, i.e. only if the
+  // suspension actually succeeds.
+  const before = await prisma.seller.findUnique({
+    where: { id },
+    select: { name: true, email: true, phone: true, partnerRole: true },
+  })
+
   const result = await kycService.suspendSeller(
     id,
     reason,
@@ -483,6 +529,15 @@ export const suspendSeller = async (req: Request, res: Response) => {
       action: AuditAction.SELLER_SUSPEND,
       target: `Seller:${id}`,
       details: `Suspended — reason: ${reason}`,
+      metadata: {
+        kind: 'ACCOUNT',
+        accountId: id,
+        name: before?.name ?? null,
+        email: before?.email ?? null,
+        phone: before?.phone ?? null,
+        role: before?.partnerRole ?? 'PARTNER',
+        reason,
+      } satisfies AccountRemovalMetadata,
     })
   )
 
@@ -527,7 +582,7 @@ export const unsuspendSeller = async (req: Request, res: Response) => {
   res.json({
     success: true,
     message:
-      'Seller has been unsuspended. Listings unpublished during the suspension must be resubmitted for review.',
+      'Partner has been unsuspended. Listings unpublished during the suspension must be resubmitted for review.',
     notifications: deliverySummary(result.delivery),
   })
 }
@@ -581,10 +636,11 @@ export const updateSellerBadge = async (req: Request, res: Response) => {
 // Default: PENDING_REVIEW dikhao — jo approve karne hain
 // ─────────────────────────────────────────────────────────────────────────────
 export const getAllListings = async (req: Request, res: Response) => {
-  const { status = 'PENDING_REVIEW', city, flaggedForSpotCheck, page = '1', limit = '20' } = req.query
+  const { status = 'PENDING_REVIEW', city, flaggedForSpotCheck, propertyStatus, page = '1', limit = '20' } = req.query
 
   const where: Prisma.ListingWhereInput = {}
   if (status) where.status = status as ListingStatus
+  if (propertyStatus === 'CLEAR' || propertyStatus === 'DISPUTED') where.propertyStatus = propertyStatus
   if (city) where.city = { contains: city as string, mode: 'insensitive' }
   // 10% Spot-Check Auto-Flagging (PDF 5.3) — GET /api/admin/listings?flaggedForSpotCheck=true
   // surfaces the auto-flagged 10% as their own QC queue.
@@ -633,7 +689,8 @@ export const getAllListings = async (req: Request, res: Response) => {
       loanDefault: l.loanDefault,
       lenderName: l.lenderName,
       sellerNotes: l.sellerNotes,
-      riskBadge: l.riskBadge,
+      propertyStatus: l.propertyStatus,
+      disputeType: l.disputeType,
       status: l.status,
       price: l.price,
       documents: l.documents,
@@ -695,7 +752,7 @@ export const approveListing = async (req: Request, res: Response) => {
   await recordAudit(req, {
     action: AuditAction.LISTING_APPROVE,
     target: `Listing:${id}`,
-    details: `Approved "${listing.address}" (${listing.city}) — risk ${listing.riskBadge}`,
+    details: `Approved "${listing.address}" (${listing.city}) — ${listing.propertyStatus ?? 'unclassified'}${listing.disputeType ? ` (${listing.disputeType})` : ''}`,
   })
 
   const delivery = await notifySeller(listing.seller, {
@@ -717,9 +774,10 @@ export const approveListing = async (req: Request, res: Response) => {
 
   res.json({
     success: true,
-    message: `Listing approved. Buyers can now find this property in search.`,
+    message: `Listing approved. Users can now find this property in search.`,
     address: listing.address,
-    riskBadge: listing.riskBadge,
+    propertyStatus: listing.propertyStatus,
+    disputeType: listing.disputeType,
     notifications: deliverySummary(delivery),
   })
 }
@@ -1030,7 +1088,7 @@ export const suspendProperty = async (req: Request, res: Response) => {
     details: `Suspended "${property.title}" — reason: ${reason}`,
   })
 
-  res.json({ success: true, message: 'Property suspended — no longer visible to buyers.' })
+  res.json({ success: true, message: 'Property suspended — no longer visible to users.' })
 }
 
 // POST /api/admin/properties/:id/unsuspend (Phase 4A)
@@ -1071,7 +1129,10 @@ export const unsuspendProperty = async (req: Request, res: Response) => {
 export const deleteProperty = async (req: Request, res: Response) => {
   const id = req.params.id as string
 
-  const property = await prisma.property.findUnique({ where: { id } })
+  const property = await prisma.property.findUnique({
+    where: { id },
+    include: { seller: { select: { name: true } } },
+  })
   if (!property) {
     res.status(404).json({ success: false, message: 'Property not found' })
     return
@@ -1081,12 +1142,26 @@ export const deleteProperty = async (req: Request, res: Response) => {
     return
   }
 
-  await prisma.property.update({ where: { id }, data: { status: 'DELETED' } })
-
-  await recordAudit(req, {
-    action: AuditAction.SUPER_ADMIN_DELETE_PROPERTY,
-    target: `Property:${id}`,
-    details: `Deleted property "${property.title}" (${property.city ?? '—'}, seller ${property.sellerId})`,
+  await prisma.$transaction(async (tx) => {
+    await tx.property.update({ where: { id }, data: { status: 'DELETED' } })
+    await recordAudit(
+      req,
+      {
+        action: AuditAction.SUPER_ADMIN_DELETE_PROPERTY,
+        target: `Property:${id}`,
+        details: `Deleted property "${property.title}" (${property.city ?? '—'}, seller ${property.sellerId})`,
+        metadata: {
+          kind: 'POST',
+          postType: 'PROPERTY',
+          postId: id,
+          title: property.title,
+          posterId: property.sellerId,
+          posterName: property.seller?.name ?? null,
+          posterRole: property.uploaderRole,
+        } satisfies PostRemovalMetadata,
+      },
+      tx
+    )
   })
 
   res.json({ success: true, message: 'Property deleted' })
@@ -1130,7 +1205,10 @@ export const getAllReporterPosts = async (req: Request, res: Response) => {
 export const deleteReporterPost = async (req: Request, res: Response) => {
   const id = req.params.id as string
 
-  const post = await prisma.reporterPost.findUnique({ where: { id } })
+  const post = await prisma.reporterPost.findUnique({
+    where: { id },
+    include: { seller: { select: { name: true } } },
+  })
   if (!post) {
     res.status(404).json({ success: false, message: 'Post not found' })
     return
@@ -1140,12 +1218,26 @@ export const deleteReporterPost = async (req: Request, res: Response) => {
     return
   }
 
-  await prisma.reporterPost.update({ where: { id }, data: { status: 'REMOVED' } })
-
-  await recordAudit(req, {
-    action: AuditAction.SUPER_ADMIN_DELETE_REPORTER_POST,
-    target: `ReporterPost:${id}`,
-    details: `Removed reporter post ${id} (seller ${post.sellerId})`,
+  await prisma.$transaction(async (tx) => {
+    await tx.reporterPost.update({ where: { id }, data: { status: 'REMOVED' } })
+    await recordAudit(
+      req,
+      {
+        action: AuditAction.SUPER_ADMIN_DELETE_REPORTER_POST,
+        target: `ReporterPost:${id}`,
+        details: `Removed reporter post ${id} (seller ${post.sellerId})`,
+        metadata: {
+          kind: 'POST',
+          postType: 'REPORTER_POST',
+          postId: id,
+          title: post.title,
+          posterId: post.sellerId,
+          posterName: post.seller?.name ?? null,
+          posterRole: 'REPORTER',
+        } satisfies PostRemovalMetadata,
+      },
+      tx
+    )
   })
 
   res.json({ success: true, message: 'Post removed' })
@@ -1216,7 +1308,7 @@ export const spotCheckListing = async (req: Request, res: Response) => {
         action: AuditAction.SELLER_STRIKE_ESCALATION,
         target: `Seller:${listing.sellerId}`,
         details:
-          `Strike ${strike.strikeCount} — suspended=${strike.suspended}, fine=Rs.500, ` +
+          `Strike ${strike.strikeCount} — suspended=${strike.suspended}, fine=₹500, ` +
           `refunds=${strike.refundsIssued}/${strike.refundsAttempted} (triggering listing ${id})`,
       })
     }
@@ -1236,7 +1328,7 @@ export const spotCheckListing = async (req: Request, res: Response) => {
     message: result === 'PASS'
       ? 'Spot check passed! Listing quality verified ✅'
       : strike?.escalated
-        ? `Spot check FAILED! Strike ${strike.strikeCount}/3 reached — seller suspended, Rs. 500 fined, ${strike.refundsIssued} buyer(s) refunded.`
+        ? `Spot check FAILED! Strike ${strike.strikeCount}/3 reached — seller suspended, ₹500 fined, ${strike.refundsIssued} buyer(s) refunded.`
         : `Spot check FAILED! Listing removed, seller accuracy score updated. Warning strike ${strike?.strikeCount}/3.`,
     result,
     strike,
@@ -1255,7 +1347,10 @@ export const spotCheckListing = async (req: Request, res: Response) => {
 export const deleteListing = async (req: Request, res: Response) => {
   const id = req.params.id as string
 
-  const listing = await prisma.listing.findUnique({ where: { id } })
+  const listing = await prisma.listing.findUnique({
+    where: { id },
+    include: { seller: { select: { name: true } } },
+  })
   if (!listing) {
     res.status(404).json({ success: false, message: 'Listing not found' })
     return
@@ -1265,12 +1360,26 @@ export const deleteListing = async (req: Request, res: Response) => {
     return
   }
 
-  await prisma.listing.update({ where: { id }, data: { status: 'DELETED' } })
-
-  await recordAudit(req, {
-    action: AuditAction.SUPER_ADMIN_DELETE_LISTING,
-    target: `Listing:${id}`,
-    details: `Deleted listing "${listing.address}" (${listing.city}, seller ${listing.sellerId})`,
+  await prisma.$transaction(async (tx) => {
+    await tx.listing.update({ where: { id }, data: { status: 'DELETED' } })
+    await recordAudit(
+      req,
+      {
+        action: AuditAction.SUPER_ADMIN_DELETE_LISTING,
+        target: `Listing:${id}`,
+        details: `Deleted listing "${listing.address}" (${listing.city}, seller ${listing.sellerId})`,
+        metadata: {
+          kind: 'POST',
+          postType: 'LISTING',
+          postId: id,
+          title: listing.address,
+          posterId: listing.sellerId,
+          posterName: listing.seller?.name ?? null,
+          posterRole: listing.uploaderRole,
+        } satisfies PostRemovalMetadata,
+      },
+      tx
+    )
   })
 
   res.json({ success: true, message: 'Listing deleted' })
@@ -1573,23 +1682,24 @@ export const getMonthlyRevenue = async (req: Request, res: Response) => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/admin/analytics/risk-breakdown
-// Listings ka risk badge breakdown — Pie chart ke liye
+// Approved listings by their declared property status (Clear / Disputed) — Pie chart.
+// Listings created before the classification existed are reported as UNCLASSIFIED.
 // ─────────────────────────────────────────────────────────────────────────────
 export const getRiskBreakdown = async (req: Request, res: Response) => {
   const breakdown = await prisma.listing.groupBy({
-    by: ['riskBadge'],
+    by: ['propertyStatus'],
     where: { status: 'APPROVED' },
     _count: { id: true }
   })
 
   const total = breakdown.reduce((sum, b) => sum + b._count.id, 0)
 
-  const result = ['RED', 'AMBER', 'GREEN'].map(badge => {
-    const found = breakdown.find(b => b.riskBadge === badge)
+  const result = (['DISPUTED', 'CLEAR', null] as const).map(status => {
+    const found = breakdown.find(b => b.propertyStatus === status)
     const count = found?._count.id || 0
     const pct = total > 0 ? Math.round((count / total) * 100) : 0
-    return { badge, count, pct }
-  })
+    return { status: status ?? 'UNCLASSIFIED', count, pct }
+  }).filter(r => r.status !== 'UNCLASSIFIED' || r.count > 0)
 
   res.json({ success: true, data: result, total })
 }
@@ -1656,23 +1766,36 @@ export const deleteBuyer = async (req: Request, res: Response) => {
 
   const buyer = await prisma.user.findUnique({ where: { id } })
   if (!buyer) {
-    res.status(404).json({ success: false, message: 'Buyer not found' })
+    res.status(404).json({ success: false, message: 'User not found' })
     return
   }
   if (buyer.deletedAt) {
-    res.status(400).json({ success: false, message: 'This buyer account is already deleted' })
+    res.status(400).json({ success: false, message: 'This user account is already deleted' })
     return
   }
 
-  await prisma.user.update({ where: { id }, data: { deletedAt: new Date() } })
-
-  await recordAudit(req, {
-    action: AuditAction.SUPER_ADMIN_DELETE_BUYER,
-    target: `User:${id}`,
-    details: `Deleted buyer "${buyer.name ?? buyer.phone}" (${buyer.email ?? buyer.phone})`,
+  await prisma.$transaction(async (tx) => {
+    await tx.user.update({ where: { id }, data: { deletedAt: new Date() } })
+    await recordAudit(
+      req,
+      {
+        action: AuditAction.SUPER_ADMIN_DELETE_BUYER,
+        target: `User:${id}`,
+        details: `Deleted buyer "${buyer.name ?? buyer.phone}" (${buyer.email ?? buyer.phone})`,
+        metadata: {
+          kind: 'ACCOUNT',
+          accountId: id,
+          name: buyer.name,
+          email: buyer.email,
+          phone: buyer.phone,
+          role: 'USER',
+        } satisfies AccountRemovalMetadata,
+      },
+      tx
+    )
   })
 
-  res.json({ success: true, message: 'Buyer account deleted' })
+  res.json({ success: true, message: 'User account deleted' })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1856,7 +1979,7 @@ export const createRefund = async (req: Request, res: Response) => {
   await recordAudit(req, {
     action: AuditAction.REFUND_CREATE,
     target: `Refund:${refund.id}`,
-    details: `Created Rs. ${refundAmount} refund on purchase ${purchaseId} — reason: ${reason}`,
+    details: `Created ₹${refundAmount} refund on purchase ${purchaseId} — reason: ${reason}`,
   })
 
   res.status(201).json({
@@ -1901,7 +2024,7 @@ export const processRefund = async (req: Request, res: Response) => {
   await recordAudit(req, {
     action: AuditAction.REFUND_PROCESS,
     target: `Refund:${id}`,
-    details: `Processed Rs. ${existing.amount} to buyer ${existing.userId}. Note: ${adminNote || '—'}`,
+    details: `Processed ₹${existing.amount} to buyer ${existing.userId}. Note: ${adminNote || '—'}`,
   })
 
   res.json({
@@ -1946,7 +2069,7 @@ export const rejectRefund = async (req: Request, res: Response) => {
   await recordAudit(req, {
     action: AuditAction.REFUND_REJECT,
     target: `Refund:${id}`,
-    details: `Rejected Rs. ${refund.amount} refund — reason: ${adminNote}`,
+    details: `Rejected ₹${refund.amount} refund — reason: ${adminNote}`,
   })
 
   res.json({
@@ -2151,7 +2274,7 @@ export const getAllAlertSubs = async (req: Request, res: Response) => {
     prisma.alert.findMany({
       include: {
         user: { select: { name: true, phone: true } },
-        listing: { select: { address: true, city: true, riskBadge: true } }
+        listing: { select: { address: true, city: true, propertyStatus: true, disputeType: true } }
       },
       orderBy: { createdAt: 'desc' },
       skip: (pageNum - 1) * limitNum,
@@ -2621,16 +2744,35 @@ async function setAdminFlag(
     return
   }
 
-  const admin = await prisma.admin.update({
-    where: { id: target.id },
-    data: { [field]: value },
-    select: adminListSelect,
-  })
-
-  await recordAudit(req, {
-    action,
-    target: `Admin:${admin.id}`,
-    details: `${field} = ${value} for "${admin.name}" (${admin.email})`,
+  const admin = await prisma.$transaction(async (tx) => {
+    const updated = await tx.admin.update({
+      where: { id: target.id },
+      data: { [field]: value },
+      select: adminListSelect,
+    })
+    await recordAudit(
+      req,
+      {
+        action,
+        target: `Admin:${updated.id}`,
+        details: `${field} = ${value} for "${updated.name}" (${updated.email})`,
+        // Only block/deactivate feed the SuperAdmin "Deleted / Removed" history.
+        ...(action === AuditAction.ADMIN_BLOCK || action === AuditAction.ADMIN_DEACTIVATE
+          ? {
+              metadata: {
+                kind: 'ACCOUNT',
+                accountId: updated.id,
+                name: updated.name,
+                email: updated.email,
+                phone: updated.phone,
+                role: updated.role,
+              } satisfies AccountRemovalMetadata,
+            }
+          : {}),
+      },
+      tx
+    )
+    return updated
   })
 
   res.json({ success: true, message: 'Admin updated', admin })
@@ -2712,12 +2854,27 @@ export const deleteAdmin = async (req: Request, res: Response) => {
     return
   }
 
-  await prisma.admin.delete({ where: { id: target.id } })
-
-  await recordAudit(req, {
-    action: AuditAction.ADMIN_DELETE,
-    target: `Admin:${target.id}`,
-    details: `Deleted ${target.role} "${target.name}" (${target.email})`,
+  // Hard delete: the audit row (with its full name/email/role snapshot) must
+  // commit in the same transaction, or the account would vanish with no trace.
+  await prisma.$transaction(async (tx) => {
+    await tx.admin.delete({ where: { id: target.id } })
+    await recordAudit(
+      req,
+      {
+        action: AuditAction.ADMIN_DELETE,
+        target: `Admin:${target.id}`,
+        details: `Deleted ${target.role} "${target.name}" (${target.email})`,
+        metadata: {
+          kind: 'ACCOUNT',
+          accountId: target.id,
+          name: target.name,
+          email: target.email,
+          phone: target.phone,
+          role: target.role,
+        } satisfies AccountRemovalMetadata,
+      },
+      tx
+    )
   })
 
   res.json({ success: true, message: 'Admin deleted' })
@@ -2804,7 +2961,12 @@ export const getVerificationRequestDetail = async (req: Request, res: Response) 
     }),
   ])
 
-  res.json({ success: true, request, ledgerEntries, professionalEarnings })
+  res.json({
+    success: true,
+    request: { ...request, report: request.report ? publicReport(request.report) : null },
+    ledgerEntries,
+    professionalEarnings,
+  })
 }
 
 // POST /api/admin/verification-requests/:id/force-cancel
@@ -3006,7 +3168,7 @@ export const resolveClaim = async (req: Request, res: Response) => {
     action: AuditAction.CLAIM_RESOLVE,
     target: `Claim:${id}`,
     details: createdRefund
-      ? `Status → ${status}. Note: ${resolutionNote}. Created Refund:${createdRefund.id} for Rs. ${createdRefund.amount}`
+      ? `Status → ${status}. Note: ${resolutionNote}. Created Refund:${createdRefund.id} for ₹${createdRefund.amount}`
       : `Status → ${status}. Note: ${resolutionNote}`,
   })
 
@@ -3687,7 +3849,7 @@ export const updatePayoutEligibility = async (req: Request, res: Response) => {
 
   const seller = await prisma.seller.findUnique({ where: { id } })
   if (!seller) {
-    res.status(404).json({ success: false, message: 'Seller not found' })
+    res.status(404).json({ success: false, message: 'Partner not found' })
     return
   }
 
@@ -3978,4 +4140,260 @@ export const updateSupportTicketPriority = async (req: Request, res: Response) =
   })
 
   res.json({ success: true, message: 'Priority updated' })
+}
+// ─────────────────────────────────────────────────────────────────────────────
+// SUPERADMIN "DELETED / REMOVED" HISTORY
+//
+// Not a second audit system — a read model over AuditLog, which already gets
+// a row (inside the same transaction as the mutation) for every SuperAdmin
+// delete/deactivate/block/suspend. New rows carry a structured `metadata`
+// snapshot (name/email/role/id), so an account that was hard-deleted (Admin)
+// still shows up in full. Rows written before that column existed have no
+// metadata: they are enriched from the still-present soft-deleted row where
+// there is one, and otherwise from the free-text `details`.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const LEGACY_QUOTED = /"([^"]*)"\s*\(([^)]*)\)/
+
+function legacyTargetId(target: string | null, prefix: string): string | null {
+  if (!target || !target.startsWith(`${prefix}:`)) return null
+  return target.slice(prefix.length + 1) || null
+}
+
+async function loadRemovalAuditRows(actions: string[]) {
+  return prisma.auditLog.findMany({
+    where: { action: { in: actions } },
+    orderBy: { createdAt: 'desc' },
+    take: 5000,
+  })
+}
+
+async function resolveActors(adminIds: string[]) {
+  const admins = await prisma.admin.findMany({
+    where: { id: { in: [...new Set(adminIds)] } },
+    select: { id: true, name: true, email: true, role: true },
+  })
+  return new Map(admins.map((a) => [a.id, a]))
+}
+
+function pageOf<T>(items: T[], pageNum: number, limitNum: number) {
+  const total = items.length
+  return {
+    total,
+    page: pageNum,
+    totalPages: Math.max(1, Math.ceil(total / limitNum)),
+    slice: items.slice((pageNum - 1) * limitNum, pageNum * limitNum),
+  }
+}
+
+function parsePaging(req: Request) {
+  const pageNum = Math.max(1, parseInt(String(req.query.page ?? '1')) || 1)
+  const limitNum = Math.min(100, Math.max(1, parseInt(String(req.query.limit ?? '20')) || 20))
+  return { pageNum, limitNum }
+}
+
+// GET /api/admin/deleted-accounts — SUPER_ADMIN only (route-gated `superOnly`)
+export const getDeletedAccounts = async (req: Request, res: Response) => {
+  const { pageNum, limitNum } = parsePaging(req)
+  const roleFilter = req.query.role ? String(req.query.role) : ''
+  const outcomeFilter = req.query.action ? String(req.query.action).toUpperCase() : ''
+  const search = req.query.search ? String(req.query.search).trim().toLowerCase() : ''
+
+  const rows = await loadRemovalAuditRows(Object.keys(ACCOUNT_REMOVAL_ACTIONS))
+
+  // Batched enrichment for legacy rows (no metadata) whose account row still exists.
+  const legacy = rows.filter((r) => !r.metadata)
+  const sellerIds = legacy.map((r) => legacyTargetId(r.target, 'Seller')).filter((v): v is string => !!v)
+  const userIds = legacy.map((r) => legacyTargetId(r.target, 'User')).filter((v): v is string => !!v)
+  const [sellers, users, actors] = await Promise.all([
+    sellerIds.length
+      ? prisma.seller.findMany({
+          where: { id: { in: sellerIds } },
+          select: { id: true, name: true, email: true, phone: true, partnerRole: true },
+        })
+      : [],
+    userIds.length
+      ? prisma.user.findMany({
+          where: { id: { in: userIds } },
+          select: { id: true, name: true, email: true, phone: true },
+        })
+      : [],
+    resolveActors(rows.map((r) => r.adminId)),
+  ])
+  const sellerById = new Map(sellers.map((s) => [s.id, s]))
+  const userById = new Map(users.map((u) => [u.id, u]))
+
+  const items = rows.map((row) => {
+    const outcome = ACCOUNT_REMOVAL_ACTIONS[row.action]
+    const meta = (row.metadata ?? null) as unknown as AccountRemovalMetadata | null
+
+    let accountId: string | null = meta?.accountId ?? null
+    let name: string | null = meta?.name ?? null
+    let email: string | null = meta?.email ?? null
+    let phone: string | null = meta?.phone ?? null
+    let role: string | null = meta?.role ?? null
+    let reason: string | null = meta?.reason ?? null
+
+    if (!meta) {
+      const sId = legacyTargetId(row.target, 'Seller')
+      const uId = legacyTargetId(row.target, 'User')
+      const aId = legacyTargetId(row.target, 'Admin')
+      const s = sId ? sellerById.get(sId) : undefined
+      const u = uId ? userById.get(uId) : undefined
+      accountId = sId ?? uId ?? aId
+      if (s) {
+        name = s.name
+        email = s.email
+        phone = s.phone
+        role = s.partnerRole ?? 'PARTNER'
+      } else if (u) {
+        name = u.name
+        email = u.email
+        phone = u.phone
+        role = 'USER'
+      } else {
+        // Hard-deleted (Admin) or gone: all that survives is the details text.
+        const m = row.details?.match(LEGACY_QUOTED)
+        if (m) {
+          name = m[1] ?? null
+          email = m[2] ?? null
+        }
+        if (aId) {
+          const r = row.details?.match(/Deleted (SUPER_ADMIN|SUB_ADMIN|VIEWER)/)
+          role = r?.[1] ?? 'ADMIN'
+        }
+      }
+      const rm = row.details?.match(/reason:\s*(.+)$/i)
+      if (rm) reason = rm[1] ?? null
+    }
+
+    const actor = actors.get(row.adminId) ?? null
+    return {
+      id: row.id,
+      outcome,
+      auditAction: row.action,
+      accountId,
+      name,
+      email,
+      phone,
+      role,
+      reason,
+      performedBy: actor,
+      performedById: row.adminId,
+      createdAt: row.createdAt,
+    }
+  })
+
+  const filtered = items.filter((i) => {
+    if (roleFilter && i.role !== roleFilter) return false
+    if (outcomeFilter && i.outcome !== outcomeFilter) return false
+    if (search) {
+      const hay = [i.name, i.email, i.accountId, i.phone].filter(Boolean).join(' ').toLowerCase()
+      if (!hay.includes(search)) return false
+    }
+    return true
+  })
+
+  const { total, page, totalPages, slice } = pageOf(filtered, pageNum, limitNum)
+  res.json({ success: true, total, page, totalPages, records: slice })
+}
+
+// GET /api/admin/deleted-posts — SUPER_ADMIN only (route-gated `superOnly`)
+export const getDeletedPosts = async (req: Request, res: Response) => {
+  const { pageNum, limitNum } = parsePaging(req)
+  const roleFilter = req.query.role ? String(req.query.role) : ''
+  const search = req.query.search ? String(req.query.search).trim().toLowerCase() : ''
+
+  const rows = await loadRemovalAuditRows(Object.keys(POST_REMOVAL_ACTIONS))
+
+  const legacy = rows.filter((r) => !r.metadata)
+  const propIds = legacy.map((r) => legacyTargetId(r.target, 'Property')).filter((v): v is string => !!v)
+  const postIds = legacy.map((r) => legacyTargetId(r.target, 'ReporterPost')).filter((v): v is string => !!v)
+  const listingIds = legacy.map((r) => legacyTargetId(r.target, 'Listing')).filter((v): v is string => !!v)
+  const sel = { seller: { select: { id: true, name: true } } } as const
+  const [props, posts, listings, actors] = await Promise.all([
+    propIds.length
+      ? prisma.property.findMany({ where: { id: { in: propIds } }, select: { id: true, title: true, uploaderRole: true, ...sel } })
+      : [],
+    postIds.length
+      ? prisma.reporterPost.findMany({ where: { id: { in: postIds } }, select: { id: true, title: true, ...sel } })
+      : [],
+    listingIds.length
+      ? prisma.listing.findMany({ where: { id: { in: listingIds } }, select: { id: true, address: true, uploaderRole: true, ...sel } })
+      : [],
+    resolveActors(rows.map((r) => r.adminId)),
+  ])
+  const propById = new Map(props.map((p) => [p.id, p]))
+  const postById = new Map(posts.map((p) => [p.id, p]))
+  const listingById = new Map(listings.map((l) => [l.id, l]))
+
+  const items = rows.map((row) => {
+    const outcome = POST_REMOVAL_ACTIONS[row.action]
+    const meta = (row.metadata ?? null) as unknown as PostRemovalMetadata | null
+
+    let postType: string | null = meta?.postType ?? null
+    let postId: string | null = meta?.postId ?? null
+    let title: string | null = meta?.title ?? null
+    let posterId: string | null = meta?.posterId ?? null
+    let posterName: string | null = meta?.posterName ?? null
+    let posterRole: string | null = meta?.posterRole ?? null
+
+    if (!meta) {
+      const pId = legacyTargetId(row.target, 'Property')
+      const rId = legacyTargetId(row.target, 'ReporterPost')
+      const lId = legacyTargetId(row.target, 'Listing')
+      if (pId) {
+        const p = propById.get(pId)
+        postType = 'PROPERTY'
+        postId = pId
+        title = p?.title ?? row.details?.match(/"([^"]*)"/)?.[1] ?? null
+        posterId = p?.seller?.id ?? null
+        posterName = p?.seller?.name ?? null
+        posterRole = p?.uploaderRole ?? 'OWNER'
+      } else if (rId) {
+        const p = postById.get(rId)
+        postType = 'REPORTER_POST'
+        postId = rId
+        title = p?.title ?? null
+        posterId = p?.seller?.id ?? null
+        posterName = p?.seller?.name ?? null
+        posterRole = 'REPORTER'
+      } else if (lId) {
+        const l = listingById.get(lId)
+        postType = 'LISTING'
+        postId = lId
+        title = l?.address ?? row.details?.match(/"([^"]*)"/)?.[1] ?? null
+        posterId = l?.seller?.id ?? null
+        posterName = l?.seller?.name ?? null
+        posterRole = l?.uploaderRole ?? 'EXPERT'
+      }
+    }
+
+    return {
+      id: row.id,
+      outcome,
+      auditAction: row.action,
+      postType,
+      postId,
+      title,
+      posterId,
+      posterName,
+      posterRole,
+      performedBy: actors.get(row.adminId) ?? null,
+      performedById: row.adminId,
+      createdAt: row.createdAt,
+    }
+  })
+
+  const filtered = items.filter((i) => {
+    if (roleFilter && i.posterRole !== roleFilter) return false
+    if (search) {
+      const hay = [i.title, i.postId, i.posterName].filter(Boolean).join(' ').toLowerCase()
+      if (!hay.includes(search)) return false
+    }
+    return true
+  })
+
+  const { total, page, totalPages, slice } = pageOf(filtered, pageNum, limitNum)
+  res.json({ success: true, total, page, totalPages, records: slice })
 }

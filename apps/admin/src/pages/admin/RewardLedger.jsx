@@ -79,7 +79,7 @@ function TransactionsTab({ canManage, showToast }) {
   }
 
   const columns = [
-    { key: 'seller', header: 'Seller', render: (t) => t.seller?.name || t.sellerId },
+    { key: 'seller', header: 'Partner', render: (t) => t.seller?.name || t.sellerId },
     { key: 'type', header: 'Type' },
     { key: 'points', header: 'Points', render: (t) => <span style={{ fontWeight: 700, color: t.points >= 0 ? 'var(--green)' : 'var(--red)' }}>{t.points > 0 ? '+' : ''}{t.points}</span> },
     { key: 'reason', header: 'Reason', render: (t) => t.reason || '—' },
@@ -161,7 +161,7 @@ function RedeemTab({ canManage, showToast }) {
   }
 
   const columns = [
-    { key: 'seller', header: 'Seller', render: (r) => r.seller?.name || r.sellerId },
+    { key: 'seller', header: 'Partner', render: (r) => r.seller?.name || r.sellerId },
     { key: 'points', header: 'Points', render: (r) => <span style={{ fontWeight: 700 }}>{r.points}</span> },
     { key: 'note', header: 'Note', render: (r) => r.note || '—' },
     { key: 'status', header: 'Status', render: (r) => <Badge tone={statusTone[r.status] || 'grey'}>{r.status}</Badge> },

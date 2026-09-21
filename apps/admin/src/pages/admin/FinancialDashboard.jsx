@@ -162,7 +162,7 @@ function ExpertVerificationPayoutsTab({ canManage, showToast }) {
   }
 
   const columns = [
-    { key: 'buyer', header: 'Buyer', render: (r) => r.buyer?.name || r.buyer?.phone || '—' },
+    { key: 'buyer', header: 'User', render: (r) => r.buyer?.name || r.buyer?.phone || '—' },
     { key: 'property', header: 'Property', render: (r) => r.property?.address || r.property?.title || '—' },
     { key: 'expert', header: 'Expert', render: (r) => r.expert?.name || '—' },
     { key: 'amount', header: 'Verification Amount', render: (r) => inr(r.agreedFee) },
@@ -177,7 +177,7 @@ function ExpertVerificationPayoutsTab({ canManage, showToast }) {
     { key: 'claimDeadline', header: 'Claim Deadline', render: (r) => fmtDateTime(r.claimDeadline) },
     {
       key: 'acceptance',
-      header: 'Buyer Acceptance',
+      header: 'User Acceptance',
       render: (r) => <Badge tone={r.buyerAcceptanceStatus === 'ACCEPTED' ? 'green' : 'grey'}>{r.buyerAcceptanceStatus}</Badge>,
     },
     {

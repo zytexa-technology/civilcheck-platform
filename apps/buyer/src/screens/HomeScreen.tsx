@@ -9,6 +9,8 @@ import { initial } from '../lib/format'
 import { colors, radius, SCREEN_PADDING, spacing } from '../theme'
 import { Button } from '../components/Button'
 import { FeedItemCard } from '../components/PropertyCard'
+import { AdFeedCard } from '../components/AdFeedCard'
+import { getFeedAds, type FeedAd } from '../api/ads.api'
 import { Screen } from '../components/Screen'
 import { SectionTitle } from '../components/Card'
 import { EmptyState, ErrorState, LoadingState } from '../components/States'
@@ -59,6 +61,20 @@ export function HomeScreen() {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
+
+  // In-feed ads: fetched once for the whole feed; how often one appears (`adInterval`) is set by the
+  // server, never hard-coded here. Dismissal lasts for this app session.
+  const [ads, setAds] = useState<FeedAd[]>([])
+  const [adInterval, setAdInterval] = useState(0)
+  const [dismissedAds, setDismissedAds] = useState<Set<string>>(new Set())
+  useEffect(() => {
+    void getFeedAds(6)
+      .then((res) => {
+        setAds(res.ads)
+        setAdInterval(res.interval)
+      })
+      .catch(() => {}) // ads are optional — never affect the property feed
+  }, [])
 
   const [address, setAddress] = useState('')
   const [checking, setChecking] = useState(false)
@@ -244,11 +260,12 @@ export function HomeScreen() {
             icon="🏘️"
             title="Nothing published yet"
             description="Once experts, owners or reporters publish content for your area, it'll show up here."
-            actionLabel="Request custom research"
+            actionLabel="Request for Legal Reports"
             onAction={() => router.push('/requests/new')}
           />
         ) : (
-          feedItems.map((item) => (
+          feedItems.flatMap((item, index) => {
+            const card = (
             <FeedItemCard
               key={item.id}
               item={item}
@@ -263,7 +280,22 @@ export function HomeScreen() {
                 setFeedItems((prev) => prev.map((existing) => (existing.id === next.id ? next : existing)))
               }
             />
-          ))
+            )
+            // One ad after every `adInterval` property items (composed at render time; ads are never
+            // stored as properties).
+            const slot = adInterval > 0 && (index + 1) % adInterval === 0 ? (index + 1) / adInterval - 1 : -1
+            const ad = slot >= 0 ? ads[slot] : undefined
+            return ad && !dismissedAds.has(ad.id)
+              ? [
+                  card,
+                  <AdFeedCard
+                    key={`ad:${ad.id}`}
+                    ad={ad}
+                    onDismiss={(id) => setDismissedAds((prev) => new Set(prev).add(id))}
+                  />,
+                ]
+              : [card]
+          })
         )}
       </View>
     </Screen>

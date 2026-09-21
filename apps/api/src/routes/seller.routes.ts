@@ -4,7 +4,13 @@ import {
   kycUploadSchema,
   sellerRegistrationSchema,
   sellerProfileUpdateSchema,
+  aadhaarKycStartSchema,
+  aadhaarKycVerifySchema,
+  aadhaarKycDocumentSchema,
 } from '@civilcheck/shared'
+import * as kycSignupController from '../controllers/kycSignup.controller.js'
+import { kycOtpSendLimiter, kycOtpVerifyLimiter, digilockerLimiter } from '../middleware/rateLimiter.js'
+import * as digilockerController from '../controllers/digilocker.controller.js'
 import * as sellerController from '../controllers/seller.controller.js'
 import { getDashboard } from '../controllers/earnings.controller.js'
 import { sellerMiddleware } from '../middleware/auth.middleware.js'
@@ -20,7 +26,30 @@ const router = Router()
 // POST /api/seller/register
 router.post('/register', validateBody(sellerRegistrationSchema), sellerController.sellerRegister)
 
+// Mandatory signup Aadhaar KYC (Reporter / Owner / Expert) — pre-account, so
+// public + rate-limited; state is carried by an opaque session token.
+// POST /api/seller/kyc-signup/otp/send      { aadhaarNumber, sessionToken? }
+// POST /api/seller/kyc-signup/otp/verify    { sessionToken, otp }
+// GET  /api/seller/kyc-signup/upload-signature  (header x-kyc-session)
+// POST /api/seller/kyc-signup/document      { sessionToken, documentUrl }
+// GET  /api/seller/kyc-signup/status            (header x-kyc-session)
+router.post('/kyc-signup/otp/send', kycOtpSendLimiter, validateBody(aadhaarKycStartSchema), kycSignupController.sendOtp)
+router.post('/kyc-signup/otp/verify', kycOtpVerifyLimiter, validateBody(aadhaarKycVerifySchema), kycSignupController.verifyOtp)
+router.get('/kyc-signup/upload-signature', kycOtpVerifyLimiter, kycSignupController.uploadSignature)
+router.post('/kyc-signup/document', kycOtpVerifyLimiter, validateBody(aadhaarKycDocumentSchema), kycSignupController.attachDocument)
+router.get('/kyc-signup/status', kycOtpVerifyLimiter, kycSignupController.status)
+
+// DigiLocker identity verification. The callback and mock consent are public
+// browser redirects (identity is resolved from the single-use `state`); start
+// and status are authenticated.
+// POST /api/seller/digilocker/auth       → { authorizationUrl } (client navigates)
+// GET  /api/seller/digilocker/callback   → 302 to the Partner portal KYC page
+// GET  /api/seller/digilocker/status
+router.get('/digilocker/callback', digilockerLimiter, digilockerController.callback)
+
 // ─── PROTECTED ROUTES ─────────────────────────────────────────────────────
+router.post('/digilocker/auth', digilockerLimiter, sellerMiddleware, digilockerController.authorize)
+router.get('/digilocker/status', digilockerLimiter, sellerMiddleware, digilockerController.status)
 // Yeh routes seller JWT token chahte hain
 // sellerMiddleware pehle chalega — token valid nahi toh 401 milega
 

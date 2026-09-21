@@ -1,6 +1,6 @@
 import { Link, useNavigate } from 'react-router-dom'
 import { Badge, Tag } from './Badge'
-import { formatRupees, formatDate, formatDistance, haversineDistanceKm, humanize, riskTone, sellerBadgeLabel } from '../lib/format'
+import { formatRupees, formatDate, formatDistance, haversineDistanceKm, humanize, alertTone, sellerBadgeLabel } from '../lib/format'
 import type { Coordinates } from '../lib/geolocation'
 import type { FreePreviewProperty, OwnerProperty, ReporterPost } from '../types/api'
 
@@ -61,7 +61,7 @@ export function PropertyCard({
   /** Already-resolved buyer location, shared from the page — a card never requests it itself. */
   buyerCoords?: Coordinates | null
 }) {
-  const tone = riskTone(property.riskBadge)
+  const tone = alertTone(property.propertyStatus, property.disputeType)
   const location = property.tehsil ? `${property.tehsil}, ${property.city}` : property.city
   const cover = property.images[0] ?? property.videos[0]
   const detailsHref = `/reports/${property.id}`
@@ -193,7 +193,8 @@ export function OwnerPropertyCard({
 export function ReporterPostCard({ post }: { post: ReporterPost }) {
   const navigate = useNavigate()
   const cover = post.images[0]
-  const location = post.tehsil ? `${post.tehsil}, ${post.city}` : post.city
+  // The Reporter-entered property address, when there is one (older posts have none).
+  const location = post.address || (post.tehsil ? `${post.tehsil}, ${post.city}` : post.city)
 
   // Buyer Verification Experience enhancement — a Reporter Post is
   // informational only (no address/propertyType, no ownership claim), so
@@ -207,7 +208,7 @@ export function ReporterPostCard({ post }: { post: ReporterPost }) {
   const goVerify = () => {
     navigate('/account/discovery-request/new', {
       state: {
-        address: post.title ?? '',
+        address: post.address ?? post.title ?? '',
         city: post.city ?? '',
         tehsil: post.tehsil ?? '',
       },

@@ -87,7 +87,7 @@ export default function AccountOverview() {
             {initial(user.name, user.email, user.phone)}
           </span>
           <div>
-            <div style={{ fontWeight: 700, fontSize: 16 }}>{user.name || 'CivilCheck buyer'}</div>
+            <div style={{ fontWeight: 700, fontSize: 16 }}>{user.name || 'CivilCheck user'}</div>
             <div className="muted" style={{ fontSize: 12.5 }}>
               {user.email ?? formatPhone(user.phone)}
             </div>

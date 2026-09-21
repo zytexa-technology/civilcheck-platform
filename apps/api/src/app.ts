@@ -24,7 +24,6 @@ import earningsRoutes from './routes/earnings.routes.js'
 import notificationRoutes, { buyerNotificationRouter } from './routes/notification.routes.js'
 import purchaseRoutes from './routes/purchase.routes.js'
 import webhookRoutes from './routes/webhook.routes.js'
-import { buyerSubscriptionRouter, sellerSubscriptionRouter } from './routes/subscription.routes.js'
 import {
   buyerSpecialRequestRouter,
   sellerSpecialRequestRouter,
@@ -37,6 +36,7 @@ import {
 } from './routes/verification.routes.js'
 import { buyerSupportRouter, partnerSupportRouter } from './routes/support.routes.js'
 import feedRoutes from './routes/feed.routes.js'
+import { advertiserRouter, adsRouter, adminAdvertisingRouter } from './routes/advertising.routes.js'
 
 // ─── CORS ─────────────────────────────────────────────────────────────────
 const localOrigins = [
@@ -115,7 +115,6 @@ app.use('/api/seller/earnings', earningsRoutes)
 app.use('/api/seller/special-requests', sellerSpecialRequestRouter)
 app.use('/api/seller/notifications', notificationRoutes)
 app.use('/api/notifications', buyerNotificationRouter) // buyer in-app inbox (Phase 4C)
-app.use('/api/seller/subscriptions', sellerSubscriptionRouter) // ₹499/mo featured (PDF 3.3)
 app.use('/api/properties', propertyRoutes)
 app.use('/api/owner-properties', ownerPropertyRoutes) // Owner self-verification — free, separate from paid Listing reports. No "Verified" badge — see ownerProperty.controller.ts
 app.use('/api/reporter-posts', reporterPostFeedRoutes) // Public Reporter content feed — informational, not a listing, no admin gate
@@ -124,7 +123,6 @@ app.use('/api/admin', adminRoutes)
 app.use('/api/admin/special-requests', adminSpecialRequestRouter)
 app.use('/api/content', contentRoutes) // public Content Control reads (PDF 5.4)
 app.use('/api/alerts', alertRoutes)
-app.use('/api/subscriptions', buyerSubscriptionRouter) // ₹49/mo case-update alerts (PDF 7.7)
 app.use('/api/special-requests', buyerSpecialRequestRouter)
 // Property Verification Marketplace (Phase 3)
 app.use('/api/verification-requests', buyerVerificationRouter)
@@ -135,6 +133,11 @@ app.use('/api/support', buyerSupportRouter)
 app.use('/api/seller/support', partnerSupportRouter)
 // Buyer Web social feed — Like/Save/Comment (Buyer Experience redesign)
 app.use('/api/feed', feedRoutes)
+
+// Advertising platform (separate monetisation module — see services/advertising)
+app.use('/api/advertiser', advertiserRouter)
+app.use('/api/ads', adsRouter)
+app.use('/api/admin/advertising', adminAdvertisingRouter)
 app.get('/', (_req, res) => {
   res.json({ message: 'CivilCheck API is running 🚀' })
 })

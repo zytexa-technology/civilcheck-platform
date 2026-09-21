@@ -20,15 +20,14 @@ import { PropertyCard } from '../components/PropertyCard'
 import { Screen } from '../components/Screen'
 import { EmptyState, ErrorState, LoadingState } from '../components/States'
 import { TextField } from '../components/TextField'
-import type { FreePreviewProperty, PropertyType, RiskBadge } from '../types/api'
+import type { FreePreviewProperty, PropertyType, PropertyStatus } from '../types/api'
 
 const PAGE_SIZE = 10
 
-const RISK_FILTERS: { label: string; value: RiskBadge | null }[] = [
-  { label: 'All risk', value: null },
-  { label: '🔴 Risk', value: 'RED' },
-  { label: '🟡 Caution', value: 'AMBER' },
-  { label: '🟢 Clear', value: 'GREEN' },
+const RISK_FILTERS: { label: string; value: PropertyStatus | null }[] = [
+  { label: 'All status', value: null },
+  { label: '🔴 Disputed', value: 'DISPUTED' },
+  { label: '🟢 Clear', value: 'CLEAR' },
 ]
 
 const TYPE_FILTERS: { label: string; value: PropertyType | null }[] = [
@@ -43,7 +42,7 @@ export function SearchScreen() {
   const router = useRouter()
 
   const [query, setQuery] = useState('')
-  const [risk, setRisk] = useState<RiskBadge | null>(null)
+  const [risk, setRisk] = useState<PropertyStatus | null>(null)
   const [type, setType] = useState<PropertyType | null>(null)
 
   // Buyer Mobile Phase 4C — structured fields matching Buyer Web's
@@ -96,7 +95,7 @@ export function SearchScreen() {
   const runSearch = useCallback(
     async (options: {
       query: string
-      risk: RiskBadge | null
+      risk: PropertyStatus | null
       type: PropertyType | null
       city: string
       tehsil: string
@@ -114,7 +113,7 @@ export function SearchScreen() {
           query: combinedQuery || undefined,
           city: options.city.trim() || undefined,
           tehsil: options.tehsil.trim() || undefined,
-          riskBadge: options.risk ?? undefined,
+          propertyStatus: options.risk ?? undefined,
           propertyType: options.type ?? undefined,
           page: options.page,
           limit: PAGE_SIZE,
@@ -164,7 +163,7 @@ export function SearchScreen() {
 
   const search = async (options: {
     query?: string
-    risk?: RiskBadge | null
+    risk?: PropertyStatus | null
     type?: PropertyType | null
     city?: string
     tehsil?: string
@@ -379,8 +378,8 @@ export function SearchScreen() {
               <EmptyState
                 icon="🔍"
                 title="No properties match"
-                description="Try a different address, or clear the filters. If the property isn't in our database yet, submit a custom research request."
-                actionLabel="Request custom research"
+                description="Try a different address, or clear the filters. If the property isn't in our database yet, submit a Request for Legal Reports."
+                actionLabel="Request for Legal Reports"
                 onAction={() => router.push('/requests/new')}
               />
               <TouchableOpacity

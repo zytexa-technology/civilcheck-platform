@@ -47,7 +47,7 @@ export default function SupportDashboard() {
     <div>
       <PageHead
         title="AI / Human support"
-        subtitle="Tickets the AI assistant escalated or a buyer/partner asked a human for, plus the knowledge base the assistant is allowed to answer from."
+        subtitle="Tickets the AI assistant escalated or a user/partner asked a human for, plus the knowledge base the assistant is allowed to answer from."
       />
 
       <div style={{ marginBottom: 20 }}>

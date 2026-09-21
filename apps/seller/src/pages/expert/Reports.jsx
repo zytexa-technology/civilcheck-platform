@@ -27,7 +27,7 @@ export default function ExpertReports() {
         <Card style={{ overflowX: 'auto' }}>
           <table className="tbl">
             <thead>
-              <tr>{['Report', 'Type', 'Buyer', 'Fee', 'Status'].map((h) => <th key={h}>{h}</th>)}</tr>
+              <tr>{['Report', 'Type', 'User', 'Fee', 'Status'].map((h) => <th key={h}>{h}</th>)}</tr>
             </thead>
             <tbody>
               {done.map((r) => {

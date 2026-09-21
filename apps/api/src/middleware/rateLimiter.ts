@@ -33,6 +33,40 @@ export const sellerLoginLimiter = rateLimit({
   message: { success: false, message: 'Too many login attempts. Please try again later.' },
 })
 
+// Signup Aadhaar KYC — OTP send. Every send costs a provider call and an SMS
+// to the Aadhaar holder, so this is tight (the service adds per-session and
+// per-Aadhaar caps on top of this IP cap).
+export const kycOtpSendLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 8,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: isTestEnv,
+  message: { success: false, message: 'Too many OTP requests. Please try again later.', code: 'KYC_TOO_MANY_OTP' },
+})
+
+// Signup Aadhaar KYC — OTP verify / document / status (guess protection; the
+// service also caps attempts per session).
+export const kycOtpVerifyLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: isTestEnv,
+  message: { success: false, message: 'Too many attempts. Please try again later.', code: 'KYC_TOO_MANY_ATTEMPTS' },
+})
+
+// DigiLocker verification (start / callback / status). Every start costs a DB
+// row and a redirect to a government service; the callback is a public GET.
+export const digilockerLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: isTestEnv,
+  message: { success: false, message: 'Too many requests. Please try again later.' },
+})
+
 // Admin login (/admin/login)
 // Guards against password brute-forcing.
 //
@@ -204,4 +238,42 @@ export const supportTicketLimiter = rateLimit({
   legacyHeaders: false,
   keyGenerator: (req) => req.user?.id ?? req.seller?.id ?? ipKeyGenerator(req.ip ?? ''),
   message: { success: false, message: 'Too many support requests. Please try again later.' },
+})
+
+// ─── Advertising platform ───────────────────────────────────────────────────
+// Advertiser signup/login — password brute-force / account-creation flood guard.
+export const advertiserAuthLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: isTestEnv,
+  message: { success: false, message: 'Too many attempts. Please try again later.' },
+})
+// Ad serving — one call per feed load.
+export const adServeLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: isTestEnv,
+  message: { success: false, message: 'Too many requests.' },
+})
+// Impression / click tracking — a feed page can legitimately report several impressions.
+export const adTrackLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 240,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: isTestEnv,
+  message: { success: false, message: 'Too many requests.' },
+})
+// Advertiser campaign payments (order creation / verification) — own bucket, keyed per IP.
+export const advertiserPaymentLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: isTestEnv,
+  message: { success: false, message: 'Too many payment attempts. Please try again later.' },
 })

@@ -35,7 +35,8 @@ describe('verification marketplace (Phase 3)', () => {
     const createRes = await request(app)
       .post('/api/seller/properties')
       .set('Authorization', `Bearer ${owner.token}`)
-      .send({ title: `VMTest Flat ${Date.now()}`, area: '1000', city: 'Jaipur', documents: docs })
+      .send({
+        propertyStatus: 'CLEAR', title: `VMTest Flat ${Date.now()}`, area: '1000', city: 'Jaipur', documents: docs })
     // Direct-publish business rule — property-owner.controller.ts now
     // publishes this property as APPROVED immediately; no separate admin
     // approval call is needed (or possible — it's already approved).
@@ -65,7 +66,8 @@ describe('verification marketplace (Phase 3)', () => {
     const notApprovedRes = await request(app)
       .post('/api/seller/properties')
       .set('Authorization', `Bearer ${owner.token}`)
-      .send({ title: 'Not Approved Yet', area: '500', documents: Array.from({ length: 8 }, (_, i) => `https://x/${i}.pdf`) })
+      .send({
+        propertyStatus: 'CLEAR', title: 'Not Approved Yet', area: '500', documents: Array.from({ length: 8 }, (_, i) => `https://x/${i}.pdf`) })
     const notApprovedId = notApprovedRes.body.property.id as string
 
     await request(app)
@@ -253,7 +255,7 @@ describe('verification marketplace (Phase 3)', () => {
     const submitRes = await request(app)
       .post(`/api/seller/verification-marketplace/${requestId}/report`)
       .set('Authorization', `Bearer ${winnerToken}`)
-      .send({ findings: 'No active litigation found on public record for this property.', riskAssessment: 'GREEN', documents: [], images: [], videos: [] })
+      .send({ findings: 'No active litigation found on public record for this property.', disputeFound: false, documents: [], images: [], videos: [] })
     expect(submitRes.status).toBe(201)
 
     const detailRes = await request(app)

@@ -15,7 +15,7 @@ import { Textarea } from '../components/Field'
 import { VerifyPropertyCTA } from '../components/VerifyPropertyCTA'
 import { errorMessage } from '../lib/errors'
 import { downloadAuthenticatedPdf } from '../lib/pdf'
-import { formatDate, formatRupees, humanize, riskBanner, sellerBadgeLong } from '../lib/format'
+import { formatDate, formatRupees, humanize, alertBanner, sellerBadgeLong } from '../lib/format'
 import type { CheckoutOrder, PaidReportProperty, ReportProperty } from '../types/api'
 
 // Content Control key — admin-editable via the same Disclaimer system
@@ -115,7 +115,7 @@ export default function PropertyDetail() {
     )
   }
 
-  const banner = riskBanner(property.riskBadge)
+  const banner = alertBanner(property.propertyStatus, property.disputeType)
   const location = property.tehsil ? `${property.tehsil}, ${property.city}` : property.city
   const paid = hasPurchased && property.isPaid ? (property as PaidReportProperty) : null
 
@@ -244,7 +244,7 @@ export default function PropertyDetail() {
           )}
 
           {paid?.sellerNotes ? (
-            <SectionCard icon="📝" title="Seller notes">
+            <SectionCard icon="📝" title="Partner notes">
               <p style={{ fontSize: 13, lineHeight: 1.6, padding: '12px 0' }}>{paid.sellerNotes}</p>
             </SectionCard>
           ) : null}

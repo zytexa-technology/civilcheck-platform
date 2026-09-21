@@ -226,7 +226,7 @@ export const sellerLogin = async (req: Request, res: Response) => {
 
   res.json({
     success: true,
-    message: 'Seller login successful',
+    message: 'Partner login successful',
     token,
     seller: {
       id: seller.id,
@@ -522,7 +522,7 @@ export const loginSellerFirebase = async (req: Request, res: Response) => {
 
   res.json({
     success: true,
-    message: 'Seller login successful',
+    message: 'Partner login successful',
     token,
     seller: {
       id: seller.id,
@@ -730,7 +730,7 @@ export const getMe = async (req: Request, res: Response) => {
 
     if (decoded.sellerId) {
       const seller = await prisma.seller.findUnique({ where: { id: decoded.sellerId } })
-      if (!seller) { res.status(401).json({ success: false, message: 'Seller not found' }); return }
+      if (!seller) { res.status(401).json({ success: false, message: 'Partner not found' }); return }
       // Surfaced here too, not just at login — /me is the panel's own
       // session-restore probe on every app load/reload, so a Terms version
       // bump between sessions is caught immediately rather than only on

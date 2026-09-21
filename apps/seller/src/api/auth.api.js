@@ -55,3 +55,26 @@ export const getMe = async () => {
   const response = await API.get('/auth/me')
   return response.data
 }
+
+// ─── SIGNUP AADHAAR KYC (Reporter / Owner / Expert — mandatory) ─────────────
+// Pre-account: state travels as an opaque session token (header, never the
+// URL). The Aadhaar number is only ever sent in the OTP-send request body.
+export const kycSendOtp = async (aadhaarNumber, sessionToken) => {
+  const response = await API.post('/seller/kyc-signup/otp/send', { aadhaarNumber, ...(sessionToken ? { sessionToken } : {}) })
+  return response.data
+}
+
+export const kycVerifyOtp = async (sessionToken, otp) => {
+  const response = await API.post('/seller/kyc-signup/otp/verify', { sessionToken, otp })
+  return response.data
+}
+
+export const kycGetUploadSignature = async (sessionToken) => {
+  const response = await API.get('/seller/kyc-signup/upload-signature', { headers: { 'x-kyc-session': sessionToken } })
+  return response.data
+}
+
+export const kycAttachDocument = async (sessionToken, documentUrl) => {
+  const response = await API.post('/seller/kyc-signup/document', { sessionToken, documentUrl })
+  return response.data
+}

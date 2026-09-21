@@ -27,11 +27,14 @@ import {
   Toast,
 } from '../../components/ui'
 
-const RISK_DOT = { RED: 'var(--red)', AMBER: 'var(--amber)', GREEN: 'var(--green)' }
-const RiskDot = ({ risk }) => (
+// Property alert = the Owner/Expert-declared propertyStatus (Clear / Disputed). No risk badge.
+const STATUS_DOT = { DISPUTED: 'var(--red)', CLEAR: 'var(--green)' }
+const STATUS_LABEL = { CLEAR: 'Clear', DISPUTED: 'Disputed' }
+const DISPUTE_LABEL = { CIVIL: 'Civil', CRIMINAL: 'Criminal', OTHER: 'Other' }
+const StatusDot = ({ status, disputeType }) => (
   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-    <span style={{ width: 8, height: 8, borderRadius: '50%', background: RISK_DOT[risk] || 'var(--muted)', display: 'inline-block', flexShrink: 0 }} />
-    {risk}
+    <span style={{ width: 8, height: 8, borderRadius: '50%', background: STATUS_DOT[status] || 'var(--muted)', display: 'inline-block', flexShrink: 0 }} />
+    {STATUS_LABEL[status] ? `${STATUS_LABEL[status]}${status === 'DISPUTED' && disputeType ? ` · ${DISPUTE_LABEL[disputeType]}` : ''}` : 'Unclassified (legacy)'}
   </span>
 )
 
@@ -65,10 +68,10 @@ const ListingModal = ({ listing, onClose, onAction, canManage, canDelete }) => {
     onClose()
   }
 
-  const riskColor = { RED: 'var(--red)', AMBER: 'var(--amber)', GREEN: 'var(--green)' }
+  const statusColor = { DISPUTED: 'var(--red)', CLEAR: 'var(--green)' }
 
   return (
-    <Modal open title="Listing review" onClose={onClose} size="lg">
+    <Modal open title="Expert post review" onClose={onClose} size="lg">
       <div style={{ marginBottom: 20 }}>
         <Tabs value={activeTab} onChange={setActiveTab} options={[{ value: 'details', label: 'Details' }, { value: 'spot-check', label: 'Spot check' }]} />
       </div>
@@ -79,15 +82,15 @@ const ListingModal = ({ listing, onClose, onAction, canManage, canDelete }) => {
             ['Address', listing.address],
             ['City', `${listing.city}, ${listing.tehsil}`],
             ['Property type', listing.propertyType],
-            ['Risk badge', listing.riskBadge, riskColor[listing.riskBadge]],
+            ['Property status', listing.propertyStatus === 'DISPUTED' ? `Disputed (${({ CIVIL: 'Civil', CRIMINAL: 'Criminal', OTHER: 'Other' })[listing.disputeType] || '—'})` : listing.propertyStatus === 'CLEAR' ? 'Clear' : 'Unclassified (legacy)', statusColor[listing.propertyStatus]],
             ['Case exists', listing.caseExists ? 'Yes' : 'No'],
             ['Case type', listing.caseType || '—'],
             ['Case status', listing.caseStatus || '—'],
             ['Court name', listing.courtName || '—'],
             ['Loan default', listing.loanDefault ? 'Yes' : 'No'],
             ['Price', `₹${listing.price.toLocaleString('en-IN')}`],
-            ['Seller', listing.seller?.name || '—'],
-            ['Seller badge', listing.seller?.badge || '—'],
+            ['Partner', listing.seller?.name || '—'],
+            ['Partner badge', listing.seller?.badge || '—'],
           ]} />
 
           {listing.documents?.length > 0 && (
@@ -104,7 +107,7 @@ const ListingModal = ({ listing, onClose, onAction, canManage, canDelete }) => {
 
           {!canManage && (
             <div className="badge grey" style={{ display: 'block', padding: '8px 12px', borderRadius: 8, marginBottom: 16, fontSize: 12, fontWeight: 500, textTransform: 'none', letterSpacing: 0 }}>
-              🔒 Your role has read-only access to listing QC.
+              🔒 Your role has read-only access to Expert post QC.
             </div>
           )}
 
@@ -122,7 +125,7 @@ const ListingModal = ({ listing, onClose, onAction, canManage, canDelete }) => {
               </>
             )}
             {canManage && listing.status === 'APPROVED' && (
-              <Button variant="danger" onClick={() => handleAction('reject')} disabled={loading} style={{ flex: 1 }}>Remove listing</Button>
+              <Button variant="danger" onClick={() => handleAction('reject')} disabled={loading} style={{ flex: 1 }}>Remove post</Button>
             )}
             {canDelete && listing.status !== 'DELETED' && (
               <Button variant="danger" onClick={() => setConfirmDelete(true)} disabled={loading}>🗑 Delete</Button>
@@ -158,9 +161,9 @@ const ListingModal = ({ listing, onClose, onAction, canManage, canDelete }) => {
       <ConfirmDialog
         open={confirmDelete}
         tone="danger"
-        title="Delete this listing?"
-        description={`"${listing.address}" will be soft-deleted — purchase/payment history stays intact for records, but buyers can no longer find or unlock it. This cannot be undone from the UI.`}
-        confirmLabel="Delete listing"
+        title="Delete this Expert post?"
+        description={`"${listing.address}" will be soft-deleted — purchase/payment history stays intact for records, but users can no longer find or unlock it. This cannot be undone from the UI.`}
+        confirmLabel="Delete post"
         loading={loading}
         onConfirm={() => handleAction('delete')}
         onClose={() => setConfirmDelete(false)}
@@ -197,7 +200,7 @@ export default function Listings() {
     if (rb.status === 'fulfilled') setRisk(rb.value.data || null)
   }
 
-  const riskCount = (badge) => risk?.find((r) => r.badge === badge)?.count ?? '—'
+  const statusCount = (status) => risk?.find((r) => r.status === status)?.count ?? '—'
 
   useEffect(() => { loadListings() }, [statusFilter, riskFilter, spotCheckFilter, page])
 
@@ -209,13 +212,13 @@ export default function Listings() {
     try {
       const params = { page, limit: LIMIT }
       if (statusFilter) params.status = statusFilter
-      if (riskFilter) params.riskBadge = riskFilter
+      if (riskFilter) params.propertyStatus = riskFilter
       if (spotCheckFilter) params.flaggedForSpotCheck = 'true'
       const data = await getListings(params)
       setListings(data.listings || [])
       setTotal(data.total || 0)
     } catch {
-      setError('Failed to load listings')
+      setError('Failed to load Expert posts')
     } finally {
       setLoading(false)
     }
@@ -231,7 +234,7 @@ export default function Listings() {
       if (action === 'spotpass') await spotCheckListing(id, 'PASS', spotNote)
       if (action === 'spotfail') await spotCheckListing(id, 'FAIL', spotNote)
       if (action === 'delete') await deleteListing(id)
-      showToast(`✅ Listing ${action} successfully!`)
+      showToast(`✅ Expert post ${action} successfully!`)
       loadListings()
       loadCounts()
     } catch (err) {
@@ -259,9 +262,9 @@ export default function Listings() {
         </>
       ),
     },
-    { key: 'seller', header: 'Seller', render: (l) => (<><div>{l.seller?.name || '—'}</div><div className="small muted">{l.seller?.badge}</div></>) },
+    { key: 'seller', header: 'Partner', render: (l) => (<><div>{l.seller?.name || '—'}</div><div className="small muted">{l.seller?.badge}</div></>) },
     { key: 'propertyType', header: 'Type' },
-    { key: 'riskBadge', header: 'Risk', render: (l) => <RiskDot risk={l.riskBadge} /> },
+    { key: 'propertyStatus', header: 'Property status', render: (l) => <StatusDot status={l.propertyStatus} disputeType={l.disputeType} /> },
     { key: 'price', header: 'Price', render: (l) => <span style={{ color: 'var(--amber)', fontWeight: 600 }}>₹{l.price.toLocaleString('en-IN')}</span> },
     { key: 'status', header: 'Status', render: (l) => <Badge tone={statusTone[l.status] || 'grey'}>{l.status}</Badge> },
     {
@@ -280,13 +283,13 @@ export default function Listings() {
 
   return (
     <div>
-      <PageHead title="Property listings" subtitle="Approve, reject, and spot-check all property listings" />
+      <PageHead title="Expert posts" subtitle="Case-report listings posted by Experts — approve, reject or suspend, and spot-check. (Owner/Reporter content is separate — see Owner Properties / Reporter Posts.)" />
 
       <div className="grid g4" style={{ marginBottom: 20 }}>
-        <StatCard tone="grey" icon="🏠" value={counts?.total ?? '—'} label="Total listings" />
+        <StatCard tone="grey" icon="🏠" value={counts?.total ?? '—'} label="Total Expert posts" />
         <StatCard tone="amber" icon="🕓" value={counts?.pendingReview ?? '—'} label="Pending review" />
         <StatCard tone="green" icon="✅" value={counts?.approved ?? '—'} label="Approved" />
-        <StatCard tone="red" icon="🔴" value={riskCount('RED')} label="RED risk (approved)" />
+        <StatCard tone="red" icon="🔴" value={statusCount('DISPUTED')} label="Disputed (approved)" />
       </div>
 
       <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
@@ -299,10 +302,9 @@ export default function Listings() {
           <option value="UNPUBLISHED">Unpublished</option>
         </select>
         <select className="control" value={riskFilter} onChange={(e) => changeFilter(setRiskFilter)(e.target.value)} style={{ width: 'auto' }}>
-          <option value="">All risk</option>
-          <option value="RED">🔴 RED</option>
-          <option value="AMBER">🟠 AMBER</option>
-          <option value="GREEN">🟢 GREEN</option>
+          <option value="">All status</option>
+          <option value="DISPUTED">🔴 Disputed</option>
+          <option value="CLEAR">🟢 Clear</option>
         </select>
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 4px', fontSize: 13 }} className="muted">
           <input type="checkbox" checked={spotCheckFilter} onChange={(e) => changeFilter(setSpotCheckFilter)(e.target.checked)} />
@@ -318,9 +320,9 @@ export default function Listings() {
             columns={columns}
             rows={loading ? [] : filtered}
             getRowKey={(l) => l.id}
-            emptyState={<div style={{ padding: 32, textAlign: 'center' }} className="muted small">{loading ? '⏳ Loading listings…' : 'No listings found'}</div>}
+            emptyState={<div style={{ padding: 32, textAlign: 'center' }} className="muted small">{loading ? '⏳ Loading Expert posts…' : 'No Expert posts found'}</div>}
           />
-          <Pagination page={page} totalPages={totalPages} total={total} onChange={setPage} noun="listings" />
+          <Pagination page={page} totalPages={totalPages} total={total} onChange={setPage} noun="Expert posts" />
         </Card>
       )}
 

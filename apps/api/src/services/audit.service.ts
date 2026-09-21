@@ -59,6 +59,13 @@ export const AuditAction = {
 
   // Listings (PDF 5.3)
   LISTING_APPROVE: 'LISTING_APPROVE',
+  // Advertising platform moderation (Superadmin)
+  AD_APPROVE: 'AD_APPROVE',
+  AD_REJECT: 'AD_REJECT',
+  AD_PAUSE: 'AD_PAUSE',
+  AD_RESUME: 'AD_RESUME',
+  AD_STOP: 'AD_STOP',
+  AD_REFUND: 'AD_REFUND',
   LISTING_REJECT: 'LISTING_REJECT',
   LISTING_SPOT_CHECK: 'LISTING_SPOT_CHECK',
 
@@ -161,6 +168,52 @@ export interface AuditEntry {
   // audit rows must stay readable after the referenced row is gone.
   target?: string | null
   details?: string | null
+  // Structured snapshot (see AccountRemovalMetadata / PostRemovalMetadata) so
+  // history survives the referenced row being hard-deleted.
+  metadata?: Prisma.InputJsonValue | null
+}
+
+// ─── Deleted / Removed history (SuperAdmin) ─────────────────────────────────
+// Which audit actions count as an account leaving active service, and the
+// outcome label the dashboard shows. Only the actual action is shown — a
+// deactivation is never labelled "Deleted".
+export type RemovalOutcome = 'DELETED' | 'DEACTIVATED' | 'BLOCKED' | 'SUSPENDED'
+
+export const ACCOUNT_REMOVAL_ACTIONS: Record<string, RemovalOutcome> = {
+  ADMIN_DELETE: 'DELETED',
+  ADMIN_DEACTIVATE: 'DEACTIVATED',
+  ADMIN_BLOCK: 'BLOCKED',
+  PARTNER_DELETE: 'DELETED',
+  SELLER_SUSPEND: 'SUSPENDED',
+  SUPER_ADMIN_DELETE_BUYER: 'DELETED',
+}
+
+export const POST_REMOVAL_ACTIONS: Record<string, RemovalOutcome> = {
+  SUPER_ADMIN_DELETE_PROPERTY: 'DELETED',
+  SUPER_ADMIN_DELETE_REPORTER_POST: 'DELETED',
+  SUPER_ADMIN_DELETE_LISTING: 'DELETED',
+}
+
+export interface AccountRemovalMetadata {
+  kind: 'ACCOUNT'
+  accountId: string
+  name: string | null
+  email: string | null
+  phone?: string | null
+  // USER | EXPERT | OWNER | REPORTER | SUPER_ADMIN | SUB_ADMIN | VIEWER
+  role: string
+  reason?: string | null
+}
+
+export interface PostRemovalMetadata {
+  kind: 'POST'
+  postType: 'PROPERTY' | 'REPORTER_POST' | 'LISTING'
+  postId: string
+  title: string | null
+  posterId: string | null
+  posterName: string | null
+  // OWNER | REPORTER | EXPERT
+  posterRole: string | null
 }
 
 // Prisma's transaction client and the base client share the model methods we
@@ -205,6 +258,7 @@ export async function recordAudit(
     target: entry.target ?? null,
     details: entry.details ?? null,
     ipAddress: clientIp(req),
+    ...(entry.metadata != null ? { metadata: entry.metadata } : {}),
   }
 
   // Inside a transaction the caller owns failure handling: if the audit write

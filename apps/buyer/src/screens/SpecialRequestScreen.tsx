@@ -1,10 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { useLocalSearchParams, useRouter } from 'expo-router'
-import {
-  createSpecialRequest,
-  verifySpecialRequestAdvance,
-} from '../api/specialRequest.api'
+import { createVerificationRequest, getVerificationConfig } from '../api/verification.api'
 import { errorMessage } from '../lib/errors'
 import { formatRupees } from '../lib/format'
 import { colors, radius, SCREEN_PADDING, spacing } from '../theme'
@@ -13,8 +10,7 @@ import { Screen } from '../components/Screen'
 import { ScreenHeader } from '../components/ScreenHeader'
 import { TextField } from '../components/TextField'
 import { InlineNotice } from '../components/States'
-import { PaymentSheet } from './PaymentSheet'
-import type { CheckoutOrder, CheckoutResult, PropertyType } from '../types/api'
+import type { PropertyType } from '../types/api'
 
 const PROPERTY_TYPES: { label: string; value: PropertyType }[] = [
   { label: 'Residential', value: 'RESIDENTIAL' },
@@ -23,13 +19,12 @@ const PROPERTY_TYPES: { label: string; value: PropertyType }[] = [
   { label: 'Plot', value: 'PLOT' },
 ]
 
-// The API accepts any advance between 999 and 4999 (specialRequestCreateSchema).
-// These are the three presented tiers.
-const TIERS = [
-  { id: 'basic', amount: 999, label: 'Basic', blurb: 'Case & encumbrance check' },
-  { id: 'standard', amount: 2499, label: 'Standard', blurb: 'Adds title chain review' },
-  { id: 'deep', amount: 4999, label: 'Deep dive', blurb: 'Full legal + document audit' },
-] as const
+// "Request for Legal Reports" (formerly Custom Research): no fixed plans — the buyer enters
+// their own offer. Minimum ₹2,499 (the server also sends it via /verification-requests/config
+// and enforces it), no maximum. The request goes into the verification marketplace, where
+// Experts accept or counter the offer and the existing 50% + 50% payments run on the agreed price.
+const DEFAULT_MIN_OFFER = 2499
+const MIN_OFFER_MESSAGE = 'Minimum legal report request amount is ₹2,499.'
 
 const MIN_QUESTION_LENGTH = 10
 
@@ -38,6 +33,7 @@ interface FieldErrors {
   city?: string
   tehsil?: string
   questions?: string
+  amount?: string
 }
 
 export function SpecialRequestScreen() {
@@ -50,18 +46,24 @@ export function SpecialRequestScreen() {
   const [surveyNumber, setSurveyNumber] = useState('')
   const [propertyType, setPropertyType] = useState<PropertyType>('RESIDENTIAL')
   const [questions, setQuestions] = useState('')
-  const [tier, setTier] = useState<(typeof TIERS)[number]['id']>('standard')
+  const [amount, setAmount] = useState('')
+  const [minOffer, setMinOffer] = useState(DEFAULT_MIN_OFFER)
 
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({})
 
-  const [requestId, setRequestId] = useState<string | null>(null)
-  const [order, setOrder] = useState<CheckoutOrder | null>(null)
-  const [razorpayKeyId, setRazorpayKeyId] = useState<string | null>(null)
-  const [showPayment, setShowPayment] = useState(false)
-
-  const selectedTier = TIERS.find((entry) => entry.id === tier) ?? TIERS[1]
+  useEffect(() => {
+    let live = true
+    void getVerificationConfig()
+      .then((res) => {
+        if (live && res.legalReportMinAmount) setMinOffer(res.legalReportMinAmount)
+      })
+      .catch(() => {})
+    return () => {
+      live = false
+    }
+  }, [])
 
   const validate = (): FieldErrors => {
     const errors: FieldErrors = {}
@@ -74,6 +76,9 @@ export function SpecialRequestScreen() {
     if (questions.trim().length < MIN_QUESTION_LENGTH) {
       errors.questions = `Describe what you want checked (min ${MIN_QUESTION_LENGTH} characters).`
     }
+    const offer = Number(amount)
+    if (!amount || !Number.isFinite(offer) || offer <= 0) errors.amount = 'Enter your offer amount.'
+    else if (offer < minOffer) errors.amount = MIN_OFFER_MESSAGE
 
     return errors
   }
@@ -93,20 +98,18 @@ export function SpecialRequestScreen() {
         ? `Survey/Khasra: ${surveyNumber.trim()}. ${questions.trim()}`
         : questions.trim()
 
-      const response = await createSpecialRequest({
-        address: address.trim(),
-        city: city.trim(),
-        tehsil: tehsil.trim(),
-        propertyType,
-        questions: questionText,
-        documents: [],
-        advanceAmount: selectedTier.amount,
+      const response = await createVerificationRequest({
+        source: 'DISCOVERY',
+        initialOfferAmount: Number(amount),
+        desiredAddress: address.trim(),
+        desiredCity: city.trim(),
+        desiredTehsil: tehsil.trim(),
+        desiredPropertyType: propertyType,
+        desiredKhasraOrSurvey: surveyNumber.trim() || undefined,
+        questions: questions.trim(),
       })
 
-      setRequestId(response.requestId)
-      setOrder(response.order)
-      setRazorpayKeyId(response.razorpayKeyId)
-      setShowPayment(true)
+      router.replace(`/verifications/${response.request.id}`)
     } catch (err) {
       setError(errorMessage(err, "Couldn't submit your request. Please try again."))
     } finally {
@@ -117,7 +120,7 @@ export function SpecialRequestScreen() {
   return (
     <Screen scroll>
       <ScreenHeader
-        title="Request custom research"
+        title="Request for Legal Reports"
         subtitle="Property not on CivilCheck yet?"
         backFallback="/requests"
       />
@@ -128,8 +131,9 @@ export function SpecialRequestScreen() {
         ) : null}
 
         <Text style={styles.intro}>
-          We&apos;ll assign a verified expert in that tehsil to research the property and
-          deliver a full report in 48–72 hours.
+          Tell us what you want checked and what you are willing to pay. Verified experts can
+          accept your offer or counter with their own price — you only pay after you accept a
+          price, and only 50% up front.
         </Text>
 
         {error ? <InlineNotice tone="warn" message={error} /> : null}
@@ -201,37 +205,23 @@ export function SpecialRequestScreen() {
           editable={!submitting}
         />
 
-        <Text style={styles.label}>Choose a research depth</Text>
-        {TIERS.map((entry) => {
-          const active = tier === entry.id
-          return (
-            <TouchableOpacity
-              key={entry.id}
-              style={[styles.tier, active && styles.tierActive]}
-              onPress={() => setTier(entry.id)}
-              disabled={submitting}
-              accessibilityRole="radio"
-              accessibilityState={{ selected: active }}
-            >
-              <View style={styles.grow}>
-                <Text style={[styles.tierLabel, active && { color: colors.text }]}>
-                  {entry.label}
-                </Text>
-                <Text style={styles.tierBlurb}>{entry.blurb}</Text>
-              </View>
-              <Text style={[styles.tierPrice, active && { color: colors.goldText }]}>
-                {formatRupees(entry.amount)}
-              </Text>
-            </TouchableOpacity>
-          )
-        })}
+        <TextField
+          label="Your Offer Amount (₹)"
+          value={amount}
+          onChangeText={(v) => setAmount(v.replace(/\D/g, ''))}
+          placeholder="Enter your offer"
+          keyboardType="number-pad"
+          error={fieldErrors.amount}
+          editable={!submitting}
+          hint={`Enter your offer. Minimum ${formatRupees(minOffer)}; there is no maximum.`}
+        />
 
         <Text style={styles.note}>
-          This is an advance. If we can&apos;t complete the research, it is refunded in full.
+          This is your offer, not a payment. Nothing is charged until you accept a price.
         </Text>
 
         <Button
-          label={`Submit & pay ${formatRupees(selectedTier.amount)}`}
+          label="Submit request"
           onPress={() => void handleSubmit()}
           loading={submitting}
           size="lg"
@@ -240,29 +230,6 @@ export function SpecialRequestScreen() {
         />
       </View>
 
-      <PaymentSheet
-        visible={showPayment}
-        onClose={() => {
-          setShowPayment(false)
-          // The request row exists but is unpaid. Send the buyer to its detail
-          // screen, where the advance can be retried, rather than losing it.
-          if (requestId) router.replace(`/requests/${requestId}`)
-        }}
-        order={order}
-        razorpayKeyId={razorpayKeyId}
-        priceLabel={formatRupees(selectedTier.amount)}
-        successTitle="Request submitted!"
-        successMessage="Your advance is confirmed. An admin will assign a verified expert shortly — you'll get the report in 48–72 hours."
-        successButtonLabel="Track my request"
-        onPaid={async (result: CheckoutResult) => {
-          if (!requestId) throw new Error('Missing request id')
-          await verifySpecialRequestAdvance(requestId, result)
-        }}
-        onSuccess={() => {
-          setShowPayment(false)
-          if (requestId) router.replace(`/requests/${requestId}`)
-        }}
-      />
     </Screen>
   )
 }

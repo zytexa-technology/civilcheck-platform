@@ -6,13 +6,12 @@ import { Button } from '../components/Button'
 import { Input } from '../components/Field'
 import { CardSkeleton, EmptyState, ErrorState } from '../components/States'
 import { errorMessage } from '../lib/errors'
-import type { FreePreviewProperty, RiskBadge } from '../types/api'
+import type { FreePreviewProperty, PropertyStatus } from '../types/api'
 
-const RISK_BADGES: { value: RiskBadge | ''; label: string }[] = [
-  { value: '', label: 'Any risk' },
-  { value: 'GREEN', label: '🟢 Low / Clear' },
-  { value: 'AMBER', label: '🟡 Medium / Caution' },
-  { value: 'RED', label: '🔴 High / Risk' },
+const STATUS_FILTERS: { value: PropertyStatus | ''; label: string }[] = [
+  { value: '', label: 'Any status' },
+  { value: 'CLEAR', label: '🟢 Clear' },
+  { value: 'DISPUTED', label: '🔴 Disputed' },
 ]
 
 // Properties/Listing rows are only ever created by a KYC-approved Expert
@@ -24,7 +23,7 @@ export default function ExpertProperties() {
   const [params, setParams] = useSearchParams()
   const query = params.get('q') ?? ''
   const city = params.get('city') ?? ''
-  const riskBadge = (params.get('risk') as RiskBadge | null) ?? ''
+  const propertyStatus = (params.get('status') as PropertyStatus | null) ?? ''
 
   const [queryInput, setQueryInput] = useState(query)
   const [cityInput, setCityInput] = useState(city)
@@ -44,7 +43,7 @@ export default function ExpertProperties() {
     searchProperties({
       query: query || undefined,
       city: city || undefined,
-      riskBadge: riskBadge || undefined,
+      propertyStatus: propertyStatus || undefined,
       page: targetPage,
       limit: 12,
     })
@@ -61,7 +60,7 @@ export default function ExpertProperties() {
   useEffect(() => {
     runSearch(1, true)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, city, riskBadge])
+  }, [query, city, propertyStatus])
 
   const updateParam = (key: string, value: string) => {
     const next = new URLSearchParams(params)
@@ -82,8 +81,7 @@ export default function ExpertProperties() {
         Expert Properties
       </h1>
       <p className="muted" style={{ fontSize: 13, marginBottom: 20 }}>
-        Professionally researched reports from CivilCheck's verified Experts — each with a risk
-        assessment. A risk indicator is information, not a substitute for requesting professional
+        Properties uploaded by CivilCheck's verified Experts, each marked Clear or Disputed. The alert is information, not a substitute for requesting professional
         verification.
       </p>
 
@@ -106,13 +104,13 @@ export default function ExpertProperties() {
       </form>
 
       <div className="chip-group" style={{ marginBottom: 24 }}>
-        {RISK_BADGES.map((opt) => (
+        {STATUS_FILTERS.map((opt) => (
           <button
             key={opt.value}
             type="button"
             className="chip"
-            aria-pressed={riskBadge === opt.value}
-            onClick={() => updateParam('risk', opt.value)}
+            aria-pressed={propertyStatus === opt.value}
+            onClick={() => updateParam('status', opt.value)}
           >
             {opt.label}
           </button>

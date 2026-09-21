@@ -307,7 +307,7 @@ async function main() {
   const reportRes = await request(app)
     .post(`/api/seller/verification-marketplace/${requestA}/report`)
     .set('Authorization', `Bearer ${expertA.token}`)
-    .send({ findings: 'No litigation found on this property.', riskAssessment: 'GREEN', documents: [], images: [], videos: [] })
+    .send({ findings: 'No litigation found on this property.', disputeFound: false, documents: [], images: [], videos: [] })
   note5xx(reportRes, 'expert report')
   ok(reportRes.status === 200 || reportRes.status === 201, 'Expert A submits the report', reportRes.body)
 
@@ -808,7 +808,7 @@ async function unlockRequestForExpert(
   await request(app)
     .post(`/api/seller/verification-marketplace/${id}/report`)
     .set('Authorization', `Bearer ${expert.token}`)
-    .send({ findings: 'No litigation found on this property.', riskAssessment: 'GREEN', documents: [], images: [], videos: [] })
+    .send({ findings: 'No litigation found on this property.', disputeFound: false, documents: [], images: [], videos: [] })
   const finalOrder = await request(app).post(`/api/verification-requests/${id}/final-order`).set('Authorization', `Bearer ${buyer.token}`)
   if (!finalOrder.body.order) throw new Error(`final-order failed: ${JSON.stringify(finalOrder.body)}`)
   const finalOrderId = finalOrder.body.order.id as string
@@ -846,7 +846,7 @@ async function unlockRequestForAdmin(
   await request(app)
     .post(`/api/admin/verification-marketplace/${id}/report`)
     .set('Authorization', `Bearer ${adminBearerToken}`)
-    .send({ findings: 'No litigation found on this property.', riskAssessment: 'GREEN', documents: [], images: [], videos: [] })
+    .send({ findings: 'No litigation found on this property.', disputeFound: false, documents: [], images: [], videos: [] })
   const finalOrder = await request(app).post(`/api/verification-requests/${id}/final-order`).set('Authorization', `Bearer ${buyer.token}`)
   if (!finalOrder.body.order) throw new Error(`final-order failed: ${JSON.stringify(finalOrder.body)}`)
   const finalOrderId = finalOrder.body.order.id as string

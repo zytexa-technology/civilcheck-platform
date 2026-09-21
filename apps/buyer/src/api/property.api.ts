@@ -6,7 +6,7 @@ import type {
   PropertyFeedResponse,
   PropertySearchResponse,
   PropertyType,
-  RiskBadge,
+  PropertyStatus,
   SearchHistoryResponse,
   TrendingResponse,
 } from '../types/api'
@@ -16,7 +16,7 @@ export interface PropertySearchParams {
   city?: string
   tehsil?: string
   propertyType?: PropertyType
-  riskBadge?: RiskBadge
+  propertyStatus?: PropertyStatus
   minPrice?: number
   maxPrice?: number
   page?: number
@@ -86,7 +86,7 @@ export async function getSearchHistory(): Promise<SearchHistoryResponse> {
  *
  * The unified, media-first discovery feed — Owner/Reporter self-listed
  * Properties and Expert-verified Listings merged into one array, each
- * already carrying `uploadedBy` and (Expert-only) `riskBadge`. Only
+ * already carrying `uploadedBy` and `propertyStatus` / `disputeType`. Only
  * APPROVED (PUBLISHED for a Reporter Post) rows are ever included —
  * rejected, suspended, pending, and deleted properties never reach this
  * endpoint.

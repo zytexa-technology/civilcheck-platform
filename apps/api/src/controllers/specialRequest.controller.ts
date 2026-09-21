@@ -50,7 +50,7 @@ export const createSpecialRequest = async (req: Request, res: Response) => {
   if (advanceAmount < 999 || advanceAmount > 4999) {
     res.status(400).json({
       success: false,
-      message: 'Advance amount must be between Rs. 999 and Rs. 4999'
+      message: 'Advance amount must be between ₹999 and ₹4,999'
     })
     return
   }
@@ -559,7 +559,7 @@ export const assignRequest = async (req: Request, res: Response) => {
     if (!match) {
       res.status(400).json({
         success: false,
-        message: 'No qualified seller is available — please specify a sellerId manually'
+        message: 'No qualified partner is available — please specify a sellerId manually'
       })
       return
     }
@@ -575,7 +575,7 @@ export const assignRequest = async (req: Request, res: Response) => {
   if (!seller || seller.kycStatus !== 'APPROVED' || seller.partnerRole !== 'EXPERT') {
     res.status(400).json({
       success: false,
-      message: 'Seller not found, not KYC-approved, or not registered as an expert'
+      message: 'Partner not found, not KYC-approved, or not registered as an expert'
     })
     return
   }
@@ -716,7 +716,7 @@ export const approveSpecialRequest = async (req: Request, res: Response) => {
 
   res.json({
     success: true,
-    message: 'Special request approved! Buyer ko report unlock ho gayi.',
+    message: 'Special request approved! User ko report unlock ho gayi.',
     listingId: request.completedListingId
   })
 }
@@ -802,8 +802,8 @@ export const rejectSpecialRequest = async (req: Request, res: Response) => {
     action: AuditAction.SPECIAL_REQUEST_REJECT,
     target: `SpecialRequest:${id}`,
     details: result.ok
-      ? `Rejected — Rs. ${request.advanceAmount} refunded to buyer ${request.userId} (refund ${refund.id}). Reason: ${reason}`
-      : `Rejected — Rs. ${request.advanceAmount} refund FAILED, left PENDING for retry (refund ${refund.id}). Reason: ${reason}. Error: ${result.message}`,
+      ? `Rejected — ₹${request.advanceAmount} refunded to buyer ${request.userId} (refund ${refund.id}). Reason: ${reason}`
+      : `Rejected — ₹${request.advanceAmount} refund FAILED, left PENDING for retry (refund ${refund.id}). Reason: ${reason}. Error: ${result.message}`,
   })
 
   res.json({
