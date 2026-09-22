@@ -99,6 +99,26 @@ app.use('/api/webhooks/razorpay', express.raw({ type: 'application/json' }))
 
 app.use(express.json())
 
+// ─── REQUEST TIMING (production latency diagnosis) ─────────────────────────
+// One timestamp + one `finish` listener per request — no query interception,
+// no per-controller instrumentation, no change to any response. Logs only
+// requests slower than SLOW_REQUEST_LOG_MS (default 500ms) so this doesn't
+// spam the log for fast requests; a single line per slow request gives
+// method/path/status/duration to compare before/after a fix in Railway logs.
+// Remove or raise the threshold once the Railway<->Neon latency work is done
+// and this is no longer needed for verification.
+const SLOW_REQUEST_LOG_MS = Number(process.env.SLOW_REQUEST_LOG_MS) || 500
+app.use((req: express.Request, res: express.Response, next: express.NextFunction) => {
+  const start = process.hrtime.bigint()
+  res.on('finish', () => {
+    const ms = Number(process.hrtime.bigint() - start) / 1e6
+    if (ms >= SLOW_REQUEST_LOG_MS) {
+      logger.warn(`[timing] ${req.method} ${req.originalUrl} ${res.statusCode} ${ms.toFixed(0)}ms`)
+    }
+  })
+  next()
+})
+
 // Webhook router mounts on the same path — express.raw() above already ran, so
 // req.body is the raw Buffer the signature check needs, and express.json()
 // skips a request whose body a parser has already claimed.

@@ -1656,26 +1656,36 @@ export const getTopCities = async (req: Request, res: Response) => {
 // Last 7 months ka revenue — Bar chart ke liye
 // ─────────────────────────────────────────────────────────────────────────────
 export const getMonthlyRevenue = async (req: Request, res: Response) => {
-  const months = []
   const now = new Date()
 
-  for (let i = 6; i >= 0; i--) {
+  // Same 7 months, same oldest-to-newest order, same response shape as
+  // before — only the execution changed: these 7 aggregates used to run one
+  // at a time (7 sequential round trips), now they run concurrently (1 round
+  // trip's worth of latency for all 7). See lib/prisma.ts for why a single
+  // round trip currently costs far more than it should on this deployment.
+  const monthRanges = Array.from({ length: 7 }, (_, idx) => {
+    const i = 6 - idx
     const date = new Date(now.getFullYear(), now.getMonth() - i, 1)
-    const start = new Date(date.getFullYear(), date.getMonth(), 1)
-    const end = new Date(date.getFullYear(), date.getMonth() + 1, 0, 23, 59, 59)
+    return {
+      date,
+      start: new Date(date.getFullYear(), date.getMonth(), 1),
+      end: new Date(date.getFullYear(), date.getMonth() + 1, 0, 23, 59, 59),
+    }
+  })
 
-    const result = await prisma.purchase.aggregate({
-      where: {
-        createdAt: { gte: start, lte: end }
-      },
-      _sum: { amountPaid: true }
-    })
+  const sums = await Promise.all(
+    monthRanges.map(({ start, end }) =>
+      prisma.purchase.aggregate({
+        where: { createdAt: { gte: start, lte: end } },
+        _sum: { amountPaid: true },
+      })
+    )
+  )
 
-    months.push({
-      month: date.toLocaleString('en-IN', { month: 'short' }),
-      revenue: result._sum.amountPaid || 0,
-    })
-  }
+  const months = monthRanges.map(({ date }, idx) => ({
+    month: date.toLocaleString('en-IN', { month: 'short' }),
+    revenue: sums[idx]._sum.amountPaid || 0,
+  }))
 
   res.json({ success: true, data: months })
 }

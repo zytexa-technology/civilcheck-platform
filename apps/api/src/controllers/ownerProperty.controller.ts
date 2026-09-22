@@ -2,6 +2,7 @@ import { Request, Response } from 'express'
 import { Property, Prisma, PropertyType } from '@prisma/client'
 import prisma from '../lib/prisma.js'
 import { buildMapUrl } from '../lib/maps.js'
+import logger from '../lib/logger.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // BUYER-FACING OWNER PROPERTIES (self-verification, separate from Listing).
@@ -99,7 +100,12 @@ export const searchOwnerProperties = async (req: Request, res: Response) => {
 
   const ids = properties.map(p => p.id)
   if (ids.length) {
-    await prisma.property.updateMany({ where: { id: { in: ids } }, data: { views: { increment: 1 } } })
+    // View-count bookkeeping doesn't need to hold up the search response —
+    // the caller only cares about the results themselves (never derived from
+    // this increment). Fire-and-forget instead of a third blocking round
+    // trip; a failure here must never surface as a search failure.
+    prisma.property.updateMany({ where: { id: { in: ids } }, data: { views: { increment: 1 } } })
+      .catch((err) => logger.error('[searchOwnerProperties] view-count increment failed:', err))
   }
 
   res.json({
