@@ -7,19 +7,56 @@ import Terms from './pages/Terms'
 import Privacy from './pages/Privacy'
 import TermsAcceptanceGate from './components/TermsAcceptanceGate'
 
+const screenStyle = {
+  minHeight: '100vh',
+  background: '#F4F1EA',
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: 14,
+  padding: 24,
+  textAlign: 'center',
+  color: '#6C7686',
+  fontSize: 14,
+  fontFamily: "'Sora', sans-serif",
+}
+
 function LoadingScreen() {
+  return <div style={screenStyle}>Loading...</div>
+}
+
+// Shown only when the session check failed for a server-side reason (timeout,
+// network, 5xx) — never for a 401, which still signs the partner out and
+// falls through to /login as before. The stored token is deliberately kept,
+// so retrying re-runs the real /seller/profile request rather than forcing a
+// re-login for what is a server problem, not an auth problem.
+function SessionErrorScreen({ message, onRetry }) {
   return (
-    <div style={{
-      minHeight: '100vh',
-      background: '#F4F1EA',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      color: '#6C7686',
-      fontSize: 14,
-      fontFamily: "'Sora', sans-serif",
-    }}>
-      Loading...
+    <div style={screenStyle}>
+      <div style={{ fontWeight: 600, color: '#2F3742', fontSize: 15 }}>{message}</div>
+      <div style={{ maxWidth: 360, lineHeight: 1.6 }}>
+        Your session is still saved — this is a problem reaching the CivilCheck
+        server, not your account.
+      </div>
+      <button
+        type="button"
+        onClick={onRetry}
+        style={{
+          marginTop: 4,
+          padding: '10px 22px',
+          borderRadius: 10,
+          border: 'none',
+          background: '#B67A12',
+          color: '#fff',
+          fontSize: 14,
+          fontWeight: 600,
+          fontFamily: "'Sora', sans-serif",
+          cursor: 'pointer',
+        }}
+      >
+        Try again
+      </button>
     </div>
   )
 }
@@ -38,8 +75,11 @@ function ProtectedRoute({ children }) {
 }
 
 function AppRoutes() {
-  const { seller, loading } = useAuth()
+  const { seller, loading, sessionError, retrySession } = useAuth()
   if (loading) return <LoadingScreen />
+  // Server-side failure during session restore — report it instead of
+  // bouncing a partner who still has a valid token to /login.
+  if (sessionError && !seller) return <SessionErrorScreen message={sessionError} onRetry={retrySession} />
 
   return (
     <Routes>

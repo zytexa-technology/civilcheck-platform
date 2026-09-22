@@ -267,11 +267,29 @@ export const sellerMiddleware = async (req: Request, res: Response, next: NextFu
   // 1) Local JWT
   const decoded = verifyLocalToken<{ sellerId?: string; phone?: string }>(token)
   let seller = null
+  // Set on the local-JWT path below, where the terms check is fetched
+  // concurrently with the seller row instead of after it — both are keyed
+  // off the same `decoded.sellerId`, so they don't depend on each other.
+  // null on the Firebase-token path, where it's checked the original way
+  // (sequentially, after `seller` is known) further down.
+  let termsAcceptedPrefetch: boolean | null = null
 
   if (decoded?.sellerId) {
-    seller = await prisma.seller.findUnique({
-      where: { id: decoded.sellerId },
-    })
+    // Measured in production: this middleware's own seller lookup, plus the
+    // terms check below (which itself does 2 sequential queries — current
+    // disclaimer version, then the acceptance row), plus the profile
+    // controller's own seller fetch after this middleware, added up to 4
+    // sequential round trips on GET /seller/profile alone — the request the
+    // Partner app's login/session-restore is gated on. Running these two
+    // independent lookups concurrently removes one full round trip from
+    // every authenticated Partner request, not just this one endpoint.
+    const needsTermsCheck = req.path !== TERMS_ACCEPT_PATH
+    const [fetchedSeller, accepted] = await Promise.all([
+      prisma.seller.findUnique({ where: { id: decoded.sellerId } }),
+      needsTermsCheck ? hasAcceptedCurrentTerms({ sellerId: decoded.sellerId }) : Promise.resolve(true),
+    ])
+    seller = fetchedSeller
+    termsAcceptedPrefetch = accepted
   } else {
     // 2) Firebase ID token — phone se seller retrieve karo
     const identity = await verifyFirebaseToken(token)
@@ -322,7 +340,15 @@ export const sellerMiddleware = async (req: Request, res: Response, next: NextFu
   // Mandatory Terms & Conditions acceptance — same gate/shape as
   // authMiddleware's buyer-side check above. Applies uniformly across
   // Owner/Expert/Reporter, one record per Seller row, never per-role.
-  if (req.path !== TERMS_ACCEPT_PATH && !(await hasAcceptedCurrentTerms({ sellerId: seller.id }))) {
+  // Reuses the value fetched concurrently with the seller row above on the
+  // local-JWT path (termsAcceptedPrefetch); the Firebase-token path never
+  // prefetches it, so it's still fetched here exactly as before for that
+  // branch. Same check, same precedence (only reached once !seller,
+  // SUSPENDED and deletedAt have all already passed) — just already
+  // available by this point on the common path instead of awaited here.
+  const termsAccepted =
+    termsAcceptedPrefetch ?? (req.path === TERMS_ACCEPT_PATH || (await hasAcceptedCurrentTerms({ sellerId: seller.id })))
+  if (req.path !== TERMS_ACCEPT_PATH && !termsAccepted) {
     res.status(403).json({
       success: false,
       code: 'TERMS_ACCEPTANCE_REQUIRED',

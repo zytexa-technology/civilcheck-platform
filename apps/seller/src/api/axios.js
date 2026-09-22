@@ -13,6 +13,13 @@ const BASE = import.meta.env.VITE_API_URL || 'http://localhost:3000'
 const API = axios.create({
   baseURL: `${BASE}/api`,          // saari calls '/seller/...' likhti hain → /api lagta hai
   headers: { 'Content-Type': 'application/json' },
+  // Previously unset (unbounded wait). Production backend↔database round
+  // trips have been measured up to ~13s under normal load — 30s gives real
+  // margin above that. Without this, an unusually slow response (backend
+  // under load) left the request pending with no client-side limit at all,
+  // which is what made the Partner app's initial session-check look stuck
+  // on "Loading..." indefinitely rather than failing in a bounded, visible way.
+  timeout: 30_000,
 })
 
 // Har API call se pehle automatically token attach karo

@@ -18,11 +18,20 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true)
   const [roles, setRolesState] = useState([])
   const [activeRole, setActiveRole] = useState(null)
+  // Set only when the session check fails for a reason that is NOT "this
+  // session is invalid" (timeout, network error, 5xx). A 401 still clears the
+  // session and falls through to /login exactly as before — this is purely so
+  // a *server-side* problem is reported honestly instead of silently looking
+  // like a logged-out user or an endless "Loading...".
+  const [sessionError, setSessionError] = useState(null)
 
   // ── App start ───────────────────────────────────────────────────────────
-  useEffect(() => {
+  const restoreSession = () => {
     const token = localStorage.getItem('seller_token')
     if (!token) { setLoading(false); return }
+
+    setLoading(true)
+    setSessionError(null)
 
     // `loading` stays true (ProtectedRoute/AppRoutes both gate render on it)
     // until this resolves — so trusting the cached `seller_user` here would
@@ -36,9 +45,23 @@ export const AuthProvider = ({ children }) => {
           applyRole(res.data.seller)
         }
       })
-      .catch((err) => { if (err.response?.status === 401) clearAll() })
+      .catch((err) => {
+        if (err.response?.status === 401) { clearAll(); return }
+        // No response at all (timeout/network) or a server error — the token
+        // may well still be valid, so it is deliberately NOT cleared here.
+        // Surface it and let the user retry the real request.
+        if (!err.response || err.response.status >= 500) {
+          setSessionError(
+            err.code === 'ECONNABORTED'
+              ? 'The server took too long to respond.'
+              : 'Could not reach the server.'
+          )
+        }
+      })
       .finally(() => setLoading(false))
-  }, [])
+  }
+
+  useEffect(restoreSession, [])
 
   // seller ke partnerRole se roles set karo
   const applyRole = (s) => {
@@ -53,6 +76,7 @@ export const AuthProvider = ({ children }) => {
     localStorage.setItem('seller_token', token)
     localStorage.setItem('seller_user', JSON.stringify(sellerData))
     setSeller(sellerData)
+    setSessionError(null) // a successful login proves the server is reachable
 
     const r = (newRoles && newRoles[0]) || sellerData?.partnerRole || DEFAULT_ROLE
     setRolesState([r])
@@ -89,6 +113,7 @@ export const AuthProvider = ({ children }) => {
   return (
     <AuthContext.Provider value={{
       seller, loading, roles, activeRole,
+      sessionError, retrySession: restoreSession,
       login, logoutSeller, refreshSeller,
       switchRole, setRoles, addRole, removeRole,
     }}>
