@@ -33,11 +33,13 @@ router.post('/register', validateBody(sellerRegistrationSchema), sellerControlle
 // GET  /api/seller/kyc-signup/upload-signature  (header x-kyc-session)
 // POST /api/seller/kyc-signup/document      { sessionToken, documentUrl }
 // GET  /api/seller/kyc-signup/status            (header x-kyc-session)
+// GET  /api/seller/kyc-signup/config             { bypassEnabled } — TEMPORARY, see kycSignup.controller.ts
 router.post('/kyc-signup/otp/send', kycOtpSendLimiter, validateBody(aadhaarKycStartSchema), kycSignupController.sendOtp)
 router.post('/kyc-signup/otp/verify', kycOtpVerifyLimiter, validateBody(aadhaarKycVerifySchema), kycSignupController.verifyOtp)
 router.get('/kyc-signup/upload-signature', kycOtpVerifyLimiter, kycSignupController.uploadSignature)
 router.post('/kyc-signup/document', kycOtpVerifyLimiter, validateBody(aadhaarKycDocumentSchema), kycSignupController.attachDocument)
 router.get('/kyc-signup/status', kycOtpVerifyLimiter, kycSignupController.status)
+router.get('/kyc-signup/config', kycSignupController.config)
 
 // DigiLocker identity verification. The callback and mock consent are public
 // browser redirects (identity is resolved from the single-use `state`); start

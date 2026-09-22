@@ -78,3 +78,10 @@ export const kycAttachDocument = async (sessionToken, documentUrl) => {
   const response = await API.post('/seller/kyc-signup/document', { sessionToken, documentUrl })
   return response.data
 }
+
+// TEMPORARY: whether the "Skip for now" Aadhaar KYC bypass is available —
+// see KYC_SIGNUP_BYPASS_ENABLED in apps/api/.env.sample. Remove alongside it.
+export const getKycBypassConfig = async () => {
+  const response = await API.get('/seller/kyc-signup/config')
+  return response.data
+}

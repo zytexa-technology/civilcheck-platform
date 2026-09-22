@@ -165,6 +165,9 @@ export const sellerRegistrationSchema = z
     // POST /api/seller/kyc-signup/otp/send. Presence is checked here; that the
     // session is genuinely VERIFIED is enforced server-side in sellerRegister.
     kycSessionToken: z.string().min(1).max(200).optional(),
+    // TEMPORARY: only has any effect when the server's KYC_SIGNUP_BYPASS_ENABLED
+    // is also on — see sellerRegister. Remove alongside that flag.
+    kycBypass: z.literal(true).optional(),
   })
   .superRefine((data, ctx) => {
     // Bank details travel as a pair — account number without IFSC is unroutable

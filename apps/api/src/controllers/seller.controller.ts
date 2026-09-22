@@ -92,26 +92,54 @@ export const sellerRegister = async (req: Request, res: Response) => {
       res.status(403).json({ success: false, message: KYC_REQUIRED_MESSAGE, code: 'KYC_REQUIRED' })
       return
     }
-    let kycSession
-    try {
-      kycSession = await requireVerifiedSession(kycSessionToken, existingEmail?.id)
-    } catch (e) {
-      if (e instanceof KycError) {
-        res.status(e.status).json({ success: false, message: e.message, code: e.code })
+
+    // TEMPORARY: Aadhaar KYC signup bypass while the KYC_PROVIDER (surepass)
+    // credentials are not configured — see KYC_SIGNUP_BYPASS_ENABLED in
+    // .env.sample. This is UNRELATED to the separate DigiLocker/API Setu
+    // approval (that integration is optional evidence on the post-login KYC
+    // page and never blocked signup); remove this block, the kycBypass field
+    // in sellerRegistrationSchema, and the /seller/kyc-signup/config route
+    // once KYC_PROVIDER_API_KEY is actually set and Aadhaar KYC is verified
+    // to work end-to-end again — do not leave it tied to DigiLocker approval.
+    //
+    // Requires BOTH the server flag AND an explicit client `kycBypass: true`
+    // (only ever sent by the "Skip for now" button), so it can never fire
+    // silently. It only skips the requireVerifiedSession() call below —
+    // partnerRole, tcAccepted, password and the (separate, still mandatory)
+    // signup email-OTP step are completely unaffected. kycSession stays
+    // null, so every Aadhaar field written further down is left at its
+    // honest not-verified schema default (see sellerData below) — a skipped
+    // signup is never recorded as VERIFIED.
+    const kycBypassEnabled = process.env.KYC_SIGNUP_BYPASS_ENABLED === 'true'
+    const kycBypassRequested = kycBypassEnabled && req.body.kycBypass === true
+
+    let kycSession: Awaited<ReturnType<typeof requireVerifiedSession>> | null = null
+    // Only ever populated on the real (non-bypass) path below — used further
+    // down to release a different account's stale aadhaarHash link.
+    let aadhaarHolder: { id: string; emailVerified: boolean } | null = null
+    if (kycBypassRequested) {
+      logger.warn(`[sellerRegister] TEMPORARY Aadhaar KYC bypass used — role=${partnerRole}, email=${email}`)
+    } else {
+      try {
+        kycSession = await requireVerifiedSession(kycSessionToken, existingEmail?.id)
+      } catch (e) {
+        if (e instanceof KycError) {
+          res.status(e.status).json({ success: false, message: e.message, code: e.code })
+          return
+        }
+        throw e
+      }
+      // One identity <-> one Partner account. A verified account already holding
+      // this Aadhaar blocks signup (generic message — never reveals which
+      // account); an abandoned, email-unverified signup does not.
+      aadhaarHolder = await prisma.seller.findUnique({
+        where: { aadhaarHash: kycSession.aadhaarHash },
+        select: { id: true, emailVerified: true },
+      })
+      if (aadhaarHolder && aadhaarHolder.id !== existingEmail?.id && aadhaarHolder.emailVerified) {
+        res.status(409).json({ success: false, message: DUPLICATE_AADHAAR_MESSAGE, code: 'KYC_DUPLICATE_AADHAAR' })
         return
       }
-      throw e
-    }
-    // One identity <-> one Partner account. A verified account already holding
-    // this Aadhaar blocks signup (generic message — never reveals which
-    // account); an abandoned, email-unverified signup does not.
-    const aadhaarHolder = await prisma.seller.findUnique({
-      where: { aadhaarHash: kycSession.aadhaarHash },
-      select: { id: true, emailVerified: true },
-    })
-    if (aadhaarHolder && aadhaarHolder.id !== existingEmail?.id && aadhaarHolder.emailVerified) {
-      res.status(409).json({ success: false, message: DUPLICATE_AADHAAR_MESSAGE, code: 'KYC_DUPLICATE_AADHAAR' })
-      return
     }
 
     const passwordHash = await bcrypt.hash(password, PASSWORD_BCRYPT_ROUNDS)
@@ -160,14 +188,21 @@ export const sellerRegister = async (req: Request, res: Response) => {
       // photo lives in the existing private identity-document slot and stays
       // subject to the existing manual admin identity review (PENDING) — OTP
       // success alone never auto-approves anything.
-      aadhaarKycStatus: 'VERIFIED' as const,
-      aadhaarVerified: true,
-      aadhaarHash: kycSession.aadhaarHash,
-      aadhaarLast4: kycSession.aadhaarLast4,
-      aadhaarVerifiedAt: kycSession.verifiedAt ?? new Date(),
-      identityDocumentUrl: kycSession.documentUrl,
-      identityDocumentUploadedAt: new Date(),
-      identityVerificationStatus: 'PENDING' as const,
+      // TEMPORARY bypass: kycSession is null when skipped (see above) — every
+      // field below is then simply omitted, leaving aadhaarVerified at its
+      // schema default (false) and aadhaarKycStatus/identityVerificationStatus
+      // at their schema default (null, "not yet submitted"/not verified).
+      // Nothing here fabricates a VERIFIED status or a fake document.
+      ...(kycSession ? {
+        aadhaarKycStatus: 'VERIFIED' as const,
+        aadhaarVerified: true,
+        aadhaarHash: kycSession.aadhaarHash,
+        aadhaarLast4: kycSession.aadhaarLast4,
+        aadhaarVerifiedAt: kycSession.verifiedAt ?? new Date(),
+        identityDocumentUrl: kycSession.documentUrl,
+        identityDocumentUploadedAt: new Date(),
+        identityVerificationStatus: 'PENDING' as const,
+      } : {}),
       // baaki sab default values schema se aayenge:
       // badge: BRONZE, kycStatus: PENDING, accuracyScore: 100, totalEarnings: 0
     }
@@ -191,12 +226,17 @@ export const sellerRegister = async (req: Request, res: Response) => {
         const saved = existingEmail
           ? await tx.seller.update({ where: { id: existingEmail.id }, data: sellerData })
           : await tx.seller.create({ data: { ...sellerData, emailVerified: false } })
-        // An earlier abandoned attempt of this same seller may hold the 1:1 link.
-        await tx.partnerKycSession.updateMany({ where: { sellerId: saved.id, id: { not: kycSession.id } }, data: { sellerId: null } })
-        await tx.partnerKycSession.update({
-          where: { id: kycSession.id },
-          data: { sellerId: saved.id, consumedAt: kycSession.consumedAt ?? new Date() },
-        })
+        // TEMPORARY bypass: no session to link when kycSession is null (see
+        // above) — nothing here to do in that case, same as before this
+        // feature existed for a seller that never touched Aadhaar KYC.
+        if (kycSession) {
+          // An earlier abandoned attempt of this same seller may hold the 1:1 link.
+          await tx.partnerKycSession.updateMany({ where: { sellerId: saved.id, id: { not: kycSession.id } }, data: { sellerId: null } })
+          await tx.partnerKycSession.update({
+            where: { id: kycSession.id },
+            data: { sellerId: saved.id, consumedAt: kycSession.consumedAt ?? new Date() },
+          })
+        }
         return saved
       }, { maxWait: 15000, timeout: 30000 })
     } catch (e) {

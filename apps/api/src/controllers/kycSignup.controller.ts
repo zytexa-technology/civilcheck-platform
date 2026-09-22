@@ -55,3 +55,12 @@ export const status = async (req: Request, res: Response) => {
     res.json({ success: true, ...(await getAadhaarKycStatus(tokenFromQuery(req))) })
   } catch (e) { fail(res, e) }
 }
+
+// TEMPORARY: lets the signup UI know whether the "Skip for now" Aadhaar KYC
+// bypass is available, mirroring the existing public /config pattern used
+// elsewhere (see verification.controller.ts's getMarketplaceConfig). Remove
+// this alongside KYC_SIGNUP_BYPASS_ENABLED once KYC_PROVIDER is configured —
+// see the comment in seller.controller.ts's sellerRegister.
+export const config = async (_req: Request, res: Response) => {
+  res.json({ success: true, bypassEnabled: process.env.KYC_SIGNUP_BYPASS_ENABLED === 'true' })
+}

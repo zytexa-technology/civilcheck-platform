@@ -23,7 +23,7 @@ import { useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import {
   sellerLogin, sellerLoginFirebase, sellerRegister, verifyEmail, resendVerificationEmail,
-  kycSendOtp, kycVerifyOtp, kycGetUploadSignature, kycAttachDocument,
+  kycSendOtp, kycVerifyOtp, kycGetUploadSignature, kycAttachDocument, getKycBypassConfig,
 } from '../api/auth.api'
 import { uploadWithSignature } from '../api/cloudinaryUpload'
 import { getSellerProfile } from '../api/seller.api'
@@ -144,6 +144,12 @@ export default function Login() {
   const [kycPreview, setKycPreview] = useState('')
   const setKycField = (k, v) => setKyc((s) => ({ ...s, [k]: v }))
 
+  // TEMPORARY: "Skip for now" — see KYC_SIGNUP_BYPASS_ENABLED in
+  // apps/api/.env.sample. false unless the backend flag is on; remove this
+  // state + the effect below + the button in the 'kyc' step once Aadhaar
+  // KYC (KYC_PROVIDER) is configured again.
+  const [kycBypassEnabled, setKycBypassEnabled] = useState(false)
+
   const startKycCooldown = () => {
     setKycCooldown(30)
     const iv = setInterval(() => {
@@ -176,6 +182,17 @@ export default function Login() {
 
   // Pehle se logged-in? → dashboard
   useEffect(() => { if (seller) navigate('/dashboard', { replace: true }) }, [seller, navigate])
+
+  // TEMPORARY: check once, on entering the Identity Verification step,
+  // whether the "Skip for now" Aadhaar KYC bypass is enabled server-side.
+  useEffect(() => {
+    if (step !== 'kyc') return
+    let cancelled = false
+    getKycBypassConfig()
+      .then((d) => { if (!cancelled) setKycBypassEnabled(!!d.bypassEnabled) })
+      .catch(() => { if (!cancelled) setKycBypassEnabled(false) })
+    return () => { cancelled = true }
+  }, [step])
 
   const setField = (k, v) => setForm((f) => ({ ...f, [k]: v }))
 
@@ -322,13 +339,17 @@ export default function Login() {
     } finally { setKycBusy('') }
   }
 
-  // ── COMPLETE SIGNUP → REGISTER (only reachable once KYC is VERIFIED) ────
-  const completeSignup = async () => {
-    if (kyc.status !== 'VERIFIED') { setErr('Please complete Aadhaar verification and upload your Aadhaar photo first.'); return }
+  // ── COMPLETE SIGNUP → REGISTER (only reachable once KYC is VERIFIED,
+  //    or via the TEMPORARY "Skip for now" bypass — see kycBypassEnabled) ──
+  const completeSignup = async (bypass = false) => {
+    if (!bypass && kyc.status !== 'VERIFIED') { setErr('Please complete Aadhaar verification and upload your Aadhaar photo first.'); return }
     setErr(''); setBusy(true)
     try {
       const data = await sellerRegister({
-        kycSessionToken: kyc.token,
+        // TEMPORARY: bypass sends no session token and an explicit flag the
+        // backend only honors when KYC_SIGNUP_BYPASS_ENABLED is also on —
+        // see seller.controller.ts's sellerRegister.
+        ...(bypass ? { kycBypass: true } : { kycSessionToken: kyc.token }),
         phone: form.phone,
         name: form.name.trim(),
         email: form.email.trim(),
@@ -808,10 +829,29 @@ export default function Login() {
 
           <button
             className="btn btn-primary btn-block" style={{ marginTop: 4 }}
-            onClick={completeSignup} disabled={busy || !!kycBusy || kyc.status !== 'VERIFIED'}
+            onClick={() => completeSignup(false)} disabled={busy || !!kycBusy || kyc.status !== 'VERIFIED'}
           >
             {busy ? 'Setup ho raha hai…' : 'Complete Signup'}
           </button>
+
+          {/* TEMPORARY: only shown while KYC_SIGNUP_BYPASS_ENABLED is on
+              server-side (see the useEffect above) — while Aadhaar KYC
+              (KYC_PROVIDER) is not yet configured. Remove this block once
+              that provider is configured again. */}
+          {kycBypassEnabled && (
+            <>
+              <p className="xs muted dev" style={{ textAlign: 'center', marginTop: 10, marginBottom: 2 }}>
+                Aadhaar verification temporarily unavailable — you can continue and complete it later.
+              </p>
+              <button
+                className="btn btn-block" style={{ color: 'var(--muted)', marginTop: 2 }}
+                onClick={() => completeSignup(true)} disabled={busy || !!kycBusy}
+              >
+                {busy ? 'Setup ho raha hai…' : 'Skip for now'}
+              </button>
+            </>
+          )}
+
           <button className="btn btn-block" style={{ color: 'var(--muted)', marginTop: 6 }} onClick={() => { setErr(''); setStep('role') }}>← Back</button>
         </div>
       )}
