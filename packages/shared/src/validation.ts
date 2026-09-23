@@ -192,12 +192,13 @@ export const sellerRegistrationSchema = z
     // (audit finding — signup previously asked Experts for nothing more than
     // Owner/Reporter). Owner/Reporter are unaffected since this only fires
     // for partnerRole EXPERT.
+    //
+    // yearsOfExperience is intentionally OPTIONAL — left unvalidated here
+    // beyond its own field-level schema above (int, 0-80). A signup with it
+    // omitted must succeed; the column stays null, never a fabricated 0.
     if (data.partnerRole === PartnerRole.EXPERT) {
       if (!data.profession) {
         ctx.addIssue({ code: 'custom', path: ['profession'], message: 'Profession is required for Property Expert applications' })
-      }
-      if (data.yearsOfExperience == null) {
-        ctx.addIssue({ code: 'custom', path: ['yearsOfExperience'], message: 'Years of experience is required for Property Expert applications' })
       }
     }
   })

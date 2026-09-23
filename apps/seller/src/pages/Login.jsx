@@ -278,13 +278,14 @@ export default function Login() {
   // ── CONFIRM ROLE → REGISTER → dashboard (register step 2) ─────────────
   const confirmRole = async () => {
     if (!role) { setErr('Ek role choose karein'); return }
-    // Property Expert requires meaningful professional evidence before it
-    // even reaches the backend — mirrors sellerRegistrationSchema's
-    // superRefine (profession + yearsOfExperience required for EXPERT).
+    // Property Expert requires a profession before it even reaches the
+    // backend — mirrors sellerRegistrationSchema's superRefine. Years of
+    // Experience is OPTIONAL: only validated (must not be negative) when the
+    // user actually enters something; left blank, it is simply not sent.
     if (role === 'EXPERT') {
       if (!form.profession) { setErr('Profession select karein'); return }
-      if (form.yearsOfExperience === '' || Number(form.yearsOfExperience) < 0) {
-        setErr('Years of experience daaliye (0 ya usse zyada)'); return
+      if (form.yearsOfExperience !== '' && Number(form.yearsOfExperience) < 0) {
+        setErr('Years of experience 0 ya usse zyada honi chahiye'); return
       }
     }
     if (!tcAccepted) { setErr('Terms & Conditions accept karna zaroori hai'); return }
@@ -338,7 +339,8 @@ export default function Login() {
         ...(role === 'EXPERT' ? {
           profession: form.profession,
           licenseNumber: form.licenseNumber.trim() || undefined,
-          yearsOfExperience: Number(form.yearsOfExperience),
+          // Optional — omitted entirely when left blank, never a fake 0.
+          ...(form.yearsOfExperience !== '' ? { yearsOfExperience: Number(form.yearsOfExperience) } : {}),
         } : {}),
         // Backend requires tcAccepted: true literally — without it every
         // registration was rejected with a 400 (see roadmap.md Day 1).
@@ -661,7 +663,7 @@ export default function Login() {
                     <option value="">Select profession</option>
                     {PROFESSIONS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
                   </select></div>
-                <div className="field"><label>Years of Experience <span className="req">*</span></label>
+                <div className="field"><label>Years of Experience <span className="opt">(optional)</span></label>
                   <input
                     className="control" type="number" min="0" max="80"
                     placeholder="e.g. 5" value={form.yearsOfExperience}

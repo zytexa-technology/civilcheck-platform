@@ -155,10 +155,9 @@ export const sellerRegister = async (req: Request, res: Response) => {
       // If a caller ever does send a real value, it's honored as before.
       profession: profession || LEGACY_DEFAULT_PROFESSION,
       // Property Expert KYC hardening — only Expert applications collect
-      // these (sellerRegistrationSchema requires yearsOfExperience for
-      // EXPERT; licenseNumber stays optional there too — "where
-      // applicable"). Owner/Reporter never send them, so this is a no-op
-      // for those roles.
+      // these. Both are optional ("where applicable" for licenseNumber;
+      // yearsOfExperience has no default when omitted — never fabricated).
+      // Owner/Reporter never send them, so this is a no-op for those roles.
       licenseNumber: licenseNumber || null,
       yearsOfExperience: yearsOfExperience ?? null,
       bankAccount: bankAccount || null,
