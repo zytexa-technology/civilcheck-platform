@@ -4,12 +4,8 @@ import {
   kycUploadSchema,
   sellerRegistrationSchema,
   sellerProfileUpdateSchema,
-  aadhaarKycStartSchema,
-  aadhaarKycVerifySchema,
-  aadhaarKycDocumentSchema,
 } from '@civilcheck/shared'
-import * as kycSignupController from '../controllers/kycSignup.controller.js'
-import { kycOtpSendLimiter, kycOtpVerifyLimiter, digilockerLimiter } from '../middleware/rateLimiter.js'
+import { digilockerLimiter } from '../middleware/rateLimiter.js'
 import * as digilockerController from '../controllers/digilocker.controller.js'
 import * as sellerController from '../controllers/seller.controller.js'
 import { getDashboard } from '../controllers/earnings.controller.js'
@@ -26,20 +22,13 @@ const router = Router()
 // POST /api/seller/register
 router.post('/register', validateBody(sellerRegistrationSchema), sellerController.sellerRegister)
 
-// Mandatory signup Aadhaar KYC (Reporter / Owner / Expert) — pre-account, so
-// public + rate-limited; state is carried by an opaque session token.
-// POST /api/seller/kyc-signup/otp/send      { aadhaarNumber, sessionToken? }
-// POST /api/seller/kyc-signup/otp/verify    { sessionToken, otp }
-// GET  /api/seller/kyc-signup/upload-signature  (header x-kyc-session)
-// POST /api/seller/kyc-signup/document      { sessionToken, documentUrl }
-// GET  /api/seller/kyc-signup/status            (header x-kyc-session)
-// GET  /api/seller/kyc-signup/config             { bypassEnabled } — TEMPORARY, see kycSignup.controller.ts
-router.post('/kyc-signup/otp/send', kycOtpSendLimiter, validateBody(aadhaarKycStartSchema), kycSignupController.sendOtp)
-router.post('/kyc-signup/otp/verify', kycOtpVerifyLimiter, validateBody(aadhaarKycVerifySchema), kycSignupController.verifyOtp)
-router.get('/kyc-signup/upload-signature', kycOtpVerifyLimiter, kycSignupController.uploadSignature)
-router.post('/kyc-signup/document', kycOtpVerifyLimiter, validateBody(aadhaarKycDocumentSchema), kycSignupController.attachDocument)
-router.get('/kyc-signup/status', kycOtpVerifyLimiter, kycSignupController.status)
-router.get('/kyc-signup/config', kycSignupController.config)
+// Signup identity verification config — public (pre-account, no token).
+// The manual Aadhaar signup endpoints (/kyc-signup/*) that used to live here
+// are removed: Partner signup no longer collects an Aadhaar number, OTP or
+// Aadhaar photo for any role. DigiLocker replaces them, and whether it is
+// optional or mandatory is decided in config/identityVerification.ts.
+// GET /api/seller/signup/identity-config  → { provider, required, available }
+router.get('/signup/identity-config', sellerController.getSignupIdentityConfig)
 
 // DigiLocker identity verification. The callback and mock consent are public
 // browser redirects (identity is resolved from the single-use `state`); start
@@ -48,6 +37,15 @@ router.get('/kyc-signup/config', kycSignupController.config)
 // GET  /api/seller/digilocker/callback   → 302 to the Partner portal KYC page
 // GET  /api/seller/digilocker/status
 router.get('/digilocker/callback', digilockerLimiter, digilockerController.callback)
+
+// DigiLocker for SIGNUP (pre-account — no JWT exists yet, so these are public
+// and rate-limited; state/session are opaque, hashed and single-use). The
+// callback is the shared /digilocker/callback above, which dispatches on which
+// flow owns the state — API Setu registers only one redirect URI.
+// POST /api/seller/digilocker/signup/auth    { signupToken? } → { signupToken, authorizationUrl }
+// GET  /api/seller/digilocker/signup/status  (header x-digilocker-signup)
+router.post('/digilocker/signup/auth', digilockerLimiter, digilockerController.signupAuthorize)
+router.get('/digilocker/signup/status', digilockerLimiter, digilockerController.signupStatus)
 
 // ─── PROTECTED ROUTES ─────────────────────────────────────────────────────
 router.post('/digilocker/auth', digilockerLimiter, sellerMiddleware, digilockerController.authorize)

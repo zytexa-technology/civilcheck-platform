@@ -33,28 +33,8 @@ export const sellerLoginLimiter = rateLimit({
   message: { success: false, message: 'Too many login attempts. Please try again later.' },
 })
 
-// Signup Aadhaar KYC — OTP send. Every send costs a provider call and an SMS
-// to the Aadhaar holder, so this is tight (the service adds per-session and
-// per-Aadhaar caps on top of this IP cap).
-export const kycOtpSendLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 8,
-  standardHeaders: true,
-  legacyHeaders: false,
-  skip: isTestEnv,
-  message: { success: false, message: 'Too many OTP requests. Please try again later.', code: 'KYC_TOO_MANY_OTP' },
-})
-
-// Signup Aadhaar KYC — OTP verify / document / status (guess protection; the
-// service also caps attempts per session).
-export const kycOtpVerifyLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 30,
-  standardHeaders: true,
-  legacyHeaders: false,
-  skip: isTestEnv,
-  message: { success: false, message: 'Too many attempts. Please try again later.', code: 'KYC_TOO_MANY_ATTEMPTS' },
-})
+// The signup Aadhaar KYC limiters (kycOtpSendLimiter / kycOtpVerifyLimiter)
+// were removed along with the manual Aadhaar signup endpoints they protected.
 
 // DigiLocker verification (start / callback / status). Every start costs a DB
 // row and a redirect to a government service; the callback is a public GET.

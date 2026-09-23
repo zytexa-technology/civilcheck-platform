@@ -56,32 +56,32 @@ export const getMe = async () => {
   return response.data
 }
 
-// ─── SIGNUP AADHAAR KYC (Reporter / Owner / Expert — mandatory) ─────────────
-// Pre-account: state travels as an opaque session token (header, never the
-// URL). The Aadhaar number is only ever sent in the OTP-send request body.
-export const kycSendOtp = async (aadhaarNumber, sessionToken) => {
-  const response = await API.post('/seller/kyc-signup/otp/send', { aadhaarNumber, ...(sessionToken ? { sessionToken } : {}) })
+// ─── SIGNUP IDENTITY VERIFICATION (Owner / Reporter / Expert — DigiLocker) ──
+// The manual Aadhaar signup calls (number + OTP + Aadhaar photo upload) are
+// gone: signup collects no Aadhaar data for any role. This single public
+// (pre-account) call tells the signup UI how to render the Identity
+// Verification step — whether DigiLocker is currently configured, and whether
+// verification is mandatory. Both come from ONE backend source of truth,
+// apps/api/src/config/identityVerification.ts, so flipping DigiLocker from
+// optional to mandatory needs no frontend change.
+export const getSignupIdentityConfig = async () => {
+  const response = await API.get('/seller/signup/identity-config')
   return response.data
 }
 
-export const kycVerifyOtp = async (sessionToken, otp) => {
-  const response = await API.post('/seller/kyc-signup/otp/verify', { sessionToken, otp })
+// Starts the pre-account DigiLocker OAuth round trip. Returns the opaque
+// signup-session token to keep, plus the DigiLocker URL to navigate to. The
+// token carries no identity data — the server resolves it to a session.
+export const startSignupDigilocker = async (signupToken) => {
+  const response = await API.post('/seller/digilocker/signup/auth', signupToken ? { signupToken } : {})
   return response.data
 }
 
-export const kycGetUploadSignature = async (sessionToken) => {
-  const response = await API.get('/seller/kyc-signup/upload-signature', { headers: { 'x-kyc-session': sessionToken } })
-  return response.data
-}
-
-export const kycAttachDocument = async (sessionToken, documentUrl) => {
-  const response = await API.post('/seller/kyc-signup/document', { sessionToken, documentUrl })
-  return response.data
-}
-
-// TEMPORARY: whether the "Skip for now" Aadhaar KYC bypass is available —
-// see KYC_SIGNUP_BYPASS_ENABLED in apps/api/.env.sample. Remove alongside it.
-export const getKycBypassConfig = async () => {
-  const response = await API.get('/seller/kyc-signup/config')
+// Reads the result after the browser returns from DigiLocker. The token goes
+// in a header, never the query string, so it stays out of access logs.
+export const getSignupDigilockerStatus = async (signupToken) => {
+  const response = await API.get('/seller/digilocker/signup/status', {
+    headers: { 'x-digilocker-signup': signupToken },
+  })
   return response.data
 }

@@ -161,13 +161,17 @@ export const sellerRegistrationSchema = z
     selfieUrl: z.url('selfieUrl must be a valid URL').optional(),
     barCouncilDoc: z.url('barCouncilDoc must be a valid URL').optional(),
     digitalSignature: z.string().trim().min(2).optional(),
-    // Mandatory Aadhaar KYC session (Reporter/Owner/Expert) — opaque token from
-    // POST /api/seller/kyc-signup/otp/send. Presence is checked here; that the
-    // session is genuinely VERIFIED is enforced server-side in sellerRegister.
-    kycSessionToken: z.string().min(1).max(200).optional(),
-    // TEMPORARY: only has any effect when the server's KYC_SIGNUP_BYPASS_ENABLED
-    // is also on — see sellerRegister. Remove alongside that flag.
-    kycBypass: z.literal(true).optional(),
+    // The Aadhaar signup-session fields (kycSessionToken / kycBypass) were
+    // removed with the manual Aadhaar flow — no Aadhaar number, OTP or photo
+    // is collected at signup for any role.
+    //
+    // Opaque token for a pre-account DigiLocker verification (64 hex chars,
+    // from POST /seller/digilocker/signup/auth). Carries no identity data on
+    // its own: the server resolves it to a DigilockerSignupSession and only a
+    // genuinely VERIFIED session counts. Optional here because it is only
+    // required when DIGILOCKER_SIGNUP_SKIP_ENABLED=false, which sellerRegister
+    // enforces server-side.
+    digilockerSignupToken: z.string().regex(/^[0-9a-f]{64}$/).optional(),
   })
   .superRefine((data, ctx) => {
     // Bank details travel as a pair — account number without IFSC is unroutable
@@ -199,22 +203,11 @@ export const sellerRegistrationSchema = z
   })
 export type SellerRegistrationInput = z.infer<typeof sellerRegistrationSchema>
 
-// ─── SIGNUP AADHAAR KYC ───────────────────────────────────────────────────────
-// Shape checks only — the Verhoeff checksum, provider call and all state
-// transitions are enforced server-side (services/aadhaarKyc). Error messages
-// here never echo the submitted value.
-export const aadhaarKycStartSchema = z.object({
-  aadhaarNumber: z.string().min(1, 'Aadhaar number is required').max(20, 'Enter a valid 12-digit Aadhaar number'),
-  sessionToken: z.string().max(200).optional(),
-})
-export const aadhaarKycVerifySchema = z.object({
-  sessionToken: z.string().min(1, 'Verification session is required').max(200),
-  otp: z.string().regex(/^\d{4,8}$/, 'Enter the OTP sent to your Aadhaar-linked mobile number'),
-})
-export const aadhaarKycDocumentSchema = z.object({
-  sessionToken: z.string().min(1, 'Verification session is required').max(200),
-  documentUrl: z.url('documentUrl must be a valid URL'),
-})
+// The signup Aadhaar KYC schemas (aadhaarKycStartSchema / VerifySchema /
+// DocumentSchema) were removed with the manual Aadhaar signup flow — Partner
+// signup no longer collects an Aadhaar number, OTP or Aadhaar photo for any
+// role. Identity verification is DigiLocker; see
+// apps/api/src/config/identityVerification.ts.
 
 export const sellerLoginSchema = z.object({
   email: emailSchema,

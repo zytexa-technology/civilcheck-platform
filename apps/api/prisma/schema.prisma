@@ -2241,6 +2241,36 @@ model DigilockerAuthState {
   @@index([expiresAt])
 }
 
+// Pre-account DigiLocker verification for Partner SIGNUP.
+//
+// DigilockerAuthState above belongs to an existing Seller (required FK), so it
+// cannot carry a verification that happens BEFORE the account exists. This is
+// the signup equivalent: the browser holds only an opaque random token (its
+// SHA-256 is what is stored, never the token itself), and the OAuth `state` is
+// stored hashed too, exactly like the post-login flow. sellerRegister consumes
+// a VERIFIED row and then marks it used, so one verification creates one
+// account.
+//
+// Deliberately minimal: no DigiLocker access/refresh token is ever persisted
+// (used in memory during the callback only), no Aadhaar number, no document
+// contents. `verifiedName` exists solely so registration can confirm the
+// account being created belongs to the identity that was verified.
+model DigilockerSignupSession {
+  id            String           @id @default(uuid(7))
+  tokenHash     String           @unique // SHA-256 of the opaque session token held by the browser
+  stateHash     String?          @unique // SHA-256 of the in-flight OAuth state (single use)
+  status        DigilockerStatus @default(PENDING)
+  verifiedName  String? // provider-reported name, used to check it matches the signup name
+  verifiedAt    DateTime?
+  failureReason String? // short code only (e.g. NAME_MISMATCH) — never provider payloads
+  consumedAt    DateTime? // set when a Seller row is created from this session
+  expiresAt     DateTime
+  createdAt     DateTime         @default(now())
+
+  @@index([expiresAt])
+  @@index([status])
+}
+
 enum PropertyClassification {
   CLEAR
   DISPUTED

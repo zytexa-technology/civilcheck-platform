@@ -45,9 +45,9 @@ export async function uploadToCloudinary(file, purpose) {
   return uploadWithSignature(file, upload)
 }
 
-// Same upload, but with a signature the caller already obtained — used by the
-// pre-account signup Aadhaar step, whose signature comes from the KYC-session
-// endpoint (there is no logged-in seller yet).
+// Same upload, but with a signature the caller already obtained. (The
+// pre-account signup Aadhaar step that used this directly has been removed;
+// uploadToCloudinary above is the remaining caller.)
 export async function uploadWithSignature(file, upload) {
   validate(file, upload)
 

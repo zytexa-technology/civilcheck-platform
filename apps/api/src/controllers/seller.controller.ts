@@ -8,12 +8,9 @@ import { notifySeller } from '../services/notification.service.js'
 import { sendWelcomeVerificationEmail } from '../services/emailVerification.service.js'
 import { clientIp } from '../services/audit.service.js'
 import { hasAcceptedCurrentTerms, recordTermsAcceptance, TermsError } from '../services/terms.service.js'
-import {
-  KycError,
-  KYC_REQUIRED_MESSAGE,
-  DUPLICATE_AADHAAR_MESSAGE,
-  requireVerifiedSession,
-} from '../services/aadhaarKyc/aadhaarKyc.service.js'
+import { isDigilockerSignupSkipEnabled } from '../config/identityVerification.js'
+import { getDigilockerConfig } from '../services/digilocker/digilocker.config.js'
+import { consumeVerifiedSignupSession } from '../services/digilocker/digilocker.signup.service.js'
 
 // bcrypt has a hard 72-byte input limit; sellerRegistrationSchema's
 // passwordSchema already caps input at 72 characters so this only guards
@@ -44,7 +41,6 @@ export const sellerRegister = async (req: Request, res: Response) => {
   const {
     phone, name, email, address, password, city, state, profession, bankAccount, ifsc, partnerRole,
     tcAccepted, selfieUrl, barCouncilDoc, digitalSignature, licenseNumber, yearsOfExperience,
-    kycSessionToken,
   } = req.body
 
   // Basic validation — yeh sab fields zaroori hain
@@ -82,64 +78,54 @@ export const sellerRegister = async (req: Request, res: Response) => {
       return
     }
 
-    // Mandatory Aadhaar KYC — Reporter, Property Owner and Expert cannot
-    // create an account without a VERIFIED session (Aadhaar OTP verified by
-    // the KYC provider AND the Aadhaar photo uploaded). Enforced here, not in
-    // the UI: a missing/invalid partnerRole is rejected too, so omitting the
-    // role is not a way around it. A retry after a partial signup passes the
-    // same session (it may already be linked to this very seller row).
+    // Identity verification gate — identical for all three partner roles
+    // (Property Owner / Reporter / Expert). The role itself is still
+    // mandatory and validated here, so omitting it is not a way around any
+    // later gate.
     if (partnerRole !== 'OWNER' && partnerRole !== 'REPORTER' && partnerRole !== 'EXPERT') {
-      res.status(403).json({ success: false, message: KYC_REQUIRED_MESSAGE, code: 'KYC_REQUIRED' })
+      res.status(403).json({
+        success: false,
+        message: 'Choose a partner role (Property Owner, Reporter or Expert) to continue.',
+        code: 'PARTNER_ROLE_REQUIRED',
+      })
       return
     }
 
-    // TEMPORARY: Aadhaar KYC signup bypass while the KYC_PROVIDER (surepass)
-    // credentials are not configured — see KYC_SIGNUP_BYPASS_ENABLED in
-    // .env.sample. This is UNRELATED to the separate DigiLocker/API Setu
-    // approval (that integration is optional evidence on the post-login KYC
-    // page and never blocked signup); remove this block, the kycBypass field
-    // in sellerRegistrationSchema, and the /seller/kyc-signup/config route
-    // once KYC_PROVIDER_API_KEY is actually set and Aadhaar KYC is verified
-    // to work end-to-end again — do not leave it tied to DigiLocker approval.
+    // The manual Aadhaar signup flow (number + provider OTP + Aadhaar photo)
+    // has been removed entirely — nothing here collects, verifies or stores
+    // Aadhaar data any more. DigiLocker replaces it.
     //
-    // Requires BOTH the server flag AND an explicit client `kycBypass: true`
-    // (only ever sent by the "Skip for now" button), so it can never fire
-    // silently. It only skips the requireVerifiedSession() call below —
-    // partnerRole, tcAccepted, password and the (separate, still mandatory)
-    // signup email-OTP step are completely unaffected. kycSession stays
-    // null, so every Aadhaar field written further down is left at its
-    // honest not-verified schema default (see sellerData below) — a skipped
-    // signup is never recorded as VERIFIED.
-    const kycBypassEnabled = process.env.KYC_SIGNUP_BYPASS_ENABLED === 'true'
-    const kycBypassRequested = kycBypassEnabled && req.body.kycBypass === true
-
-    let kycSession: Awaited<ReturnType<typeof requireVerifiedSession>> | null = null
-    // Only ever populated on the real (non-bypass) path below — used further
-    // down to release a different account's stale aadhaarHash link.
-    let aadhaarHolder: { id: string; emailVerified: boolean } | null = null
-    if (kycBypassRequested) {
-      logger.warn(`[sellerRegister] TEMPORARY Aadhaar KYC bypass used — role=${partnerRole}, email=${email}`)
-    } else {
-      try {
-        kycSession = await requireVerifiedSession(kycSessionToken, existingEmail?.id)
-      } catch (e) {
-        if (e instanceof KycError) {
-          res.status(e.status).json({ success: false, message: e.message, code: e.code })
-          return
-        }
-        throw e
-      }
-      // One identity <-> one Partner account. A verified account already holding
-      // this Aadhaar blocks signup (generic message — never reveals which
-      // account); an abandoned, email-unverified signup does not.
-      aadhaarHolder = await prisma.seller.findUnique({
-        where: { aadhaarHash: kycSession.aadhaarHash },
-        select: { id: true, emailVerified: true },
-      })
-      if (aadhaarHolder && aadhaarHolder.id !== existingEmail?.id && aadhaarHolder.emailVerified) {
-        res.status(409).json({ success: false, message: DUPLICATE_AADHAAR_MESSAGE, code: 'KYC_DUPLICATE_AADHAAR' })
+    // Whether it may be skipped is decided in ONE place:
+    // config/identityVerification.ts (DIGILOCKER_SIGNUP_SKIP_ENABLED). This is
+    // enforced HERE as well as in the UI — hiding the button in React is never
+    // the only thing stopping an unverified signup.
+    //
+    // digilockerVerified stays false on the skip path, so no digilocker*
+    // column is written and the partner is recorded as NOT verified.
+    let digilockerVerified = false
+    if (!isDigilockerSignupSkipEnabled()) {
+      // Skip disabled → verification is MANDATORY. Consume the pre-account
+      // session created by the DigiLocker signup round trip; it is single-use
+      // and its verified name must match the name being registered. Anything
+      // missing, expired, replayed, cancelled or merely PENDING returns null
+      // and the signup is refused — nothing is ever assumed verified.
+      const verified = await consumeVerifiedSignupSession(req.body?.digilockerSignupToken, name)
+      if (!verified) {
+        const providerConfigured = getDigilockerConfig().mode !== 'disabled'
+        logger.warn(
+          `[sellerRegister] refused — DigiLocker verification required but not completed ` +
+            `(role=${partnerRole}, providerConfigured=${providerConfigured})`
+        )
+        res.status(403).json({
+          success: false,
+          code: 'DIGILOCKER_VERIFICATION_REQUIRED',
+          message: providerConfigured
+            ? 'Please complete DigiLocker verification before finishing signup.'
+            : 'Identity verification is required but is not available right now. Please try again later.',
+        })
         return
       }
+      digilockerVerified = true
     }
 
     const passwordHash = await bcrypt.hash(password, PASSWORD_BCRYPT_ROUNDS)
@@ -184,71 +170,33 @@ export const sellerRegister = async (req: Request, res: Response) => {
       digitalSignature: digitalSignature || null,
       // Owner → APPROVED immediately; everyone else keeps the schema default.
       ...(instantApprove ? { kycStatus: 'APPROVED' as const } : {}),
-      // Aadhaar KYC evidence (the number itself is never stored). The Aadhaar
-      // photo lives in the existing private identity-document slot and stays
-      // subject to the existing manual admin identity review (PENDING) — OTP
-      // success alone never auto-approves anything.
-      // TEMPORARY bypass: kycSession is null when skipped (see above) — every
-      // field below is then simply omitted, leaving aadhaarVerified at its
-      // schema default (false) and aadhaarKycStatus/identityVerificationStatus
-      // at their schema default (null, "not yet submitted"/not verified).
-      // Nothing here fabricates a VERIFIED status or a fake document.
-      ...(kycSession ? {
-        aadhaarKycStatus: 'VERIFIED' as const,
-        aadhaarVerified: true,
-        aadhaarHash: kycSession.aadhaarHash,
-        aadhaarLast4: kycSession.aadhaarLast4,
-        aadhaarVerifiedAt: kycSession.verifiedAt ?? new Date(),
-        identityDocumentUrl: kycSession.documentUrl,
-        identityDocumentUploadedAt: new Date(),
-        identityVerificationStatus: 'PENDING' as const,
-      } : {}),
+      // No Aadhaar field is ever written now — those legacy columns
+      // (aadhaarVerified / aadhaarKycStatus / aadhaarHash / aadhaarLast4)
+      // keep their schema defaults and exist only for historical records.
+      //
+      // digilocker* is written ONLY when a real provider round trip verified
+      // this person (consumeVerifiedSignupSession above). On the "Skip for
+      // now" path it stays null — i.e. genuinely "Not Verified", never a
+      // fabricated success.
+      ...(digilockerVerified
+        ? {
+            digilockerStatus: 'VERIFIED' as const,
+            digilockerProvider: 'DIGILOCKER',
+            digilockerVerifiedAt: new Date(),
+          }
+        : {}),
       // baaki sab default values schema se aayenge:
       // badge: BRONZE, kycStatus: PENDING, accuracyScore: 100, totalEarnings: 0
     }
 
     // A previously abandoned signup (unverified row already sitting on this
     // exact email — a verified one already short-circuited with 409 above)
-    // is updated in place rather than rejected or duplicated.
-    // Seller write + session link (+ releasing the identity from a different,
-    // abandoned unverified signup) commit atomically, so a failure leaves no
-    // half-linked KYC state; the unique aadhaarHash index is the last line of
-    // defence against two concurrent signups claiming one identity.
-    let seller
-    try {
-      seller = await prisma.$transaction(async (tx) => {
-        if (aadhaarHolder && aadhaarHolder.id !== existingEmail?.id) {
-          await tx.seller.update({
-            where: { id: aadhaarHolder.id },
-            data: { aadhaarHash: null, aadhaarLast4: null, aadhaarKycStatus: null, aadhaarVerified: false, aadhaarVerifiedAt: null },
-          })
-        }
-        const saved = existingEmail
-          ? await tx.seller.update({ where: { id: existingEmail.id }, data: sellerData })
-          : await tx.seller.create({ data: { ...sellerData, emailVerified: false } })
-        // TEMPORARY bypass: no session to link when kycSession is null (see
-        // above) — nothing here to do in that case, same as before this
-        // feature existed for a seller that never touched Aadhaar KYC.
-        if (kycSession) {
-          // An earlier abandoned attempt of this same seller may hold the 1:1 link.
-          await tx.partnerKycSession.updateMany({ where: { sellerId: saved.id, id: { not: kycSession.id } }, data: { sellerId: null } })
-          await tx.partnerKycSession.update({
-            where: { id: kycSession.id },
-            data: { sellerId: saved.id, consumedAt: kycSession.consumedAt ?? new Date() },
-          })
-        }
-        return saved
-      }, { maxWait: 15000, timeout: 30000 })
-    } catch (e) {
-      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
-        const target = JSON.stringify(e.meta?.target ?? '')
-        if (target.includes('aadhaarHash')) {
-          res.status(409).json({ success: false, message: DUPLICATE_AADHAAR_MESSAGE, code: 'KYC_DUPLICATE_AADHAAR' })
-          return
-        }
-      }
-      throw e
-    }
+    // is updated in place rather than rejected or duplicated. No identity
+    // session is linked any more: the Aadhaar signup session is gone and
+    // DigiLocker happens after the account exists.
+    const seller = existingEmail
+      ? await prisma.seller.update({ where: { id: existingEmail.id }, data: sellerData })
+      : await prisma.seller.create({ data: { ...sellerData, emailVerified: false } })
 
     // Mandatory Terms & Conditions / Privacy Policy consent — sellerData's
     // own tcAccepted (compliance checkbox, PDF 6.1) is preserved exactly as
@@ -587,6 +535,25 @@ export const acceptSellerTerms = async (req: Request, res: Response) => {
     }
     throw err
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/seller/signup/identity-config — PUBLIC (pre-account, no token).
+// ─────────────────────────────────────────────────────────────────────────────
+// Tells the signup UI how to render the Identity Verification step, so the
+// skip-allowed decision lives only in config/identityVerification.ts and never
+// has to be duplicated in the frontend:
+//   skipEnabled → show "Skip for now" (backend enforces the same rule)
+//   available   → is the DigiLocker provider actually configured right now
+// Mirrors the existing public /config pattern (verification.controller.ts's
+// getMarketplaceConfig). Exposes no secrets — two booleans.
+export const getSignupIdentityConfig = async (_req: Request, res: Response) => {
+  res.json({
+    success: true,
+    provider: 'DIGILOCKER',
+    skipEnabled: isDigilockerSignupSkipEnabled(),
+    available: getDigilockerConfig().mode !== 'disabled',
+  })
 }
 
 export const getSellerProfile = async (req: Request, res: Response) => {

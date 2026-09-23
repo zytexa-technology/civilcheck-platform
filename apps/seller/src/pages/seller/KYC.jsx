@@ -457,7 +457,7 @@ export default function KYC() {
 
           {/* Identity Document — manual admin review */}
           <Card>
-            <CardHead icon="🆔" tint="var(--seal-soft)" title="Identity Document Verification" sub="Upload a government ID (e.g. Aadhaar) — a CivilCheck admin manually reviews it" />
+            <CardHead icon="🆔" tint="var(--seal-soft)" title="Identity Document Verification" sub="Upload a government ID (e.g. passport, driving licence, voter ID) — a CivilCheck admin manually reviews it" />
             <div style={S.cardBd}>
               {idDocErr && <InlineMsg tone="err">❌ {idDocErr}</InlineMsg>}
               {idDocMsg && <InlineMsg tone="ok">{idDocMsg}</InlineMsg>}
@@ -499,7 +499,7 @@ export default function KYC() {
                   <input ref={idDocInput} type="file" accept=".pdf,.jpg,.jpeg,.png" style={{ display: 'none' }} onChange={handleIdDocFile} />
 
                   <DocSlot
-                    label="Identity document (e.g. Aadhaar)"
+                    label="Identity document (passport, driving licence, voter ID)"
                     required
                     picked={idDocFile}
                     busy={idDocUploading}

@@ -137,28 +137,10 @@ export async function registerAndLoginBuyer(): Promise<{ token: string; userId: 
 // either way — sellerMiddleware re-checks kycStatus from the DB per request,
 // never from the token). This helper still returns the exact same
 // { token, sellerId, phone } shape every existing caller expects.
-// Partner signup now requires a VERIFIED Aadhaar KYC session (real flow =
-// provider OTP + private photo upload). Tests cannot reach a KYC provider, so
-// fixtures seed an already-VERIFIED session row directly in the test DB — the
-// production API has no equivalent shortcut. The hash is random, never a real
-// Aadhaar.
-export async function createVerifiedKycSessionToken(): Promise<string> {
-  const token = crypto.randomBytes(32).toString('hex')
-  const id = crypto.randomUUID()
-  await prisma.partnerKycSession.create({
-    data: {
-      id,
-      tokenHash: crypto.createHash('sha256').update(token).digest('hex'),
-      status: 'VERIFIED',
-      aadhaarHash: crypto.randomBytes(32).toString('hex'),
-      aadhaarLast4: '0000',
-      documentUrl: `https://res.cloudinary.com/demo/image/upload/civilcheck/kyc-aadhaar/${id}/fixture.png`,
-      verifiedAt: new Date(),
-      expiresAt: new Date(Date.now() + 60 * 60 * 1000),
-    },
-  })
-  return token
-}
+// Partner signup no longer requires any identity credential: the manual
+// Aadhaar signup flow (number + provider OTP + Aadhaar photo) was removed and
+// DigiLocker verification happens after the account exists. Fixtures
+// therefore just register directly — there is no session to seed.
 
 export async function registerApprovedSeller(
   adminToken: string,
@@ -166,10 +148,8 @@ export async function registerApprovedSeller(
 ): Promise<{ token: string; sellerId: string; phone: string }> {
   const phone = uniquePhone()
   const email = uniqueEmail('seller')
-  const kycSessionToken = await createVerifiedKycSessionToken()
   const registerRes = await withTransientRetry(() =>
     request(app).post('/api/seller/register').send({
-      kycSessionToken,
       phone,
       name: 'Test Seller',
       email,
