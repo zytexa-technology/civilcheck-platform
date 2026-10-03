@@ -53,13 +53,21 @@ export default function OwnerDashboard({ go }) {
 
   const [props, setProps] = useState([])
   const [loadError, setLoadError] = useState(false)
+  // Previously absent — with props starting as [], the stats briefly showed
+  // 0/0/0/0 and "Recent Properties" showed the "add your first property"
+  // empty state on every load, even for an Owner with real properties. This
+  // is the first screen shown after login, so that flash was the most
+  // visible instance of the misleading-empty-state bug in the app.
+  const [loading, setLoading] = useState(true)
 
   const load = () => {
     let live = true
     setLoadError(false)
+    setLoading(true)
     getMyProperties()
       .then((data) => { if (live) setProps((data?.properties || []).map(propertyFromApi)) })
       .catch(() => { if (live) setLoadError(true) })
+      .finally(() => { if (live) setLoading(false) })
     return () => { live = false }
   }
 
@@ -107,12 +115,24 @@ export default function OwnerDashboard({ go }) {
 
       {/* Stats — "Pending Review" removed (direct-publish means a new
           submission is never pending); replaced with a plain total count. */}
-      <div className="grid g4" style={{ marginBottom: 20 }}>
-        <StatCard icon="props" color="#137a56" value={ap} label="Published" trend="▲" />
-        <StatCard icon="add"   color="#B67A12" value={active.length} label="Total Properties" />
-        <StatCard icon="file"  color="#2b5c8f" value={dr} label="Drafts" />
-        <StatCard icon="chart" color="#B0812F" value={vw} label="Total Views" trend="▲ 8%" />
-      </div>
+      {loading ? (
+        <div className="grid g4" style={{ marginBottom: 20 }}>
+          {[0, 1, 2, 3].map((i) => (
+            <Card key={i} className="stat">
+              <div className="skel" style={{ width: 38, height: 38, borderRadius: 11 }} />
+              <div className="skel" style={{ height: 24, width: '50%', marginTop: 12 }} />
+              <div className="skel" style={{ height: 12, width: '70%', marginTop: 8 }} />
+            </Card>
+          ))}
+        </div>
+      ) : (
+        <div className="grid g4" style={{ marginBottom: 20 }}>
+          <StatCard icon="props" color="#137a56" value={ap} label="Published" trend="▲" />
+          <StatCard icon="add"   color="#B67A12" value={active.length} label="Total Properties" />
+          <StatCard icon="file"  color="#2b5c8f" value={dr} label="Drafts" />
+          <StatCard icon="chart" color="#B0812F" value={vw} label="Total Views" trend="▲ 8%" />
+        </div>
+      )}
 
       {/* Workflow — direct-publish: no admin approval gate for Owner
           listing (Property VERIFICATION, requested by a Buyer afterward, is
@@ -137,7 +157,19 @@ export default function OwnerDashboard({ go }) {
           </p>
         </Card>
       )}
-      {active.length ? (
+      {loading ? (
+        <div className="prop-grid">
+          {[0, 1, 2].map((i) => (
+            <Card key={i} className="prop" style={{ padding: 0 }}>
+              <div className="skel" style={{ height: 120, borderRadius: 0 }} />
+              <div style={{ padding: 15 }}>
+                <div className="skel" style={{ height: 14, width: '70%', marginBottom: 10 }} />
+                <div className="skel" style={{ height: 12, width: '45%' }} />
+              </div>
+            </Card>
+          ))}
+        </div>
+      ) : active.length ? (
         <div className="prop-grid">
           {active.slice(0, 3).map((p) => <PropTile key={p.id} p={p} onDelete={handleDelete} onUpdated={handleUpdated} />)}
         </div>

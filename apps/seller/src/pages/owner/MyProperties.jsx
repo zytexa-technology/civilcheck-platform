@@ -14,13 +14,21 @@ export default function OwnerProperties() {
   const [props, setProps] = useState([])
   const [filter, setFilter] = useState('all')
   const [loadError, setLoadError] = useState(false)
+  // Previously absent — with props starting as [], the "koi property nahi"
+  // empty state rendered for the whole fetch duration, falsely telling a
+  // partner with real properties that they have none until the request
+  // resolved. `loading` lets that empty state show only once we actually
+  // know the list is empty.
+  const [loading, setLoading] = useState(true)
 
   const load = () => {
     setLoadError(false)
+    setLoading(true)
     // 'deleted' filter ke liye backend ko status bhejo (warna deleted skip hote hain)
     getMyProperties(filter === 'deleted' ? { status: 'DELETED' } : {})
       .then((data) => setProps((data?.properties || []).map(propertyFromApi)))
       .catch(() => setLoadError(true))
+      .finally(() => setLoading(false))
   }
 
   useEffect(load, [filter])
@@ -65,7 +73,19 @@ export default function OwnerProperties() {
           </p>
         </Card>
       )}
-      {visible.length ? (
+      {loading ? (
+        <div className="prop-grid">
+          {[0, 1, 2].map((i) => (
+            <Card key={i} className="prop" style={{ padding: 0 }}>
+              <div className="skel" style={{ height: 120, borderRadius: 0 }} />
+              <div style={{ padding: 15 }}>
+                <div className="skel" style={{ height: 14, width: '70%', marginBottom: 10 }} />
+                <div className="skel" style={{ height: 12, width: '45%' }} />
+              </div>
+            </Card>
+          ))}
+        </div>
+      ) : visible.length ? (
         <div className="prop-grid">
           {visible.map((p) => <PropTile key={p.id} p={p} onDelete={handleDelete} onUpdated={handleUpdated} />)}
         </div>

@@ -558,44 +558,51 @@ export const getSignupIdentityConfig = async (_req: Request, res: Response) => {
 export const getSellerProfile = async (req: Request, res: Response) => {
   const sellerId = req.seller!.id
 
-  const seller = await prisma.seller.findUnique({
-    where: { id: sellerId },
-    include: {
-      // Listings ka count aur basic info
-      listings: {
-        select: {
-          id: true,
-          address: true,
-          city: true,
-          status: true,
-          propertyStatus: true,
-          disputeType: true,
-          views: true,
-          price: true,
-          createdAt: true,
-        },
-        orderBy: { createdAt: 'desc' },
-        take: 5, // sirf latest 5 listings
+  // Previously 4 sequential round trips (seller+listings fetch, then
+  // totalListings count, then approvedListings count, then the terms
+  // check) — none of them depend on each other's result, they're all keyed
+  // off the same sellerId. This is the endpoint AuthContext.jsx's session
+  // restore and refreshSeller() both call, so every one of those round
+  // trips was on the Partner app's startup critical path. Running them
+  // concurrently doesn't change what's queried or returned, only that they
+  // no longer wait on each other.
+  const [seller, totalListings, approvedListings, termsAccepted] = await Promise.all([
+    prisma.seller.findUnique({
+      where: { id: sellerId },
+      include: {
+        // Listings ka count aur basic info
+        listings: {
+          select: {
+            id: true,
+            address: true,
+            city: true,
+            status: true,
+            propertyStatus: true,
+            disputeType: true,
+            views: true,
+            price: true,
+            createdAt: true,
+          },
+          orderBy: { createdAt: 'desc' },
+          take: 5, // sirf latest 5 listings
+        }
       }
-    }
-  })
+    }),
+    prisma.listing.count({ where: { sellerId } }),
+    prisma.listing.count({ where: { sellerId, status: 'APPROVED' } }),
+    // Mandatory Terms & Conditions acceptance — this is the seller app's own
+    // bootstrap/refresh probe (AuthContext.jsx's initial load + refreshSeller()
+    // both call this endpoint), so it needs the same flag loginBuyer/loginSeller/
+    // getMe already surface, not just the login response.
+    hasAcceptedCurrentTerms({ sellerId }),
+  ])
 
   if (!seller) {
     res.status(404).json({ success: false, message: 'Partner not found' })
     return
   }
 
-  // Total listings count alag se nikaalo
-  const totalListings = await prisma.listing.count({ where: { sellerId } })
-  const approvedListings = await prisma.listing.count({
-    where: { sellerId, status: 'APPROVED' }
-  })
-
-  // Mandatory Terms & Conditions acceptance — this is the seller app's own
-  // bootstrap/refresh probe (AuthContext.jsx's initial load + refreshSeller()
-  // both call this endpoint), so it needs the same flag loginBuyer/loginSeller/
-  // getMe already surface, not just the login response.
-  const termsAcceptanceRequired = !(await hasAcceptedCurrentTerms({ sellerId }))
+  const termsAcceptanceRequired = !termsAccepted
 
   res.json({
     success: true,

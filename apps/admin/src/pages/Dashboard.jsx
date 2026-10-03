@@ -1,37 +1,45 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, lazy, Suspense } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { useNavigate, useLocation, Routes, Route, Navigate } from 'react-router-dom'
 import { roleLabel } from '../utils/permissions'
 import { logout } from '../api/auth.api'
+import { LoadingState } from '../components/ui'
 
-// Pages import karenge ek ek karke
+// DashboardHome is the index route — what an admin sees immediately after
+// login/reload — so it stays a normal eager import; nothing should delay it.
+// Every other page here is one click away, not on the critical first-paint
+// path, so it's lazy-loaded: its code only downloads when actually
+// navigated to, instead of all 24 pages' code shipping in the same bundle
+// the admin waits on just to see the Dashboard. Routing/behavior is
+// unchanged — React.lazy + the <Suspense> below only changes when the
+// code downloads, not what renders once it has.
 import DashboardHome from './admin/DashboardHome'
-import Sellers from './admin/Sellers'
-import Listings from './admin/Listings'
-import Properties from './admin/Properties'
-import ReporterPosts from './admin/ReporterPosts'
-import RewardLedger from './admin/RewardLedger'
-import FinancialDashboard from './admin/FinancialDashboard'
-import SpecialRequests from './admin/SpecialRequests'
-import VerificationRequests from './admin/VerificationRequests'
-import Claims from './admin/Claims'
-import ReportFlags from './admin/ReportFlags'
-import Analytics from './admin/Analytics'
-import Buyers from './admin/Buyers'
-import Refunds from './admin/Refunds'
-import Reports from './admin/Reports'
-import AlertSubs from './admin/AlertSubs'
-import Settings from './admin/Settings'
-import AuditLog from './admin/AuditLog'
-import Admins from './admin/Admins'
-import PayoutLedger from './admin/PayoutLedger'
-import ContentControl from './admin/ContentControl'
-import Payments from './admin/Payments'
-import AdminSettlements from './admin/Settlements'
-import Security from './admin/Security'
-import SupportDashboard from './admin/SupportDashboard'
-import DeletedRecords from './admin/DeletedRecords'
-import Advertisements from './admin/Advertisements'
+const Sellers = lazy(() => import('./admin/Sellers'))
+const Listings = lazy(() => import('./admin/Listings'))
+const Properties = lazy(() => import('./admin/Properties'))
+const ReporterPosts = lazy(() => import('./admin/ReporterPosts'))
+const RewardLedger = lazy(() => import('./admin/RewardLedger'))
+const FinancialDashboard = lazy(() => import('./admin/FinancialDashboard'))
+const SpecialRequests = lazy(() => import('./admin/SpecialRequests'))
+const VerificationRequests = lazy(() => import('./admin/VerificationRequests'))
+const Claims = lazy(() => import('./admin/Claims'))
+const ReportFlags = lazy(() => import('./admin/ReportFlags'))
+const Analytics = lazy(() => import('./admin/Analytics'))
+const Buyers = lazy(() => import('./admin/Buyers'))
+const Refunds = lazy(() => import('./admin/Refunds'))
+const Reports = lazy(() => import('./admin/Reports'))
+const AlertSubs = lazy(() => import('./admin/AlertSubs'))
+const Settings = lazy(() => import('./admin/Settings'))
+const AuditLog = lazy(() => import('./admin/AuditLog'))
+const Admins = lazy(() => import('./admin/Admins'))
+const PayoutLedger = lazy(() => import('./admin/PayoutLedger'))
+const ContentControl = lazy(() => import('./admin/ContentControl'))
+const Payments = lazy(() => import('./admin/Payments'))
+const AdminSettlements = lazy(() => import('./admin/Settlements'))
+const Security = lazy(() => import('./admin/Security'))
+const SupportDashboard = lazy(() => import('./admin/SupportDashboard'))
+const DeletedRecords = lazy(() => import('./admin/DeletedRecords'))
+const Advertisements = lazy(() => import('./admin/Advertisements'))
 
 // ─── NAV ITEMS ────────────────────────────────────────────────────────────
 // `id` doubles as the route path segment under /dashboard/*.
@@ -204,6 +212,9 @@ export default function Dashboard() {
         </div>
 
         <div className="admin-content">
+          {/* Only this content area waits on a lazy page's chunk — the
+              sidebar/header above stay mounted and interactive throughout. */}
+          <Suspense fallback={<LoadingState label="Loading page…" />}>
           <Routes>
             <Route index element={<DashboardHome />} />
             <Route path="analytics" element={<Analytics />} />
@@ -240,6 +251,7 @@ export default function Dashboard() {
             <Route path="settings" element={<Settings />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
+          </Suspense>
         </div>
       </div>
     </div>

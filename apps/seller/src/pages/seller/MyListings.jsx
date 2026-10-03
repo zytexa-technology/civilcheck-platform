@@ -177,8 +177,31 @@ export default function MyListings({ go }) {
 
       {/* ── Table / states ── */}
       {loading ? (
-        <Card style={S.center}>
-          <p className="muted dev">Loading…</p>
+        <Card style={{ padding: 0, overflow: 'hidden' }}>
+          <div style={{ overflowX: 'auto' }}>
+            <table className="tbl">
+              <thead>
+                <tr>
+                  {['Property', 'Type', 'Risk', 'Price', 'Sales', 'Earned', 'Status', 'Actions'].map((h) => (
+                    <th key={h}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {[0, 1, 2, 3, 4].map((i) => (
+                  <tr key={i}>
+                    <td>
+                      <div className="skel" style={{ height: 13, width: 150, marginBottom: 6 }} />
+                      <div className="skel" style={{ height: 11, width: 100 }} />
+                    </td>
+                    {[0, 1, 2, 3, 4, 5, 6].map((c) => (
+                      <td key={c}><div className="skel" style={{ height: 13, width: 54 }} /></td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </Card>
       ) : filtered.length === 0 ? (
         <Card style={S.center}>

@@ -114,7 +114,7 @@ export const expertActions = {
 
 // ═══ REUSABLE REQUESTS TABLE ════════════════════════════════════════════════
 export function ExpertRequestsTable({ limit, go }) {
-  const { requests } = useExpertStore()
+  const { requests, loaded } = useExpertStore()
   const [uploadTarget, setUploadTarget] = useState(null)
   const list = limit ? requests.slice(0, limit) : requests
 
@@ -125,7 +125,19 @@ export function ExpertRequestsTable({ limit, go }) {
           <tr>{['Request', 'Type', 'User', 'Fee', 'Status', ''].map((h, i) => <th key={i}>{h}</th>)}</tr>
         </thead>
         <tbody>
-          {list.length === 0 ? (
+          {/* `loaded` (from the shared store) distinguishes "still loading"
+              from "genuinely no requests" — previously this always showed
+              the "Koi request nahi" empty row while the fetch was in
+              flight, on both the Dashboard and Requests pages. */}
+          {!loaded ? (
+            [0, 1, 2].map((i) => (
+              <tr key={i}>
+                {[0, 1, 2, 3, 4, 5].map((c) => (
+                  <td key={c}><div className="skel" style={{ height: 13, width: 60 }} /></td>
+                ))}
+              </tr>
+            ))
+          ) : list.length === 0 ? (
             <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--muted)', padding: 28 }} className="dev">Koi request nahi.</td></tr>
           ) : list.map((r) => <ReqRow key={r.id} r={r} onUpload={() => setUploadTarget(r)} />)}
         </tbody>
@@ -274,7 +286,7 @@ const KYC_STATUS_DISPLAY = {
 // ═══ DASHBOARD ══════════════════════════════════════════════════════════════
 export default function ExpertDashboard({ go }) {
   const { seller } = useAuth()
-  const { requests, earnings } = useExpertStore()
+  const { requests, earnings, loaded } = useExpertStore()
 
   useEffect(() => { expertActions.load() }, [])
 
@@ -331,11 +343,23 @@ export default function ExpertDashboard({ go }) {
       )}
 
       {/* Stats */}
-      <div className="grid g3" style={{ marginBottom: 20 }}>
-        <StatCard icon="inbox" color="#B67A12" value={pe} label="Pending Requests" />
-        <StatCard icon="file"  color="#2b5c8f" value={ac} label="Active" />
-        <StatCard icon="star"  color="#137a56" value={co} label="Completed" />
-      </div>
+      {!loaded ? (
+        <div className="grid g3" style={{ marginBottom: 20 }}>
+          {[0, 1, 2].map((i) => (
+            <Card key={i} className="stat">
+              <div className="skel" style={{ width: 38, height: 38, borderRadius: 11 }} />
+              <div className="skel" style={{ height: 24, width: '50%', marginTop: 12 }} />
+              <div className="skel" style={{ height: 12, width: '70%', marginTop: 8 }} />
+            </Card>
+          ))}
+        </div>
+      ) : (
+        <div className="grid g3" style={{ marginBottom: 20 }}>
+          <StatCard icon="inbox" color="#B67A12" value={pe} label="Pending Requests" />
+          <StatCard icon="file"  color="#2b5c8f" value={ac} label="Active" />
+          <StatCard icon="star"  color="#137a56" value={co} label="Completed" />
+        </div>
+      )}
 
       {/* Workflow */}
       <SectionTitle>Special Request Workflow</SectionTitle>

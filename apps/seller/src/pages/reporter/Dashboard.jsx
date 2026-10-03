@@ -40,16 +40,21 @@ export default function ReporterDashboard({ go }) {
   const [posts, setPosts] = useState([])
   const [loadError, setLoadError] = useState(false)
   const [balance, setBalance] = useState(null)
+  // See owner/Dashboard.jsx's identical comment — without this, "Recent
+  // Posts" showed the "post your first update" empty state on every load.
+  const [loading, setLoading] = useState(true)
 
   const load = () => {
     let live = true
     setLoadError(false)
-    getMyReporterPosts()
-      .then((data) => { if (live) setPosts((data?.posts || []).map(postFromApi)) })
-      .catch(() => { if (live) setLoadError(true) })
-    getRewardSummary()
-      .then((data) => { if (live) setBalance(data?.summary?.availableBalance ?? 0) })
-      .catch(() => {})
+    setLoading(true)
+    Promise.allSettled([getMyReporterPosts(), getRewardSummary()]).then(([p, b]) => {
+      if (!live) return
+      if (p.status === 'fulfilled') setPosts((p.value?.posts || []).map(postFromApi))
+      else setLoadError(true)
+      if (b.status === 'fulfilled') setBalance(b.value?.summary?.availableBalance ?? 0)
+      setLoading(false)
+    })
     return () => { live = false }
   }
 
@@ -91,10 +96,22 @@ export default function ReporterDashboard({ go }) {
         <button className="btn btn-seal" onClick={() => go?.('add')}>+ Post a Property Update</button>
       </Card>
 
-      <div className="grid g4" style={{ marginBottom: 20 }}>
-        <StatCard icon="props" color="#137a56" value={active.length} label="Live Posts" trend="▲" />
-        <StatCard icon="chart" color="#B0812F" value={balance ?? 0} label="Reward Points" />
-      </div>
+      {loading ? (
+        <div className="grid g4" style={{ marginBottom: 20 }}>
+          {[0, 1].map((i) => (
+            <Card key={i} className="stat">
+              <div className="skel" style={{ width: 38, height: 38, borderRadius: 11 }} />
+              <div className="skel" style={{ height: 24, width: '50%', marginTop: 12 }} />
+              <div className="skel" style={{ height: 12, width: '70%', marginTop: 8 }} />
+            </Card>
+          ))}
+        </div>
+      ) : (
+        <div className="grid g4" style={{ marginBottom: 20 }}>
+          <StatCard icon="props" color="#137a56" value={active.length} label="Live Posts" trend="▲" />
+          <StatCard icon="chart" color="#B0812F" value={balance ?? 0} label="Reward Points" />
+        </div>
+      )}
 
       <SectionTitle right={<Chip tone="ink">Zero admin approval</Chip>}>How Reporting Works</SectionTitle>
       <Card style={{ marginBottom: 22 }}>
@@ -116,7 +133,19 @@ export default function ReporterDashboard({ go }) {
           </p>
         </Card>
       )}
-      {active.length ? (
+      {loading ? (
+        <div className="prop-grid">
+          {[0, 1, 2].map((i) => (
+            <Card key={i} className="prop" style={{ padding: 0 }}>
+              <div className="skel" style={{ height: 120, borderRadius: 0 }} />
+              <div style={{ padding: 15 }}>
+                <div className="skel" style={{ height: 14, width: '70%', marginBottom: 10 }} />
+                <div className="skel" style={{ height: 12, width: '45%' }} />
+              </div>
+            </Card>
+          ))}
+        </div>
+      ) : active.length ? (
         <div className="prop-grid">
           {active.slice(0, 3).map((p) => <PostTile key={p.id} p={p} onDelete={handleDelete} onUpdated={handleUpdated} />)}
         </div>

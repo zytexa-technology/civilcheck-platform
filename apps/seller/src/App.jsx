@@ -61,9 +61,24 @@ function SessionErrorScreen({ message, onRetry }) {
   )
 }
 
+// Gates ONLY /dashboard/* — this is the sole place that needs to wait for
+// session restore, since it's the only place that renders protected data.
+// Previously this same `loading`/`sessionError` wait sat at the top of
+// AppRoutes() below and blocked EVERY route (including /login,
+// /forgot-password, /terms, /privacy) behind it, so any slow
+// GET /seller/profile turned even the public pages into a blank
+// "Loading..." screen. Moving the wait in here — mirroring buyer-web's
+// ProtectedRoute/GuestOnlyRoute split — means public pages render on the
+// very first paint, and only the protected dashboard shell waits for auth,
+// which is the minimum genuinely required by security (see Step 2/14: no
+// protected content before authentication, but no reason for unrelated
+// public routes to wait on it either).
 function ProtectedRoute({ children }) {
-  const { seller, loading } = useAuth()
+  const { seller, loading, sessionError, retrySession } = useAuth()
   if (loading) return <LoadingScreen />
+  // Server-side failure during session restore — report it instead of
+  // bouncing a partner who still has a valid token to /login.
+  if (sessionError && !seller) return <SessionErrorScreen message={sessionError} onRetry={retrySession} />
   if (!seller) return <Navigate to="/login" replace />
   // Mandatory Terms & Conditions re-acceptance — blocks normal dashboard
   // access (never /login, /forgot-password, /terms, /privacy, none of
@@ -75,11 +90,7 @@ function ProtectedRoute({ children }) {
 }
 
 function AppRoutes() {
-  const { seller, loading, sessionError, retrySession } = useAuth()
-  if (loading) return <LoadingScreen />
-  // Server-side failure during session restore — report it instead of
-  // bouncing a partner who still has a valid token to /login.
-  if (sessionError && !seller) return <SessionErrorScreen message={sessionError} onRetry={retrySession} />
+  const { seller } = useAuth()
 
   return (
     <Routes>

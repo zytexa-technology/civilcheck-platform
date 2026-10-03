@@ -1,50 +1,62 @@
+import { lazy } from 'react'
 import { Route, Routes } from 'react-router-dom'
 import { Layout } from './components/Layout'
 import { AccountShell } from './components/AccountShell'
 import { ProtectedRoute, GuestOnlyRoute } from './components/ProtectedRoute'
 
+// Home, Advertise and Login are kept as normal eager imports — these are
+// the pages most likely to be the very first thing opened (including the
+// two production URLs this was explicitly measured against), plus the
+// login page itself, which shouldn't need an extra chunk round trip either.
+// Everything else below is lazy: its code only downloads when a user
+// actually navigates there, instead of shipping in the bundle every visitor
+// to "/" has to wait on. <Suspense> boundaries live in Layout.tsx and
+// AccountShell.tsx around their own <Outlet/>, so the header/footer/account
+// sidebar stay mounted and interactive while a lazy page's chunk loads —
+// only that page's own content area shows a brief placeholder.
 import Home from './pages/Home'
-import ExpertProperties from './pages/ExpertProperties'
-import BrowseProperty from './pages/BrowseProperty'
-import Search from './pages/Search'
-import PropertyDetail from './pages/PropertyDetail'
-import OwnerProperties from './pages/OwnerProperties'
-import OwnerPropertyDetail from './pages/OwnerPropertyDetail'
-import ReporterFeed from './pages/ReporterFeed'
-import Coverage from './pages/Coverage'
-import Terms from './pages/Terms'
-import Privacy from './pages/Privacy'
-import NotFound from './pages/NotFound'
 import Advertise from './pages/advertise/Advertise'
-import AdvertiserAuth from './pages/advertise/AdvertiserAuth'
-import AdvertiserDashboard from './pages/advertise/AdvertiserDashboard'
-import CreateCampaign from './pages/advertise/CreateCampaign'
-
 import Login from './pages/auth/Login'
-import ForgotPassword from './pages/auth/ForgotPassword'
-import Register from './pages/auth/Register'
-import VerifyEmail from './pages/auth/VerifyEmail'
-import CompleteProfile from './pages/auth/CompleteProfile'
 
-import SupportHome from './pages/support/SupportHome'
-import NewSupportTicket from './pages/support/NewSupportTicket'
-import SupportTickets from './pages/support/SupportTickets'
-import SupportTicketDetail from './pages/support/SupportTicketDetail'
+const ExpertProperties = lazy(() => import('./pages/ExpertProperties'))
+const BrowseProperty = lazy(() => import('./pages/BrowseProperty'))
+const Search = lazy(() => import('./pages/Search'))
+const PropertyDetail = lazy(() => import('./pages/PropertyDetail'))
+const OwnerProperties = lazy(() => import('./pages/OwnerProperties'))
+const OwnerPropertyDetail = lazy(() => import('./pages/OwnerPropertyDetail'))
+const ReporterFeed = lazy(() => import('./pages/ReporterFeed'))
+const Coverage = lazy(() => import('./pages/Coverage'))
+const Terms = lazy(() => import('./pages/Terms'))
+const Privacy = lazy(() => import('./pages/Privacy'))
+const NotFound = lazy(() => import('./pages/NotFound'))
+const AdvertiserAuth = lazy(() => import('./pages/advertise/AdvertiserAuth'))
+const AdvertiserDashboard = lazy(() => import('./pages/advertise/AdvertiserDashboard'))
+const CreateCampaign = lazy(() => import('./pages/advertise/CreateCampaign'))
 
-import Notifications from './pages/Notifications'
+const ForgotPassword = lazy(() => import('./pages/auth/ForgotPassword'))
+const Register = lazy(() => import('./pages/auth/Register'))
+const VerifyEmail = lazy(() => import('./pages/auth/VerifyEmail'))
+const CompleteProfile = lazy(() => import('./pages/auth/CompleteProfile'))
 
-import AccountOverview from './pages/account/AccountOverview'
-import MyReports from './pages/account/MyReports'
-import SavedProperties from './pages/account/SavedProperties'
-import VerificationRequests from './pages/account/VerificationRequests'
-import VerificationRequestDetail from './pages/account/VerificationRequestDetail'
-import MyRequests from './pages/account/MyRequests'
-import NewSpecialRequest from './pages/account/NewSpecialRequest'
-import SpecialRequestDetail from './pages/account/SpecialRequestDetail'
+const SupportHome = lazy(() => import('./pages/support/SupportHome'))
+const NewSupportTicket = lazy(() => import('./pages/support/NewSupportTicket'))
+const SupportTickets = lazy(() => import('./pages/support/SupportTickets'))
+const SupportTicketDetail = lazy(() => import('./pages/support/SupportTicketDetail'))
+
+const Notifications = lazy(() => import('./pages/Notifications'))
+
+const AccountOverview = lazy(() => import('./pages/account/AccountOverview'))
+const MyReports = lazy(() => import('./pages/account/MyReports'))
+const SavedProperties = lazy(() => import('./pages/account/SavedProperties'))
+const VerificationRequests = lazy(() => import('./pages/account/VerificationRequests'))
+const VerificationRequestDetail = lazy(() => import('./pages/account/VerificationRequestDetail'))
+const MyRequests = lazy(() => import('./pages/account/MyRequests'))
+const NewSpecialRequest = lazy(() => import('./pages/account/NewSpecialRequest'))
+const SpecialRequestDetail = lazy(() => import('./pages/account/SpecialRequestDetail'))
 // Property Discovery flow (Step 4E) — new VerificationRequest(source=
 // DISCOVERY) creation, distinct from the legacy SpecialRequest flow above.
-import NewDiscoveryRequest from './pages/account/NewDiscoveryRequest'
-import Alerts from './pages/account/Alerts'
+const NewDiscoveryRequest = lazy(() => import('./pages/account/NewDiscoveryRequest'))
+const Alerts = lazy(() => import('./pages/account/Alerts'))
 
 export default function App() {
   return (

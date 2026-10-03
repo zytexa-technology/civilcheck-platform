@@ -1,4 +1,6 @@
+import { Suspense } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
+import { LoadingState } from './States'
 
 const LINKS = [
   { to: '/account', label: '👤 Overview', end: true },
@@ -36,7 +38,11 @@ export function AccountShell() {
           </nav>
         </aside>
         <div style={{ minWidth: 0 }}>
-          <Outlet />
+          {/* Only this pane waits on a lazy account page's chunk — the
+              sidebar nav above stays mounted and interactive throughout. */}
+          <Suspense fallback={<LoadingState label="Loading…" />}>
+            <Outlet />
+          </Suspense>
         </div>
       </div>
     </div>

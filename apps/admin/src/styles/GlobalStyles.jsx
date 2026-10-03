@@ -85,6 +85,12 @@ textarea.control{resize:vertical;min-height:88px}
 .card-flat{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg)}
 .divider{height:1px;background:var(--border);margin:16px 0}
 
+/* ============ SKELETON (loading placeholder — section-level loading
+   instead of a full-page "Loading…" gate; built from existing surface
+   tokens, no new design language) */
+@keyframes skel-pulse{0%,100%{opacity:1}50%{opacity:.5}}
+.skel{background:var(--surface-3);border-radius:6px;animation:skel-pulse 1.4s ease-in-out infinite}
+
 /* ============ BADGE / CHIP ============ */
 .badge{display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:999px;font-size:11px;font-weight:700;letter-spacing:.02em;white-space:nowrap;border:1px solid transparent}
 .badge.green{background:var(--green-dim);color:var(--green);border-color:var(--green-border)}

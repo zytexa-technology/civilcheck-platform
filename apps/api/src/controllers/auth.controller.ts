@@ -729,21 +729,31 @@ export const getMe = async (req: Request, res: Response) => {
     }
 
     if (decoded.sellerId) {
-      const seller = await prisma.seller.findUnique({ where: { id: decoded.sellerId } })
+      // The terms check only needs decoded.sellerId (already known from the
+      // verified token), not anything from the seller row — it doesn't need
+      // to wait for that fetch to finish. Previously sequential; this is
+      // /me, the session-restore probe every app load calls.
+      const [seller, termsAccepted] = await Promise.all([
+        prisma.seller.findUnique({ where: { id: decoded.sellerId } }),
+        hasAcceptedCurrentTerms({ sellerId: decoded.sellerId }),
+      ])
       if (!seller) { res.status(401).json({ success: false, message: 'Partner not found' }); return }
       // Surfaced here too, not just at login — /me is the panel's own
       // session-restore probe on every app load/reload, so a Terms version
       // bump between sessions is caught immediately rather than only on
       // the next fresh login.
-      const termsAcceptanceRequired = !(await hasAcceptedCurrentTerms({ sellerId: seller.id }))
+      const termsAcceptanceRequired = !termsAccepted
       res.json({ success: true, seller: { id: seller.id, phone: seller.phone, name: seller.name, badge: seller.badge, kycStatus: seller.kycStatus, termsAcceptanceRequired } })
       return
     }
 
     if (decoded.userId) {
-      const user = await prisma.user.findUnique({ where: { id: decoded.userId } })
+      const [user, termsAccepted] = await Promise.all([
+        prisma.user.findUnique({ where: { id: decoded.userId } }),
+        hasAcceptedCurrentTerms({ userId: decoded.userId }),
+      ])
       if (!user) { res.status(401).json({ success: false, message: 'User not found' }); return }
-      const termsAcceptanceRequired = !(await hasAcceptedCurrentTerms({ userId: user.id }))
+      const termsAcceptanceRequired = !termsAccepted
       res.json({
         success: true,
         user: {

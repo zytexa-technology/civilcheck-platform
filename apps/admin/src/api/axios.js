@@ -9,6 +9,10 @@ const API = axios.create({
   headers: {
     "Content-Type": "application/json",
   },
+  // Previously unset (unbounded wait) — matches the same fix already applied
+  // to the Partner app's client. A slow/unreachable backend left requests
+  // pending forever instead of failing in a bounded, visible way.
+  timeout: 20_000,
 });
 
 // ─── REQUEST INTERCEPTOR ──────────────────────────────────────────────────

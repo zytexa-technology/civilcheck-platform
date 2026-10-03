@@ -189,6 +189,12 @@ textarea.control{resize:vertical}
 .tbl tr:last-child td{border-bottom:none}
 .tbl tr:hover td{background:var(--surface-2)}
 
+/* ============ SKELETON (loading placeholder — used instead of bare
+   "Loading…" text so a data area reads as "loaded shell, data incoming"
+   rather than blank/stuck; same card/table shapes, no new design language) */
+@keyframes skel-pulse{0%,100%{opacity:1}50%{opacity:.5}}
+.skel{background:var(--paper-2);border-radius:8px;animation:skel-pulse 1.4s ease-in-out infinite}
+
 /* ============ PROPERTY TILES ============ */
 .prop-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px}
 .prop{overflow:hidden}

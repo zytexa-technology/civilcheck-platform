@@ -7,7 +7,7 @@
 //  Main har page ke saath poora updated Layout de dunga.
 // ─────────────────────────────────────────────────────────────────────────
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, lazy, Suspense } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { getNotifications, getAvailableRequests } from '../api/seller.api'
@@ -15,38 +15,45 @@ import { Icon, Seal } from '../components/Icon'
 import { Card, PageHead, ToastHost } from '../components/ui'
 
 // ── ROLE PAGES (jaise aayengi, yahan import hoti jayengi) ──
-import OwnerDashboard from './owner/Dashboard'
-import OwnerProperties from './owner/MyProperties'
-import OwnerAddProperty from './owner/AddProperty'
-import OwnerAnalytics from './owner/Analytics'
+// Lazy-loaded: a seller has exactly ONE role (single-role model — see
+// AuthContext.jsx), so at most ~8 of these ~20 page components are ever
+// used in a given session. Previously all of them — Owner, Reporter AND
+// Expert pages — shipped in one bundle regardless of which role opened the
+// app. `Comp` below is the only place any of these render, wrapped in one
+// <Suspense>, so this only changes when each page's code downloads
+// (on first visit to that section), never what it renders.
+const OwnerDashboard = lazy(() => import('./owner/Dashboard'))
+const OwnerProperties = lazy(() => import('./owner/MyProperties'))
+const OwnerAddProperty = lazy(() => import('./owner/AddProperty'))
+const OwnerAnalytics = lazy(() => import('./owner/Analytics'))
 // Reporter posts property-information/news content (ReporterPost), not a
 // Property listing — no admin approval gate, live in the buyer feed
 // immediately (see apps/api/src/routes/reporterPost.routes.ts + reward.routes.ts).
-import ReporterDashboard from './reporter/Dashboard'
-import ReporterPosts from './reporter/MyPosts'
-import ReporterAddPost from './reporter/AddPost'
-import ReporterRewards from './reporter/Rewards'
-import ExpertDashboard from './expert/Dashboard'
-import ExpertRequests from './expert/Requests'
-import ExpertReports from './expert/Reports'
-import ExpertEarnings from './expert/Earnings'
+const ReporterDashboard = lazy(() => import('./reporter/Dashboard'))
+const ReporterPosts = lazy(() => import('./reporter/MyPosts'))
+const ReporterAddPost = lazy(() => import('./reporter/AddPost'))
+const ReporterRewards = lazy(() => import('./reporter/Rewards'))
+const ExpertDashboard = lazy(() => import('./expert/Dashboard'))
+const ExpertRequests = lazy(() => import('./expert/Requests'))
+const ExpertReports = lazy(() => import('./expert/Reports'))
+const ExpertEarnings = lazy(() => import('./expert/Earnings'))
 // Property Verification Marketplace (Phase 3) — the professional-quoting
 // side, distinct from ExpertRequests (the older Special Request workflow).
-import ExpertVerificationRequests from './expert/VerificationRequests'
+const ExpertVerificationRequests = lazy(() => import('./expert/VerificationRequests'))
 // Verification Marketplace earnings/payouts (Phase 4B) — a separate money
 // system (paid professional verification jobs) from expert/Earnings.jsx's
 // Report-Unlock/weekly-settlement money.
-import ExpertVerificationEarnings from './expert/VerificationEarnings'
-import ExpertRatings from './expert/Ratings'
+const ExpertVerificationEarnings = lazy(() => import('./expert/VerificationEarnings'))
+const ExpertRatings = lazy(() => import('./expert/Ratings'))
 // Replaced expert/Verification.jsx, which listed seven documents as
 // "Uploaded ✓" unconditionally — four of them had no backend field at all.
-import SellerKYC from './seller/KYC'
+const SellerKYC = lazy(() => import('./seller/KYC'))
 // Purane seller dashboard ke listing pages (expert inhe use karega)
-import SellerMyListings from './seller/MyListings'
-import SellerNewListing from './seller/NewListing'
-import SellerSettlements from './seller/Settlements'
-import Notifications from './shared/Notifications'
-import Profile from './shared/Profile'
+const SellerMyListings = lazy(() => import('./seller/MyListings'))
+const SellerNewListing = lazy(() => import('./seller/NewListing'))
+const SellerSettlements = lazy(() => import('./seller/Settlements'))
+const Notifications = lazy(() => import('./shared/Notifications'))
+const Profile = lazy(() => import('./shared/Profile'))
 
 // ─── ROLE META ──────────────────────────────────────────────────────────────
 const RM = {
@@ -210,7 +217,11 @@ export default function Layout() {
         </header>
 
         <div className="content">
-          <Comp title={titleFor(safeRole, section)} go={go} />
+          {/* Only this content area waits on a section's chunk — sidebar and
+              header above stay mounted and interactive throughout. */}
+          <Suspense fallback={<Card style={{ padding: 24 }}><div className="skel" style={{ height: 16, width: '35%', marginBottom: 14 }} /><div className="skel" style={{ height: 120, width: '100%' }} /></Card>}>
+            <Comp title={titleFor(safeRole, section)} go={go} />
+          </Suspense>
         </div>
       </div>
 

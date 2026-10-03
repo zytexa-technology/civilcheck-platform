@@ -13,12 +13,18 @@ export default function ReporterPosts() {
   const [posts, setPosts] = useState([])
   const [filter, setFilter] = useState('all')
   const [loadError, setLoadError] = useState(false)
+  // See owner/MyProperties.jsx's identical comment — without this, "Is
+  // category me koi post nahi" flashed for every fetch, not just a genuinely
+  // empty category.
+  const [loading, setLoading] = useState(true)
 
   const load = () => {
     setLoadError(false)
+    setLoading(true)
     getMyReporterPosts(filter === 'removed' ? { status: 'REMOVED' } : {})
       .then((data) => setPosts((data?.posts || []).map(postFromApi)))
       .catch(() => setLoadError(true))
+      .finally(() => setLoading(false))
   }
 
   useEffect(load, [filter])
@@ -63,7 +69,19 @@ export default function ReporterPosts() {
           </p>
         </Card>
       )}
-      {visible.length ? (
+      {loading ? (
+        <div className="prop-grid">
+          {[0, 1, 2].map((i) => (
+            <Card key={i} className="prop" style={{ padding: 0 }}>
+              <div className="skel" style={{ height: 120, borderRadius: 0 }} />
+              <div style={{ padding: 15 }}>
+                <div className="skel" style={{ height: 14, width: '70%', marginBottom: 10 }} />
+                <div className="skel" style={{ height: 12, width: '45%' }} />
+              </div>
+            </Card>
+          ))}
+        </div>
+      ) : visible.length ? (
         <div className="prop-grid">
           {visible.map((p) => <PostTile key={p.id} p={p} onDelete={handleDelete} onUpdated={handleUpdated} />)}
         </div>
